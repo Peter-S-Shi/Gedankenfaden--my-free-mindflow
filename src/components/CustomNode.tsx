@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import { CustomNodeData } from '../model/adapter';
+import { NodeShape } from '../model/types';
 
 export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const nodeData = data as unknown as CustomNodeData;
@@ -34,41 +35,107 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
     }
   };
 
-  const isTerminal = nodeData.nodeType === 'terminal';
-  const isRoot = nodeData.nodeType === 'root';
+  const visuals = nodeData.visuals || {
+    backgroundColor: '#ffffff',
+    borderColor: '#cbd5e1',
+    borderWidth: 2,
+    borderRadius: 8,
+    textColor: '#1e293b',
+    fontSize: 14,
+    shape: (nodeData.shape as NodeShape) || 'rounded',
+  };
+
+  const shape: NodeShape = nodeData.shape || visuals.shape || 'rounded';
   const isNewBorn = Boolean(nodeData.isNewBorn);
 
-  const style = nodeData.style || {};
-  const backgroundColor = style.backgroundColor || (isRoot ? '#2563eb' : isTerminal ? '#059669' : '#ffffff');
-  const textColor = style.textColor || (isRoot || isTerminal ? '#ffffff' : '#1e293b');
-  const borderColor = selected ? '#3b82f6' : (style.borderColor || (isRoot ? '#1d4ed8' : '#cbd5e1'));
-  const borderRadius = style.borderRadius ?? (isTerminal ? 24 : 8);
+  const isSvgShape = shape === 'diamond' || shape === 'parallelogram';
+
+  let borderRadius = visuals.borderRadius;
+  if (shape === 'rectangle') borderRadius = 0;
+  if (shape === 'pill') borderRadius = 9999;
+  if (shape === 'circle') borderRadius = 9999;
+
+  const borderColor = selected ? '#3b82f6' : visuals.borderColor;
+  const borderWidth = selected ? Math.max(visuals.borderWidth, 2) : visuals.borderWidth;
 
   return (
     <div
       data-testid={`custom-node-${id}`}
-      className={`relative px-4 py-2.5 shadow-sm transition-all duration-200 group ${
+      className={`relative px-4 py-2.5 transition-all duration-150 group flex items-center justify-center ${
         isNewBorn ? 'animate-node-birth' : ''
       }`}
       style={{
-        backgroundColor,
-        color: textColor,
-        border: `2px solid ${borderColor}`,
-        borderRadius,
-        minWidth: 120,
+        minWidth: shape === 'diamond' ? 140 : 120,
+        minHeight: shape === 'diamond' ? 60 : 44,
+        backgroundColor: isSvgShape ? 'transparent' : visuals.backgroundColor,
+        color: visuals.textColor,
+        border: isSvgShape ? 'none' : `${borderWidth}px solid ${borderColor}`,
+        borderRadius: isSvgShape ? 0 : borderRadius,
         boxShadow: selected
-          ? '0 0 0 3px rgba(59, 130, 246, 0.25), 0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          ? '0 0 0 3px rgba(59, 130, 246, 0.3), 0 4px 6px -1px rgba(0, 0, 0, 0.1)'
           : '0 1px 3px 0 rgba(0, 0, 0, 0.05)',
       }}
       onDoubleClick={() => setIsEditing(true)}
     >
+      {/* SVG Background for non-rectangular geometric shapes */}
+      {isSvgShape && (
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
+          {shape === 'diamond' && (
+            <polygon
+              points="50,2 98,50 50,98 2,50"
+              fill={visuals.backgroundColor}
+              stroke={borderColor}
+              strokeWidth={borderWidth * 1.5}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+          {shape === 'parallelogram' && (
+            <polygon
+              points="16,3 97,3 84,97 3,97"
+              fill={visuals.backgroundColor}
+              stroke={borderColor}
+              strokeWidth={borderWidth * 1.5}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+      )}
+
+      {/* Handles */}
       <Handle
         type="target"
         position={Position.Left}
+        id="left"
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
       />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+      />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+      />
 
-      <div className="flex items-center justify-center text-center">
+      {/* Node Content */}
+      <div
+        className="relative z-10 flex items-center justify-center text-center w-full px-2"
+        style={{ fontSize: `${visuals.fontSize}px` }}
+      >
         {isEditing ? (
           <input
             ref={inputRef}
@@ -77,21 +144,15 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
             onChange={(e) => setText(e.target.value)}
             onBlur={handleBlur}
             onKeyDown={handleKeyDown}
-            className="w-full text-center bg-transparent border-none outline-none font-medium text-sm"
-            style={{ color: textColor }}
+            className="w-full text-center bg-transparent border-none outline-none font-medium"
+            style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
           />
         ) : (
-          <span className="font-medium text-sm tracking-tight select-none">
+          <span className="font-medium tracking-tight select-none break-words">
             {text}
           </span>
         )}
       </div>
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
-      />
     </div>
   );
 };

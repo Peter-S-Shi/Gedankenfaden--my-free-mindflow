@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,12 +17,17 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { CanonicalDocument } from '../model/types';
+import { CanonicalDocument, CanonicalNode, DocumentTheme } from '../model/types';
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
 import { autoLayoutDocument } from '../model/layout';
 import { HistoryManager } from '../model/history';
 import { exportToJSON, exportToSVG } from '../export/exporter';
+import { packageDocumentToMflow, parseMflowFromBytes } from '../model/container';
+import { AssetStore } from '../model/assets';
+import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { CustomNode } from './CustomNode';
+import { OutlinePanel } from './OutlinePanel';
+import { InspectorPanel } from './InspectorPanel';
 import {
   ArrowLeft,
   Plus,
@@ -34,6 +39,8 @@ import {
   Save,
   Upload,
   FolderSync,
+  PanelLeft,
+  PanelRight,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -53,14 +60,33 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 }) => {
   const [doc, setDoc] = useState<CanonicalDocument>(initialDocument);
   const historyRef = useRef<HistoryManager>(new HistoryManager(initialDocument));
+  const assetStoreRef = useRef<AssetStore>(new AssetStore());
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
 
-  const { nodes: initialNodes, edges: initialEdges } = canonicalToReactFlow(initialDocument);
+  // 3-Pane workspace shell visibility
+  const [isOutlineOpen, setIsOutlineOpen] = useState(true);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+
+  const { nodes: initialNodes, edges: initialEdges } = useMemo(
+    () => canonicalToReactFlow(initialDocument),
+    [initialDocument]
+  );
   const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const rfInstanceRef = useRef<ReactFlowInstance<Node<CustomNodeData>, Edge> | null>(null);
+
+  // Track currently selected node
+  const selectedNodeId = useMemo(() => {
+    const found = nodes.find((n) => n.selected);
+    return found ? found.id : null;
+  }, [nodes]);
+
+  const selectedCanonicalNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return doc.nodes.find((n) => n.id === selectedNodeId) || null;
+  }, [doc.nodes, selectedNodeId]);
 
   const updateHistoryStatus = useCallback(() => {
     setCanUndo(historyRef.current.canUndo());
@@ -84,7 +110,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     (changes: NodeChange<Node<CustomNodeData>>[]) => {
       setNodes((nds) => {
         const next = applyNodeChanges(changes, nds);
-        // Only push to history on meaningful user drag/dimension commit
         const isDragEnd = changes.some((c) => c.type === 'position' && !c.dragging);
         if (isDragEnd) {
           syncToCanonical(next, edges, true);
@@ -110,12 +135,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   const onConnect = useCallback(
     (params: Connection) => {
+      const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
       setEdges((eds) => {
         const next = addEdge(
           {
             ...params,
             type: doc.mode === 'mindmap' ? 'smoothstep' : 'bezier',
-            style: { stroke: '#94a3b8', strokeWidth: 2 },
+            style: { stroke: theme.edgeColor || '#94a3b8', strokeWidth: 2 },
           },
           eds
         );
@@ -124,7 +150,29 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       });
       setStatusMessage('Connected edge');
     },
-    [doc.mode, nodes, syncToCanonical]
+    [doc.mode, doc.theme, nodes, syncToCanonical]
+  );
+
+  // Focus node on canvas (used by OutlinePanel)
+  const handleSelectAndFocusNode = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          selected: n.id === nodeId,
+        }))
+      );
+
+      const target = nodes.find((n) => n.id === nodeId);
+      if (target && rfInstanceRef.current) {
+        rfInstanceRef.current.setCenter(
+          target.position.x + (typeof target.style?.width === 'number' ? target.style.width / 2 : 75),
+          target.position.y + (typeof target.style?.height === 'number' ? target.style.height / 2 : 22),
+          { zoom: 1.2, duration: 400 }
+        );
+      }
+    },
+    [nodes]
   );
 
   // Signature Motion Track B: Node Birth interaction
@@ -149,19 +197,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         label: doc.mode === 'mindmap' ? 'Sub Idea' : 'Process Step',
         nodeType: 'default',
         parentId,
-        isNewBorn: true, // Triggers Signature Motion (Node Birth)
+        isNewBorn: true,
       },
       style: { width: 140, height: 44 },
     };
 
     let nextEdges = [...edges];
     if (selectedNode) {
+      const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
       const newEdge: Edge = {
         id: `edge_${selectedNode.id}_${newId}`,
         source: selectedNode.id,
         target: newId,
         type: doc.mode === 'mindmap' ? 'smoothstep' : 'bezier',
-        style: { stroke: '#3b82f6', strokeWidth: 2 },
+        style: { stroke: theme.edgeColor || '#3b82f6', strokeWidth: 2 },
       };
       nextEdges.push(newEdge);
     }
@@ -170,9 +219,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setNodes(nextNodes);
     setEdges(nextEdges);
     syncToCanonical(nextNodes, nextEdges, true);
-    setStatusMessage('Added node (Birth Motion triggered)');
+    setStatusMessage('Added node');
 
-    // Reset isNewBorn after animation completes
     setTimeout(() => {
       setNodes((currentNodes) =>
         currentNodes.map((n) =>
@@ -180,7 +228,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         )
       );
     }, 400);
-  }, [nodes, edges, doc.mode, syncToCanonical]);
+  }, [nodes, edges, doc.mode, doc.theme, syncToCanonical]);
 
   const handleDeleteSelected = useCallback(() => {
     const selectedNodeIds = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
@@ -237,6 +285,55 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
   }, [updateHistoryStatus]);
 
+  // Update theme from Inspector
+  const handleUpdateTheme = useCallback(
+    (theme: DocumentTheme) => {
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        theme,
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      const projected = canonicalToReactFlow(nextDoc);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setStatusMessage(`Theme applied: ${theme.name}`);
+    },
+    [doc, updateHistoryStatus]
+  );
+
+  // Update node style or shape from Inspector
+  const handleUpdateNode = useCallback(
+    (nodeId: string, updates: Partial<CanonicalNode>) => {
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: doc.nodes.map((n) => (n.id === nodeId ? { ...n, ...updates } : n)),
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      const projected = canonicalToReactFlow(nextDoc);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+    },
+    [doc, updateHistoryStatus]
+  );
+
+  // Reset node to theme defaults
+  const handleResetNodeStyle = useCallback(
+    (nodeId: string) => {
+      const target = doc.nodes.find((n) => n.id === nodeId);
+      if (!target) return;
+      const resetNode = resetNodeToTheme(target);
+      handleUpdateNode(nodeId, resetNode);
+      setStatusMessage('Reset node to theme defaults');
+    },
+    [doc.nodes, handleUpdateNode]
+  );
+
   const handleSaveDocument = useCallback(() => {
     const currentDoc = reactFlowToCanonical(nodes, edges, doc);
     onSaveDocument(currentDoc);
@@ -269,46 +366,153 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Exported vector SVG');
   }, [nodes, edges, doc]);
 
-  const handleImportJSON = useCallback(
+  // Export native .mflow container
+  const handleExportMflow = useCallback(() => {
+    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+    const bytes = packageDocumentToMflow(currentDoc, assetStoreRef.current.toBytesMap());
+    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.gedankenfaden.mflow' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}.mflow`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage('Exported .mflow container');
+  }, [nodes, edges, doc]);
+
+  // Import JSON or .mflow container
+  const handleImportFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const content = event.target?.result as string;
-          const parsed = JSON.parse(content) as CanonicalDocument;
-          if (!parsed.schemaVersion || !parsed.nodes) {
-            throw new Error('Invalid document schema');
+      const isMflow = file.name.endsWith('.mflow');
+
+      if (isMflow) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            const bytes = new Uint8Array(arrayBuffer);
+            const container = parseMflowFromBytes(bytes);
+            setDoc(container.document);
+            assetStoreRef.current = AssetStore.fromBytesMap(container.assets);
+            const projected = canonicalToReactFlow(container.document);
+            setNodes(projected.nodes);
+            setEdges(projected.edges);
+            historyRef.current = new HistoryManager(container.document);
+            updateHistoryStatus();
+            setStatusMessage(`Loaded container: ${container.document.title}`);
+          } catch (err) {
+            setStatusMessage('Failed to parse .mflow container');
           }
-          setDoc(parsed);
-          const projected = canonicalToReactFlow(parsed);
-          setNodes(projected.nodes);
-          setEdges(projected.edges);
-          historyRef.current = new HistoryManager(parsed);
-          updateHistoryStatus();
-          setStatusMessage(`Loaded: ${parsed.title}`);
-        } catch (err) {
-          setStatusMessage('Failed to load JSON document');
-        }
-      };
-      reader.readAsText(file);
+        };
+        reader.readAsArrayBuffer(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const content = event.target?.result as string;
+            const parsed = JSON.parse(content) as CanonicalDocument;
+            if (!parsed.schemaVersion || !parsed.nodes) {
+              throw new Error('Invalid document schema');
+            }
+            setDoc(parsed);
+            const projected = canonicalToReactFlow(parsed);
+            setNodes(projected.nodes);
+            setEdges(projected.edges);
+            historyRef.current = new HistoryManager(parsed);
+            updateHistoryStatus();
+            setStatusMessage(`Loaded: ${parsed.title}`);
+          } catch (err) {
+            setStatusMessage('Failed to load JSON document');
+          }
+        };
+        reader.readAsText(file);
+      }
     },
     [updateHistoryStatus]
   );
 
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInput =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement).isContentEditable;
+
+      // Toggle Left Outline: Ctrl+\
+      if (e.ctrlKey && e.key === '\\') {
+        e.preventDefault();
+        setIsOutlineOpen((prev) => !prev);
+        return;
+      }
+
+      // Toggle Right Inspector: Ctrl+/
+      if (e.ctrlKey && e.key === '/') {
+        e.preventDefault();
+        setIsInspectorOpen((prev) => !prev);
+        return;
+      }
+
+      // Undo: Ctrl+Z
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (!isInput) {
+          e.preventDefault();
+          handleUndo();
+        }
+        return;
+      }
+
+      // Redo: Ctrl+Y or Ctrl+Shift+Z
+      if (
+        (e.ctrlKey && e.key.toLowerCase() === 'y') ||
+        (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        if (!isInput) {
+          e.preventDefault();
+          handleRedo();
+        }
+        return;
+      }
+
+      // Delete selected: Delete or Backspace
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isInput) {
+        e.preventDefault();
+        handleDeleteSelected();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, handleDeleteSelected]);
+
   return (
-    <div className="w-full h-full flex flex-col relative">
-      {/* Top Navigation / Controls Bar */}
-      <div className="h-14 px-6 bg-white/90 backdrop-blur-md border-b border-slate-200 flex items-center justify-between z-20 shadow-xs">
-        <div className="flex items-center gap-4">
+    <div className="w-full h-full flex flex-col relative overflow-hidden">
+      {/* Top Navigation Bar */}
+      <div className="h-14 px-4 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center justify-between z-20 shadow-xs shrink-0">
+        <div className="flex items-center gap-3">
           <button
             onClick={onBackToLibrary}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
           >
             <ArrowLeft size={14} />
             Library
+          </button>
+
+          {/* Toggle Outline Panel Button */}
+          <button
+            onClick={() => setIsOutlineOpen((prev) => !prev)}
+            title="Toggle Outline (Ctrl+\)"
+            className={`p-1.5 rounded-lg border transition-colors ${
+              isOutlineOpen
+                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            <PanelLeft size={16} />
           </button>
 
           <div className="h-4 w-px bg-slate-200" />
@@ -331,12 +535,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           </span>
         </div>
 
-        {/* Action Tools */}
-        <div className="flex items-center gap-2">
+        {/* Center/Right Action Tools */}
+        <div className="flex items-center gap-1.5">
           <button
             onClick={handleUndo}
             disabled={!canUndo}
-            title="Undo"
+            title="Undo (Ctrl+Z)"
             className="p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
           >
             <Undo size={16} />
@@ -344,7 +548,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           <button
             onClick={handleRedo}
             disabled={!canRedo}
-            title="Redo"
+            title="Redo (Ctrl+Y)"
             className="p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
           >
             <Redo size={16} />
@@ -357,12 +561,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
           >
             <Plus size={14} />
-            Add Node (Birth Motion)
+            Add Node
           </button>
 
           <button
             onClick={handleDeleteSelected}
-            title="Delete Selected"
+            title="Delete Selected (Del)"
             className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
           >
             <Trash2 size={16} />
@@ -373,7 +577,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
           >
             <Sparkles size={14} className="text-amber-500" />
-            Auto Layout (Dagre)
+            Auto Layout
           </button>
 
           <div className="h-4 w-px bg-slate-200" />
@@ -387,16 +591,25 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             Save
           </button>
 
-          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer">
+          <label className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer">
             <Upload size={14} />
-            Reopen
+            Open
             <input
               type="file"
-              accept=".json"
-              onChange={handleImportJSON}
+              accept=".mflow,.json"
+              onChange={handleImportFile}
               className="hidden"
             />
           </label>
+
+          <button
+            onClick={handleExportMflow}
+            title="Export native container (.mflow)"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-medium rounded-lg transition-colors"
+          >
+            <Download size={14} />
+            .mflow
+          </button>
 
           <button
             onClick={handleExportJSON}
@@ -415,42 +628,87 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             <Download size={14} />
             SVG
           </button>
+
+          <div className="h-4 w-px bg-slate-200" />
+
+          {/* Toggle Inspector Panel Button */}
+          <button
+            onClick={() => setIsInspectorOpen((prev) => !prev)}
+            title="Toggle Inspector (Ctrl+/)"
+            className={`p-1.5 rounded-lg border transition-colors ${
+              isInspectorOpen
+                ? 'bg-blue-50 border-blue-200 text-blue-600'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            <PanelRight size={16} />
+          </button>
         </div>
       </div>
 
-      {/* React Flow Viewport */}
-      <div className="flex-1 w-full h-full">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          nodeTypes={nodeTypes}
-          onInit={(instance) => {
-            rfInstanceRef.current = instance;
-          }}
-          fitView
-          minZoom={0.2}
-          maxZoom={3}
-        >
-          <Background color="#cbd5e1" gap={20} size={1} />
-          <Controls position="bottom-left" />
-          <MiniMap
-            position="bottom-right"
-            nodeStrokeColor="#94a3b8"
-            nodeColor="#e2e8f0"
-            maskColor="rgba(241, 245, 249, 0.7)"
-            style={{ borderRadius: 8, overflow: 'hidden' }}
+      {/* 3-Pane Workspace Shell Body */}
+      <div className="flex-1 w-full flex overflow-hidden relative">
+        {/* Left Pane: Outline Panel */}
+        {isOutlineOpen && (
+          <OutlinePanel
+            document={doc}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={handleSelectAndFocusNode}
+            onClose={() => setIsOutlineOpen(false)}
           />
+        )}
 
-          <Panel position="bottom-center" className="mb-4">
-            <div className="px-3 py-1.5 bg-slate-900/80 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
-              <FolderSync size={12} className="text-blue-400" />
-              <span>Status: {statusMessage}</span>
-            </div>
-          </Panel>
-        </ReactFlow>
+        {/* Center Pane: React Flow Viewport */}
+        <main aria-label="Interactive Canvas Viewport" className="flex-1 h-full relative">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            nodeTypes={nodeTypes}
+            onInit={(instance) => {
+              rfInstanceRef.current = instance;
+            }}
+            fitView
+            minZoom={0.2}
+            maxZoom={3}
+          >
+            <Background
+              color={doc.theme?.edgeColor || '#cbd5e1'}
+              gap={20}
+              size={1}
+              style={{ backgroundColor: doc.theme?.canvasBackground || '#ffffff' }}
+            />
+            <Controls position="bottom-left" />
+            <MiniMap
+              position="bottom-right"
+              nodeStrokeColor="#94a3b8"
+              nodeColor="#e2e8f0"
+              maskColor="rgba(241, 245, 249, 0.7)"
+              style={{ borderRadius: 8, overflow: 'hidden' }}
+            />
+
+            <Panel position="bottom-center" className="mb-4">
+              <div className="px-3 py-1.5 bg-slate-900/80 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
+                <FolderSync size={12} className="text-blue-400" />
+                <span>Status: {statusMessage}</span>
+              </div>
+            </Panel>
+          </ReactFlow>
+        </main>
+
+        {/* Right Pane: Inspector Panel */}
+        {isInspectorOpen && (
+          <InspectorPanel
+            document={doc}
+            selectedNode={selectedCanonicalNode}
+            onUpdateTheme={handleUpdateTheme}
+            onUpdateNode={handleUpdateNode}
+            onResetNodeStyle={handleResetNodeStyle}
+            onClose={() => setIsInspectorOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

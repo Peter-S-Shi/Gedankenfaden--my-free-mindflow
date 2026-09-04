@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CanonicalDocument } from './model/types';
 import { createEmptyDocument } from './model/document';
+import { getDefaultTheme } from './model/theme';
 import { LibraryHome } from './components/LibraryHome';
 import { CanvasEditor } from './components/CanvasEditor';
 
@@ -15,6 +16,7 @@ const INITIAL_DOCS: CanonicalDocument[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     viewport: { x: 0, y: 0, zoom: 1 },
+    theme: getDefaultTheme('mindmap'),
     nodes: [
       {
         id: 'mm_root',
@@ -57,6 +59,7 @@ const INITIAL_DOCS: CanonicalDocument[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     viewport: { x: 0, y: 0, zoom: 1 },
+    theme: getDefaultTheme('flowchart'),
     nodes: [
       {
         id: 'fc_start',
@@ -98,6 +101,7 @@ const INITIAL_DOCS: CanonicalDocument[] = [
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     viewport: { x: 0, y: 0, zoom: 1 },
+    theme: getDefaultTheme('flowchart'),
     nodes: [
       {
         id: 'r_start',

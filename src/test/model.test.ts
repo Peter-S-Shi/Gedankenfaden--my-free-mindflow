@@ -146,7 +146,7 @@ describe('Proof Track D: Exporters', () => {
 
     expect(svg).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"');
-    expect(svg).toContain('Central Idea');
+    expect(svg).toContain('Central Topic');
     expect(svg).toContain('</svg>');
   });
 });
