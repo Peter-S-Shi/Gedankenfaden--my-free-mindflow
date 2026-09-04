@@ -1,0 +1,17 @@
+# Privacy & Local drafts (Strictly untracked)
+grill/
+prompt-drafts/
+.prompt-drafts/
+*.local.*
+
+# Dependencies & Build artifacts
+node_modules/
+dist/
+dist-electron/
+.turbo/
+coverage/
+
+# OS & Logs
+*.log
+Thumbs.db
+.DS_Store
