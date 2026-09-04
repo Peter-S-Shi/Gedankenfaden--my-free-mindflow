@@ -96,10 +96,19 @@
 
 ---
 
-## 5. Next Operational Steps
+## 5. Current State & Handoff
+ 
+1. **Repository & Remote Synchronization**:
+   - Branch `rc/m7-release-candidate-prep` committed and pushed to `origin/rc/m7-release-candidate-prep`.
+   - GitHub Actions CI run #33925730259 was cancelled per user instruction to conserve account runner quota.
+2. **Local Verification**:
+   - All 18 automated test files passed (99/99 tests, 100% green).
+   - TypeScript compilation (`npx tsc --noEmit`): 0 errors.
+   - Empirical native smoke test (`verify-smoke-native.mjs`): 100% PASS via Chrome DevTools Protocol attached to live Windows WebView2 runtime.
+   - Release binary (`gedankenfaden.exe`, 23.55 MB) and standalone portable package (`Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip`, 6.51 MB) generated and verified.
+3. **Strict Boundaries Preserved**:
+   - Feature Freeze respected (zero new functional features).
+   - No license declared or added.
+   - Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT begin M7-B without explicit user instruction.
 
-1. Review git diff and privacy checks.
-2. Commit and push Milestone 7-A checkpoint to `origin rc/m7-release-candidate-prep` (never force push).
-3. Await 100% green GitHub Actions CI run (verifying test suites, native Windows release build, portable package, and artifact upload).
-4. Report M7-A Release Candidate completion and await user acceptance testing (M7-B). Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT begin M7-B without user instruction.
 
