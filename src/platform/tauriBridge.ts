@@ -116,10 +116,17 @@ export class TauriNativeBridge implements INativeBridge {
     try {
       const selected = await open({
         multiple: false,
-        title: 'Open Gedankenfaden Document',
+        title: 'Import Document into Gedankenfaden',
         filters: [
-          { name: 'Gedankenfaden Documents', extensions: ['mflow', 'json'] },
-          { name: 'All Files', extensions: ['*'] },
+          {
+            name: 'All Supported Documents (*.mflow, *.json, *.md, *.opml)',
+            extensions: ['mflow', 'json', 'md', 'markdown', 'opml'],
+          },
+          { name: 'Gedankenfaden Package (*.mflow)', extensions: ['mflow'] },
+          { name: 'Canonical JSON (*.json)', extensions: ['json'] },
+          { name: 'Markdown Document (*.md, *.markdown)', extensions: ['md', 'markdown'] },
+          { name: 'OPML Outline (*.opml)', extensions: ['opml'] },
+          { name: 'All Files (*.*)', extensions: ['*'] },
         ],
       });
       if (typeof selected === 'string') return selected.replace(/\\/g, '/');

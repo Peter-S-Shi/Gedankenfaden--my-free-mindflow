@@ -209,19 +209,7 @@ export const App: React.FC = () => {
           await bridge.createDir(storedFolder, { recursive: true });
         }
 
-        let entries = await syncLibraryWithDisk([storedFolder], bridge);
-
-        // Seed initial sample documents to disk if folder is fresh and empty
-        if (entries.length === 0) {
-          for (const sample of INITIAL_DOCS) {
-            const safeTitle = sample.title.toLowerCase().replace(/[^a-z0-9_-]/gi, '_');
-            const path = `${storedFolder}/${safeTitle}.mflow`.replace(/\\/g, '/');
-            const bytes = await packageDocumentToMflow(sample);
-            await atomicWriteBinaryFile(path, bytes, bridge);
-          }
-          entries = await syncLibraryWithDisk([storedFolder], bridge);
-        }
-
+        const entries = await syncLibraryWithDisk([storedFolder], bridge);
         if (isMounted) setLibraryEntries(entries);
       } catch (err) {
         console.error('Failed to initialize local library folder:', err);
@@ -361,11 +349,25 @@ export const App: React.FC = () => {
       const doc = await loadDocumentFromFile(picked, bridge);
       if (doc) {
         const folder = currentFolder || (await bridge.getDefaultDocumentsDir());
+        const lower = picked.toLowerCase();
+        const isNativeFormat = lower.endsWith('.mflow') || lower.endsWith('.json');
+
+        let targetSavePath: string;
+        if (isNativeFormat) {
+          targetSavePath = picked;
+        } else {
+          // For imported .md and .opml, establish a user-owned .mflow file in active library folder
+          const safeTitle = (doc.title || 'imported_document').toLowerCase().replace(/[^a-z0-9_-]/gi, '_');
+          targetSavePath = `${folder}/${safeTitle}_${Date.now()}.mflow`.replace(/\\/g, '/');
+          const bytes = await packageDocumentToMflow(doc);
+          await atomicWriteBinaryFile(targetSavePath, bytes, bridge);
+        }
+
         const entries = await syncLibraryWithDisk([folder], bridge);
         setLibraryEntries(entries);
 
         setActiveDoc(doc);
-        setActiveDocPath(picked);
+        setActiveDocPath(targetSavePath);
         await markSessionActive(doc.id, doc.title);
       }
     }

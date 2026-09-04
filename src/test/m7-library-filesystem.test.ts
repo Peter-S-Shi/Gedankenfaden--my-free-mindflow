@@ -109,4 +109,104 @@ describe('Milestone 7: Real Filesystem Library & Disk Catalog Sync', () => {
     const cached = await loadLibraryCache(bridge);
     expect(cached.some((c) => c.filePath === entry.filePath)).toBe(false);
   });
+
+  it('Gate B: loads and parses Markdown (.md) hierarchy into CanonicalDocument without modifying source', async () => {
+    const mdPath = 'C:/Users/test/Documents/External/architecture.md';
+    const mdContent = `# Project Gedankenfaden
+## User Interface
+### Canvas Editor
+### Library Home
+## Native Shell
+### Tauri v2
+### WebView2`;
+
+    await bridge.writeTextFile(mdPath, mdContent);
+
+    const doc = await loadDocumentFromFile(mdPath, bridge);
+    expect(doc).not.toBeNull();
+    expect(doc?.title).toBe('Project Gedankenfaden');
+    expect(doc?.nodes.length).toBeGreaterThanOrEqual(5);
+    expect(doc?.edges.length).toBeGreaterThanOrEqual(4);
+
+    // Verify source file was strictly NOT modified
+    const untouched = await bridge.readTextFile(mdPath);
+    expect(untouched).toBe(mdContent);
+  });
+
+  it('Gate B: loads and parses OPML (.opml) hierarchy into CanonicalDocument without modifying source', async () => {
+    const opmlPath = 'C:/Users/test/Documents/External/outline.opml';
+    const opmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Product Strategy</title>
+  </head>
+  <body>
+    <outline text="Core Goals">
+      <outline text="Local First Architecture" />
+      <outline text="Keyboard Centric Mind Mapping" />
+    </outline>
+  </body>
+</opml>`;
+
+    await bridge.writeTextFile(opmlPath, opmlContent);
+
+    const doc = await loadDocumentFromFile(opmlPath, bridge);
+    expect(doc).not.toBeNull();
+    expect(doc?.title).toBe('Product Strategy');
+    expect(doc?.nodes.length).toBeGreaterThanOrEqual(3);
+
+    // Verify source file was strictly NOT modified
+    const untouched = await bridge.readTextFile(opmlPath);
+    expect(untouched).toBe(opmlContent);
+  });
+
+  it('Gate B: packages imported outline and saves to active library as a normal user-owned .mflow', async () => {
+    const mdPath = 'C:/Users/test/Documents/External/imported_notes.md';
+    const mdContent = `# Team Retrospective
+## What went well
+### High velocity
+## What can improve
+### Better test automation`;
+
+    await bridge.writeTextFile(mdPath, mdContent);
+    const doc = await loadDocumentFromFile(mdPath, bridge);
+    expect(doc).not.toBeNull();
+
+    // Package to user library .mflow
+    const mflowPath = `${docsFolder}/team_retrospective.mflow`;
+    const bytes = await packageDocumentToMflow(doc!);
+    await bridge.writeBinaryFile(mflowPath, bytes);
+
+    // Rescan library and verify discovery
+    const scanned = await scanDirectoryForDocuments(docsFolder, bridge);
+    const found = scanned.find((s) => s.filePath === mflowPath);
+    expect(found).toBeDefined();
+    expect(found?.title).toBe('Team Retrospective');
+    expect(found?.fileFormat).toBe('mflow');
+
+    // Read back and confirm full canonical round-trip
+    const reloaded = await loadDocumentFromFile(mflowPath, bridge);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded?.title).toBe('Team Retrospective');
+    expect(reloaded?.nodes.length).toBe(doc?.nodes.length);
+  });
+
+  it('Gate C: clean or empty library folder remains truthfully empty with zero auto-seeded demo files', async () => {
+    const cleanEmptyFolder = 'C:/Users/test/Documents/EmptyLibrary';
+    await bridge.createDir(cleanEmptyFolder, { recursive: true });
+
+    // Synchronize disk state with empty folder
+    const synced = await syncLibraryWithDisk([cleanEmptyFolder], bridge);
+
+    // Must be completely empty
+    expect(synced.length).toBe(0);
+
+    // Scanned directory must also be strictly empty
+    const diskItems = await scanDirectoryForDocuments(cleanEmptyFolder, bridge);
+    expect(diskItems.length).toBe(0);
+
+    // Direct filesystem check: directory must have zero entries
+    const dirEntries = await bridge.readDir(cleanEmptyFolder);
+    expect(dirEntries.length).toBe(0);
+  });
 });

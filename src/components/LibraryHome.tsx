@@ -65,7 +65,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
   }
 
   const allItems: UnifiedItem[] = useMemo(() => {
-    if (libraryEntries && libraryEntries.length > 0) {
+    if (libraryEntries !== undefined) {
       return libraryEntries.map((e) => ({
         id: e.id,
         title: e.title,
@@ -306,94 +306,157 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
             </div>
           </div>
 
-          <div
-            className="grid grid-cols-3 gap-6 group/library-grid"
-            data-testid="library-card-grid"
-          >
-            {filteredDocs.map((doc) => {
-              const isHovered = hoveredDocId === doc.id;
-              const isAnyHovered = hoveredDocId !== null;
-              const isReceded = isAnyHovered && !isHovered;
+          {filteredDocs.length === 0 ? (
+            <div
+              data-testid="library-empty-state"
+              className="bg-white border border-dashed border-slate-300 rounded-3xl p-12 text-center flex flex-col items-center justify-center my-4"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mb-4">
+                <Folder size={32} />
+              </div>
+              <h3 className="text-base font-semibold text-slate-800 mb-1">
+                {searchQuery.trim() ? 'No matching documents' : 'No documents in this folder yet'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mb-6">
+                {searchQuery.trim()
+                  ? `No documents matched "${searchQuery}". Try a different search term or clear the filter.`
+                  : 'This folder is clean and empty. Create a new document or import an existing outline to get started.'}
+              </p>
+              {!searchQuery.trim() && (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onCreateNew('mindmap')}
+                    data-testid="empty-state-new-mindmap"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <Network size={14} />
+                    New Mind Map
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onCreateNew('flowchart')}
+                    data-testid="empty-state-new-flowchart"
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <GitFork size={14} />
+                    New Flowchart
+                  </button>
+                  {onImportDocument && (
+                    <button
+                      type="button"
+                      onClick={onImportDocument}
+                      data-testid="empty-state-import"
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+                    >
+                      <Upload size={14} />
+                      Import File
+                    </button>
+                  )}
+                  {onChangeFolder && (
+                    <button
+                      type="button"
+                      onClick={onChangeFolder}
+                      data-testid="empty-state-change-folder"
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
+                    >
+                      <FolderSync size={14} />
+                      Change Folder
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div
+              className="grid grid-cols-3 gap-6 group/library-grid"
+              data-testid="library-card-grid"
+            >
+              {filteredDocs.map((doc) => {
+                const isHovered = hoveredDocId === doc.id;
+                const isAnyHovered = hoveredDocId !== null;
+                const isReceded = isAnyHovered && !isHovered;
 
-              return (
-                <div
-                  key={doc.id}
-                  data-testid={`doc-card-${doc.id}`}
-                  onMouseEnter={() => setHoveredDocId(doc.id)}
-                  onMouseLeave={() => setHoveredDocId(null)}
-                  onClick={() => handleCardClick(doc)}
-                  className={`relative p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-48 select-none ${
-                    isHovered
-                      ? 'bg-white border-blue-500 shadow-xl shadow-blue-500/10 -translate-y-1 scale-[1.02] z-10 signature-focus-elevate'
-                      : isReceded
-                      ? 'bg-white/80 border-slate-200/60 opacity-60 scale-[0.98] signature-deselect-recede'
-                      : 'bg-white border-slate-200/80 shadow-sm hover:border-slate-300'
-                  }`}
-                  style={{
-                    transformOrigin: 'center center',
-                  }}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                          doc.mode === 'mindmap'
-                            ? isHovered
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-blue-50 text-blue-700'
-                            : isHovered
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-emerald-50 text-emerald-700'
+                return (
+                  <div
+                    key={doc.id}
+                    data-testid={`doc-card-${doc.id}`}
+                    onMouseEnter={() => setHoveredDocId(doc.id)}
+                    onMouseLeave={() => setHoveredDocId(null)}
+                    onClick={() => handleCardClick(doc)}
+                    className={`relative p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-48 select-none ${
+                      isHovered
+                        ? 'bg-white border-blue-500 shadow-xl shadow-blue-500/10 -translate-y-1 scale-[1.02] z-10 signature-focus-elevate'
+                        : isReceded
+                        ? 'bg-white/80 border-slate-200/60 opacity-60 scale-[0.98] signature-deselect-recede'
+                        : 'bg-white border-slate-200/80 shadow-sm hover:border-slate-300'
+                    }`}
+                    style={{
+                      transformOrigin: 'center center',
+                    }}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                            doc.mode === 'mindmap'
+                              ? isHovered
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-blue-50 text-blue-700'
+                              : isHovered
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {doc.mode === 'mindmap' ? <Network size={12} /> : <GitFork size={12} />}
+                          {doc.mode === 'mindmap' ? 'Mind Map' : 'Flowchart'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 flex items-center gap-1">
+                            <FileText size={12} />
+                            {doc.nodeCount} nodes
+                          </span>
+                          {onDeleteDocument && (
+                            <button
+                              type="button"
+                              data-testid={`delete-doc-${doc.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteDocument((doc.entry || doc.doc)!);
+                              }}
+                              className="p-1 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                              title="Move to Windows Recycle Bin"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <h3
+                        className={`font-semibold text-base tracking-tight transition-colors ${
+                          isHovered ? 'text-blue-900' : 'text-slate-800'
                         }`}
                       >
-                        {doc.mode === 'mindmap' ? <Network size={12} /> : <GitFork size={12} />}
-                        {doc.mode === 'mindmap' ? 'Mind Map' : 'Flowchart'}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <FileText size={12} />
-                          {doc.nodeCount} nodes
-                        </span>
-                        {onDeleteDocument && (
-                          <button
-                            type="button"
-                            data-testid={`delete-doc-${doc.id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteDocument((doc.entry || doc.doc)!);
-                            }}
-                            className="p-1 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                            title="Move to Windows Recycle Bin"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
-                      </div>
+                        {doc.title}
+                      </h3>
+
+                      <p className="text-xs text-slate-500 line-clamp-2 mt-1.5">
+                        {doc.summaryText}
+                      </p>
                     </div>
 
-                    <h3
-                      className={`font-semibold text-base tracking-tight transition-colors ${
-                        isHovered ? 'text-blue-900' : 'text-slate-800'
-                      }`}
-                    >
-                      {doc.title}
-                    </h3>
-
-                    <p className="text-xs text-slate-500 line-clamp-2 mt-1.5">
-                      {doc.summaryText}
-                    </p>
+                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                      <span>Updated {new Date(doc.updatedAt).toLocaleTimeString()}</span>
+                      <span className={`font-medium ${isHovered ? 'text-blue-600' : 'text-slate-500'}`}>
+                        Open Canvas →
+                      </span>
+                    </div>
                   </div>
-
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                    <span>Updated {new Date(doc.updatedAt).toLocaleTimeString()}</span>
-                    <span className={`font-medium ${isHovered ? 'text-blue-600' : 'text-slate-500'}`}>
-                      Open Canvas →
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       </main>
     </div>

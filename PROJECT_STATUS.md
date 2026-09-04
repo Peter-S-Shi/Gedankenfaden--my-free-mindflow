@@ -59,15 +59,13 @@
    - Single-file container (`.mflow` logical package: `document.json` + `assets/`).
    - Pure transformation adapters for auto-layout and import/export formats.
 
-3. **M7-A Native Release Candidate Integration Gates (Verified)**:
-   - *Gate A — Real Tauri Native Bridge*: Auto-selects `TauriNativeBridge` in Tauri runtime via `@tauri-apps/api/core` and falls back to `MemoryMockNativeBridge` in browser/headless test runners.
-   - *Gate B — Real Filesystem Library/Home*: LibraryHome displays active folder path, supports directory switching (`pickFolder`), disk rescan (`readDir`), external document import (`pickDocumentFile`), and metadata cache sync (`library.json`).
-   - *Gate C — Real Direct File I/O*: Canvas save writes directly to active document path (`.mflow` container or `.json`), with atomic write swap safety and debounced rolling snapshot autosave.
-   - *Gate D — Safe Delete / Windows Recycle Bin Semantics*: Integrated `trash = "5.2"` crate in Rust backend invoking Win32 `IFileOperation` (`FOF_ALLOWUNDO`) for non-destructive document deletion.
-   - *Gate E — `.mflow` Windows File Association & Cold-Start CLI Handling*: Packaged file associations in `tauri.conf.json` (`ext: ["mflow"]`, `mimeType: application/x-gedankenfaden-mflow`, `role: Editor`). Rust backend inspects CLI args via `get_cli_open_file`, frontend unpacks container on mount, and projects directly into canvas editor.
-   - *Gate F — Windows RC Packaging*: Release binary compiled via Cargo (`src-tauri/target/release/gedankenfaden.exe` 4.82 MB). Standalone portable distribution package generated via `scripts/package-portable.mjs` (`dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip` 1.99 MB).
-   - *Gate G — Packaging CI & Artifact Handoff*: Extended `.github/workflows/ci.yml` with `rc/**` trigger, Windows release binary compilation, portable zip packaging, artifact validation, and GitHub Actions artifact upload.
-   - *Gate H — Local Native RC Smoke Test*: Empirically executed via `scripts/verify-smoke-native.mjs`: verified release binary existence, generated real `.mflow` container, launched native process with file association argument, confirmed process stability (uptime > 3.5s, exitCode=null), and verified zip package integrity.
+3. **M7-A Native Release Candidate Integration & Corrective Gates (Verified)**:
+   - *Corrective Gate A — Packaging CI Fail-Closed*: Removed `|| echo` fallback and `continue-on-error: true` from Windows installer step in `.github/workflows/ci.yml`. Strictly verify existence and non-trivial size of all 3 required RC artifacts: standalone portable distribution (`.zip`), NSIS installer (`.exe`), and MSI installer (`.msi`).
+   - *Corrective Gate B — Complete Native Markdown / OPML Import*: Integrated native `.md`, `.markdown`, and `.opml` outline import into `loadDocumentFromFile` and `pickDocumentFile`. Preserves source files untouched, parses into canonical document tree, and saves to user library as user-owned `.mflow`.
+   - *Corrective Gate C — Truthful Empty Library & No Demo Seeding*: Removed automatic demo document seeding on empty library folder. Empty library remains truthfully empty with zero fake/demo files written to disk. Added deliberate empty-state UI providing the four required actions: New Mind Map, New Flowchart, Import File, and Change Folder.
+   - *Corrective Gate D — Credible .mflow UI Cold-Start Runtime Proof*: Empirically verified cold-start file launch via Chrome DevTools Protocol attached to live Windows WebView2 runtime (`gedankenfaden.exe <file.mflow>` with `--remote-debugging-port=9222`). Confirmed live DOM elements: `[data-testid="canvas-editor"]` mounted, document title matched, and sentinel node rendered on canvas.
+   - *Native Toolchain & Release Stability*: Fixed release profile in `Cargo.toml` by disabling aggressive LTO (`lto = false`) and panic abort, preventing Windows COM vtable memory corruption (0xc0000005). Production binary compiled cleanly via Tauri build.
+   - *Local RC Verification (Gate H)*: Full empirical smoke test executed via `scripts/verify-smoke-native.mjs` with 100% green exit code, verifying release binary, real `.mflow` launch, live DOM canvas mount, and portable zip archive integrity.
 
 ---
 

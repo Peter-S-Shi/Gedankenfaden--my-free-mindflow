@@ -1118,7 +1118,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   ]);
 
   return (
-    <div ref={containerRef} className="w-full h-full flex flex-col relative overflow-hidden">
+    <div
+      ref={containerRef}
+      data-testid="canvas-editor"
+      className="w-full h-full flex flex-col relative overflow-hidden"
+    >
       {/* Top Navigation Bar */}
       <div className="h-14 px-4 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center justify-between z-20 shadow-xs shrink-0">
         <div className="flex items-center gap-3">
@@ -1148,6 +1152,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
           <input
             type="text"
+            data-testid="canvas-document-title"
             value={doc.title}
             onChange={(e) => setDoc({ ...doc, title: e.target.value })}
             className="text-sm font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none px-1 py-0.5"

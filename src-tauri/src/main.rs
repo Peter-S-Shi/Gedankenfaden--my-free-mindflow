@@ -141,7 +141,13 @@ fn get_cli_open_file() -> Option<String> {
     for arg in std::env::args().skip(1) {
         let p = Path::new(&arg);
         let lower = arg.to_lowercase();
-        if (lower.ends_with(".mflow") || lower.ends_with(".json")) && p.is_file() {
+        if (lower.ends_with(".mflow")
+            || lower.ends_with(".json")
+            || lower.ends_with(".md")
+            || lower.ends_with(".markdown")
+            || lower.ends_with(".opml"))
+            && p.is_file()
+        {
             return Some(p.to_string_lossy().replace('\\', "/"));
         }
     }

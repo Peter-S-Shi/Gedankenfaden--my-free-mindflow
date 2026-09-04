@@ -8,6 +8,7 @@ import { createEmptyDocument, deserializeDocument } from './document';
 import { parseMflowFromBytes, packageDocumentToMflow } from './container';
 import { getNativeBridge, INativeBridge, FileEntry } from '../platform/tauriBridge';
 import { atomicWriteTextFile, atomicWriteBinaryFile } from './recovery';
+import { importFromMarkdown, importFromOPML } from './importers';
 
 export interface LibraryEntry {
   id: string;
@@ -77,16 +78,20 @@ export async function saveLibraryCache(
 }
 
 /**
- * Loads a CanonicalDocument from a .mflow or .json file on disk
+ * Loads a CanonicalDocument from a .mflow, .json, .md, or .opml file on disk
  */
 export async function loadDocumentFromFile(
   filePath: string,
   bridge: INativeBridge = getNativeBridge()
 ): Promise<CanonicalDocument | null> {
   try {
-    const isMflow = filePath.toLowerCase().endsWith('.mflow');
-    const isJson = filePath.toLowerCase().endsWith('.json');
-    if (!isMflow && !isJson) return null;
+    const lower = filePath.toLowerCase();
+    const isMflow = lower.endsWith('.mflow');
+    const isJson = lower.endsWith('.json');
+    const isMd = lower.endsWith('.md') || lower.endsWith('.markdown');
+    const isOpml = lower.endsWith('.opml');
+
+    if (!isMflow && !isJson && !isMd && !isOpml) return null;
 
     if (isMflow) {
       const bytes = await bridge.readBinaryFile(filePath);
@@ -94,12 +99,21 @@ export async function loadDocumentFromFile(
       return pkg.document;
     } else {
       const text = await bridge.readTextFile(filePath);
-      return deserializeDocument(text);
+      if (isJson) {
+        return deserializeDocument(text);
+      } else if (isMd) {
+        const basename = filePath.split('/').pop()?.replace(/\.(md|markdown)$/i, '') || 'Imported Markdown';
+        return importFromMarkdown(text, basename);
+      } else if (isOpml) {
+        const basename = filePath.split('/').pop()?.replace(/\.opml$/i, '') || 'Imported OPML';
+        return importFromOPML(text, basename);
+      }
     }
   } catch (err) {
     console.error(`Failed to load document from ${filePath}:`, err);
     return null;
   }
+  return null;
 }
 
 /**

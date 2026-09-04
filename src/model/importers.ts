@@ -38,7 +38,7 @@ export function importFromMarkdown(markdownText: string, defaultTitle?: string):
       const headingLevel = headingMatch[1].length;
       const text = headingMatch[2].trim();
 
-      if (headingLevel === 1 && !defaultTitle && rootChildren.length === 0) {
+      if (headingLevel === 1 && rootChildren.length === 0) {
         rootTitle = text;
         continue;
       }

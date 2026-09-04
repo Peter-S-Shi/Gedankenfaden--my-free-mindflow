@@ -67,11 +67,18 @@ async function runSmokeTest() {
   console.log(`[PASS] 2. Generated Test .mflow Container: ${smokeMflowPath}`);
   console.log(`       Container Size: ${zipped.length} bytes\n`);
 
-  // Step 3: Empirical Launch of Native Binary with File Association Argument
+  // Step 3: Empirical Launch of Native Binary with File Association Argument & Live DOM Probe
+  const cdpPort = 9222;
   console.log(`[INFO] 3. Launching gedankenfaden.exe with argument: "${smokeMflowPath}"...`);
+  console.log(`       Enabling WebView2 remote debugging on port ${cdpPort}...`);
+
   const child = spawn(exePath, [smokeMflowPath], {
     detached: false,
     stdio: 'ignore',
+    env: {
+      ...process.env,
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
+    },
   });
 
   if (!child.pid) {
@@ -79,24 +86,141 @@ async function runSmokeTest() {
   }
   console.log(`       Process spawned successfully with PID: ${child.pid}`);
 
-  // Let the native process initialize WebView2 and Tauri runtime for 3.5 seconds
-  await new Promise((resolve) => setTimeout(resolve, 3500));
+  // Helper: Poll and attach to WebView2 Chrome DevTools Protocol
+  async function inspectLiveDomViaCDP(port, expectedTitle, sentinelText) {
+    const cdpEndpoint = `http://127.0.0.1:${port}/json/list`;
+    let pageTarget = null;
+    const startTime = Date.now();
 
-  // Check if process is still alive and running cleanly
-  let isRunning = false;
+    while (Date.now() - startTime < 15000) {
+      try {
+        const res = await fetch(cdpEndpoint);
+        if (res.ok) {
+          const targets = await res.json();
+          const page = targets.find(
+            (t) => t.type === 'page' || (t.title && t.title.includes('Gedankenfaden'))
+          );
+          if (page && page.webSocketDebuggerUrl) {
+            pageTarget = page;
+            break;
+          }
+        }
+      } catch {
+        // Wait for WebView2 to spin up and bind debug port
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    if (!pageTarget) {
+      throw new Error(`Timed out waiting for WebView2 CDP endpoint on port ${port}`);
+    }
+
+    console.log(`[INFO] Attached to live WebView2 target: "${pageTarget.title}"`);
+    console.log(`       Target URL: ${pageTarget.url}`);
+    console.log(`       Debugger URL: ${pageTarget.webSocketDebuggerUrl}`);
+
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+      let callId = 1;
+      const pendingCalls = new Map();
+
+      const failTimeout = setTimeout(() => {
+        try { ws.close(); } catch {}
+        reject(new Error('Live DOM inspection timed out after 15s'));
+      }, 15000);
+
+      ws.addEventListener('message', (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.id && pendingCalls.has(msg.id)) {
+            const { res, rej } = pendingCalls.get(msg.id);
+            pendingCalls.delete(msg.id);
+            if (msg.error) rej(new Error(msg.error.message));
+            else res(msg.result);
+          }
+        } catch (e) {
+          // ignore parsing non-JSON messages
+        }
+      });
+
+      ws.addEventListener('open', async () => {
+        const sendCdp = (method, params = {}) => {
+          const id = callId++;
+          return new Promise((res, rej) => {
+            pendingCalls.set(id, { res, rej });
+            ws.send(JSON.stringify({ id, method, params }));
+          });
+        };
+
+        try {
+          const pollStart = Date.now();
+          let domEvidence = null;
+
+          while (Date.now() - pollStart < 12000) {
+            const evalResponse = await sendCdp('Runtime.evaluate', {
+              expression: `(function() {
+                const canvas = !!document.querySelector('[data-testid="canvas-editor"]');
+                const titleEl = document.querySelector('[data-testid="canvas-document-title"]');
+                const titleVal = titleEl ? titleEl.value : null;
+                const bodyText = document.body ? document.body.innerText : '';
+                const hasSentinel = bodyText.includes('${sentinelText}');
+                const nodeCount = document.querySelectorAll('[data-testid^="custom-node-"]').length;
+                return {
+                  canvasEditorMounted: canvas,
+                  activeDocumentTitle: titleVal,
+                  sentinelTextRendered: hasSentinel,
+                  renderedNodeCount: nodeCount,
+                  bodyPreview: bodyText.slice(0, 200).replace(/\\s+/g, ' '),
+                };
+              })()`,
+              returnByValue: true,
+            });
+
+            const result = evalResponse?.result?.value;
+            if (result && result.canvasEditorMounted && result.sentinelTextRendered) {
+              domEvidence = result;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 400));
+          }
+
+          clearTimeout(failTimeout);
+          try { ws.close(); } catch {}
+
+          if (!domEvidence) {
+            reject(new Error('CanvasEditor or sentinel node was not rendered in the live WebView2 DOM'));
+          } else {
+            resolve(domEvidence);
+          }
+        } catch (err) {
+          clearTimeout(failTimeout);
+          try { ws.close(); } catch {}
+          reject(err);
+        }
+      });
+
+      ws.addEventListener('error', (err) => {
+        clearTimeout(failTimeout);
+        reject(err);
+      });
+    });
+  }
+
+  let domProof;
   try {
-    // In Node on Windows, process.kill(pid, 0) checks if process exists
-    process.kill(child.pid, 0);
-    isRunning = true;
-  } catch {
-    isRunning = false;
+    domProof = await inspectLiveDomViaCDP(cdpPort, testDoc.title, 'File Association Passed');
+  } catch (err) {
+    // Kill child before rethrowing
+    try { child.kill('SIGKILL'); } catch {}
+    throw err;
   }
 
-  if (child.exitCode !== null && child.exitCode !== 0) {
-    throw new Error(`Native process crashed immediately with exit code: ${child.exitCode}`);
-  }
-
-  console.log(`[PASS] 3. Native process is running cleanly and stably (Uptime > 3.5s, exitCode=${child.exitCode})`);
+  console.log(`[PASS] 3. Real Windows WebView2 Runtime UI Verification Passed:`);
+  console.log(`       CanvasEditor Mounted: ${domProof.canvasEditorMounted}`);
+  console.log(`       Active Document Title: "${domProof.activeDocumentTitle}"`);
+  console.log(`       Sentinel Node Rendered: ${domProof.sentinelTextRendered}`);
+  console.log(`       Rendered Node Count on Canvas: ${domProof.renderedNodeCount}`);
+  console.log(`       Live DOM Content Preview: "${domProof.bodyPreview}"\n`);
 
   // Terminate test process cleanly
   try {
