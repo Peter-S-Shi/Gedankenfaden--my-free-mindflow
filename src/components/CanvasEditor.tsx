@@ -1052,6 +1052,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         e.target instanceof HTMLTextAreaElement ||
         (e.target as HTMLElement).isContentEditable;
 
+      // Save: Ctrl+S
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onSaveDocument(doc);
+        setStatusMessage('Document saved');
+        return;
+      }
+
+      // Search / Outline: Ctrl+F
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+        if (!isInput) {
+          e.preventDefault();
+          setIsOutlineOpen(true);
+          return;
+        }
+      }
+
       // Toggle Left Outline: Ctrl+\
       if (e.ctrlKey && e.key === '\\') {
         e.preventDefault();
@@ -1116,6 +1133,16 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
       // Graph & Mindmap Keyboard Actions (active only when not inside text editing)
       if (!isInput) {
+        // Space or F2: Edit selected node text
+        if (e.key === ' ' || e.key === 'F2') {
+          const selectedEl = document.querySelector('.react-flow__node.selected');
+          if (selectedEl) {
+            e.preventDefault();
+            selectedEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+            return;
+          }
+        }
+
         if (doc.mode === 'flowchart') {
           // Flowchart shortcuts
           if (e.key === 'Enter' && !e.shiftKey) {
@@ -1182,7 +1209,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    doc.mode,
+    doc,
+    onSaveDocument,
     handleUndo,
     handleRedo,
     handleCopyBranch,
@@ -1510,8 +1538,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               rfInstanceRef.current = instance;
             }}
             fitView
-            minZoom={0.2}
-            maxZoom={3}
+            minZoom={0.05}
+            maxZoom={5}
           >
             <Background
               color={doc.theme?.edgeColor || '#cbd5e1'}
