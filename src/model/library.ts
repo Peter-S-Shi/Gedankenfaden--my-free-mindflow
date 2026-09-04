@@ -77,6 +77,32 @@ export async function saveLibraryCache(
 }
 
 /**
+ * Loads a CanonicalDocument from a .mflow or .json file on disk
+ */
+export async function loadDocumentFromFile(
+  filePath: string,
+  bridge: INativeBridge = getNativeBridge()
+): Promise<CanonicalDocument | null> {
+  try {
+    const isMflow = filePath.toLowerCase().endsWith('.mflow');
+    const isJson = filePath.toLowerCase().endsWith('.json');
+    if (!isMflow && !isJson) return null;
+
+    if (isMflow) {
+      const bytes = await bridge.readBinaryFile(filePath);
+      const pkg = await parseMflowFromBytes(bytes);
+      return pkg.document;
+    } else {
+      const text = await bridge.readTextFile(filePath);
+      return deserializeDocument(text);
+    }
+  } catch (err) {
+    console.error(`Failed to load document from ${filePath}:`, err);
+    return null;
+  }
+}
+
+/**
  * Inspects a document file and generates a metadata catalog entry
  */
 export async function inspectDocumentFile(
@@ -86,18 +112,10 @@ export async function inspectDocumentFile(
   try {
     const isMflow = filePath.toLowerCase().endsWith('.mflow');
     const isJson = filePath.toLowerCase().endsWith('.json');
-
     if (!isMflow && !isJson) return null;
 
-    let doc: CanonicalDocument;
-    if (isMflow) {
-      const bytes = await bridge.readBinaryFile(filePath);
-      const pkg = await parseMflowFromBytes(bytes);
-      doc = pkg.document;
-    } else {
-      const text = await bridge.readTextFile(filePath);
-      doc = deserializeDocument(text);
-    }
+    const doc = await loadDocumentFromFile(filePath, bridge);
+    if (!doc) return null;
 
     return {
       id: doc.id,
@@ -237,7 +255,8 @@ export async function deleteDocumentFromLibrary(
   bridge: INativeBridge = getNativeBridge()
 ): Promise<void> {
   if (await bridge.exists(entry.filePath)) {
-    await bridge.removeFile(entry.filePath);
+    // Non-destructive deletion: move to OS Recycle Bin
+    await bridge.trashFile(entry.filePath);
   }
 
   const cached = await loadLibraryCache(bridge);

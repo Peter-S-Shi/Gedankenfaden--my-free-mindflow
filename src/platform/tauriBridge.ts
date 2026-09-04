@@ -3,6 +3,9 @@
  * Supports Tauri 2 desktop shell with fallback for browser & headless Vitest runner
  */
 
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+
 export interface FileEntry {
   name: string;
   path: string;
@@ -23,7 +26,108 @@ export interface INativeBridge {
   createDir(path: string, options?: { recursive?: boolean }): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
   removeFile(path: string): Promise<void>;
+  trashFile(path: string): Promise<void>;
   readDir(path: string): Promise<FileEntry[]>;
+  getCliOpenFile(): Promise<string | null>;
+  pickFolder(): Promise<string | null>;
+  pickDocumentFile(): Promise<string | null>;
+}
+
+export function isRunningInTauri(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as any).__TAURI_INTERNALS__);
+}
+
+/**
+ * Production Tauri 2 native bridge backed by Rust IPC and native Windows APIs
+ */
+export class TauriNativeBridge implements INativeBridge {
+  isTauri(): boolean {
+    return true;
+  }
+
+  async getAppDataDir(): Promise<string> {
+    return await invoke<string>('get_app_data_dir');
+  }
+
+  async getDefaultDocumentsDir(): Promise<string> {
+    return await invoke<string>('get_default_documents_dir');
+  }
+
+  async readTextFile(path: string): Promise<string> {
+    return await invoke<string>('read_text_file', { path });
+  }
+
+  async writeTextFile(path: string, contents: string): Promise<void> {
+    await invoke('write_text_file', { path, contents });
+  }
+
+  async readBinaryFile(path: string): Promise<Uint8Array> {
+    const raw = await invoke<number[]>('read_binary_file', { path });
+    return new Uint8Array(raw);
+  }
+
+  async writeBinaryFile(path: string, contents: Uint8Array): Promise<void> {
+    await invoke('write_binary_file', { path, contents: Array.from(contents) });
+  }
+
+  async exists(path: string): Promise<boolean> {
+    return await invoke<boolean>('file_exists', { path });
+  }
+
+  async createDir(path: string, _options?: { recursive?: boolean }): Promise<void> {
+    await invoke('create_dir_all', { path });
+  }
+
+  async rename(oldPath: string, newPath: string): Promise<void> {
+    await invoke('rename_file', { oldPath, newPath });
+  }
+
+  async removeFile(path: string): Promise<void> {
+    await invoke('remove_file', { path });
+  }
+
+  async trashFile(path: string): Promise<void> {
+    await invoke('trash_document_file', { path });
+  }
+
+  async readDir(path: string): Promise<FileEntry[]> {
+    return await invoke<FileEntry[]>('read_dir_entries', { path });
+  }
+
+  async getCliOpenFile(): Promise<string | null> {
+    return await invoke<string | null>('get_cli_open_file');
+  }
+
+  async pickFolder(): Promise<string | null> {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Gedankenfaden Library Folder',
+      });
+      if (typeof selected === 'string') return selected.replace(/\\/g, '/');
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async pickDocumentFile(): Promise<string | null> {
+    try {
+      const selected = await open({
+        multiple: false,
+        title: 'Open Gedankenfaden Document',
+        filters: [
+          { name: 'Gedankenfaden Documents', extensions: ['mflow', 'json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (typeof selected === 'string') return selected.replace(/\\/g, '/');
+      return null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**
@@ -32,6 +136,7 @@ export interface INativeBridge {
 export class MemoryMockNativeBridge implements INativeBridge {
   private files: Map<string, string | Uint8Array> = new Map();
   private dirs: Set<string> = new Set(['/appdata', '/documents']);
+  private trashedFiles: Map<string, string | Uint8Array> = new Map();
 
   constructor(initialFiles?: Record<string, string | Uint8Array>) {
     if (initialFiles) {
@@ -41,8 +146,25 @@ export class MemoryMockNativeBridge implements INativeBridge {
     }
   }
 
+  private cliOpenFile: string | null = null;
+  private pickedFolder: string | null = null;
+  private pickedDocumentFile: string | null = null;
+
   private normalize(p: string): string {
     return p.replace(/\\/g, '/');
+  }
+
+  private ensureParentDirs(filePath: string): void {
+    const norm = this.normalize(filePath);
+    const lastSlash = norm.lastIndexOf('/');
+    if (lastSlash > 0) {
+      let current = '';
+      const parts = norm.substring(0, lastSlash).split('/');
+      for (const part of parts) {
+        current = current ? `${current}/${part}` : part;
+        this.dirs.add(current);
+      }
+    }
   }
 
   isTauri(): boolean {
@@ -50,11 +172,11 @@ export class MemoryMockNativeBridge implements INativeBridge {
   }
 
   async getAppDataDir(): Promise<string> {
-    return '/appdata/Gedankenfaden';
+    return 'C:/Users/default/AppData/Roaming/Gedankenfaden';
   }
 
   async getDefaultDocumentsDir(): Promise<string> {
-    return '/documents/Gedankenfaden';
+    return 'C:/Users/default/Documents/Gedankenfaden';
   }
 
   async readTextFile(path: string): Promise<string> {
@@ -68,6 +190,7 @@ export class MemoryMockNativeBridge implements INativeBridge {
   }
 
   async writeTextFile(path: string, contents: string): Promise<void> {
+    this.ensureParentDirs(path);
     this.files.set(this.normalize(path), contents);
   }
 
@@ -82,12 +205,18 @@ export class MemoryMockNativeBridge implements INativeBridge {
   }
 
   async writeBinaryFile(path: string, contents: Uint8Array): Promise<void> {
+    this.ensureParentDirs(path);
     this.files.set(this.normalize(path), contents);
   }
 
   async exists(path: string): Promise<boolean> {
     const key = this.normalize(path);
-    return this.files.has(key) || this.dirs.has(key);
+    if (this.files.has(key) || this.dirs.has(key)) return true;
+    const prefix = key.replace(/\/$/, '') + '/';
+    for (const f of this.files.keys()) {
+      if (f.startsWith(prefix)) return true;
+    }
+    return false;
   }
 
   async createDir(path: string, _options?: { recursive?: boolean }): Promise<void> {
@@ -101,12 +230,50 @@ export class MemoryMockNativeBridge implements INativeBridge {
     if (content === undefined) {
       throw new Error(`Cannot rename non-existent file: ${oldPath}`);
     }
+    this.ensureParentDirs(newPath);
     this.files.delete(oldKey);
     this.files.set(newKey, content);
   }
 
   async removeFile(path: string): Promise<void> {
     this.files.delete(this.normalize(path));
+  }
+
+  async trashFile(path: string): Promise<void> {
+    const key = this.normalize(path);
+    const content = this.files.get(key);
+    if (content !== undefined) {
+      this.files.delete(key);
+      this.trashedFiles.set(key, content);
+    }
+  }
+
+  getTrashedFiles(): Map<string, string | Uint8Array> {
+    return this.trashedFiles;
+  }
+
+  simulateCliOpenFile(path: string | null): void {
+    this.cliOpenFile = path;
+  }
+
+  simulatePickedFolder(path: string | null): void {
+    this.pickedFolder = path;
+  }
+
+  simulatePickedDocumentFile(path: string | null): void {
+    this.pickedDocumentFile = path;
+  }
+
+  async getCliOpenFile(): Promise<string | null> {
+    return this.cliOpenFile;
+  }
+
+  async pickFolder(): Promise<string | null> {
+    return this.pickedFolder;
+  }
+
+  async pickDocumentFile(): Promise<string | null> {
+    return this.pickedDocumentFile;
   }
 
   async readDir(dirPath: string): Promise<FileEntry[]> {
@@ -140,12 +307,23 @@ export class MemoryMockNativeBridge implements INativeBridge {
   }
 }
 
-let activeBridge: INativeBridge = new MemoryMockNativeBridge();
+let activeBridge: INativeBridge | null = null;
 
 export function getNativeBridge(): INativeBridge {
+  if (!activeBridge) {
+    if (isRunningInTauri()) {
+      activeBridge = new TauriNativeBridge();
+    } else {
+      activeBridge = new MemoryMockNativeBridge();
+    }
+  }
   return activeBridge;
 }
 
 export function setNativeBridge(bridge: INativeBridge): void {
   activeBridge = bridge;
+}
+
+export function resetNativeBridge(): void {
+  activeBridge = null;
 }

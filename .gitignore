@@ -8,11 +8,13 @@ prompt-drafts/
 node_modules/
 dist/
 dist-electron/
+dist-portable/
 .turbo/
 coverage/
 target/
 src-tauri/target/
 src-tauri/gen/
+*.mflow
 
 
 # OS & Logs

@@ -1,12 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { CanonicalDocument } from '../model/types';
-import { Plus, Network, GitFork, Folder, Clock, FileText, Search, AlertTriangle, RotateCcw, X } from 'lucide-react';
+import { LibraryEntry } from '../model/library';
+import {
+  Plus,
+  Network,
+  GitFork,
+  Folder,
+  Clock,
+  FileText,
+  Search,
+  AlertTriangle,
+  RotateCcw,
+  X,
+  Trash2,
+  FolderSync,
+  Upload,
+} from 'lucide-react';
 import { CrashDetectionResult } from '../model/recovery';
 
-interface LibraryHomeProps {
-  onOpenDocument: (doc: CanonicalDocument) => void;
+export interface LibraryHomeProps {
+  onOpenDocument: (doc: CanonicalDocument | LibraryEntry, filePath?: string) => void;
   onCreateNew: (mode: 'mindmap' | 'flowchart') => void;
-  recentDocuments: CanonicalDocument[];
+  recentDocuments?: CanonicalDocument[];
+  libraryEntries?: LibraryEntry[];
+  currentFolder?: string;
+  onChangeFolder?: () => void;
+  onRefreshLibrary?: () => void;
+  onImportDocument?: () => void;
+  onDeleteDocument?: (target: LibraryEntry | CanonicalDocument) => void;
   crashRecovery?: CrashDetectionResult | null;
   onRestoreCrashSnapshot?: () => void;
   onDismissCrashRecovery?: () => void;
@@ -15,7 +36,13 @@ interface LibraryHomeProps {
 export const LibraryHome: React.FC<LibraryHomeProps> = ({
   onOpenDocument,
   onCreateNew,
-  recentDocuments,
+  recentDocuments = [],
+  libraryEntries,
+  currentFolder,
+  onChangeFolder,
+  onRefreshLibrary,
+  onImportDocument,
+  onDeleteDocument,
   crashRecovery,
   onRestoreCrashSnapshot,
   onDismissCrashRecovery,
@@ -24,16 +51,62 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModeFilter, setSelectedModeFilter] = useState<'all' | 'mindmap' | 'flowchart'>('all');
 
-  const filteredDocs = recentDocuments.filter((doc) => {
-    if (selectedModeFilter !== 'all' && doc.mode !== selectedModeFilter) {
+  interface UnifiedItem {
+    id: string;
+    title: string;
+    mode: 'mindmap' | 'flowchart';
+    nodeCount: number;
+    updatedAt: string;
+    filePath?: string;
+    fileFormat?: string;
+    summaryText: string;
+    entry?: LibraryEntry;
+    doc?: CanonicalDocument;
+  }
+
+  const allItems: UnifiedItem[] = useMemo(() => {
+    if (libraryEntries && libraryEntries.length > 0) {
+      return libraryEntries.map((e) => ({
+        id: e.id,
+        title: e.title,
+        mode: e.mode,
+        nodeCount: e.nodeCount,
+        updatedAt: e.updatedAt,
+        filePath: e.filePath,
+        fileFormat: e.fileFormat,
+        summaryText: `${e.fileFormat.toUpperCase()} Document • ${e.edgeCount} connections`,
+        entry: e,
+      }));
+    }
+    return recentDocuments.map((d) => ({
+      id: d.id,
+      title: d.title,
+      mode: d.mode,
+      nodeCount: d.nodes?.length || 0,
+      updatedAt: d.updatedAt,
+      summaryText: d.nodes?.map((n) => n.text).slice(0, 3).join(' → ') || 'Empty graph',
+      doc: d,
+    }));
+  }, [libraryEntries, recentDocuments]);
+
+  const filteredDocs = allItems.filter((item) => {
+    if (selectedModeFilter !== 'all' && item.mode !== selectedModeFilter) {
       return false;
     }
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
-    const titleMatch = doc.title.toLowerCase().includes(q);
-    const nodeMatch = doc.nodes.some((n) => n.text.toLowerCase().includes(q));
-    return titleMatch || nodeMatch;
+    const titleMatch = item.title.toLowerCase().includes(q);
+    const summaryMatch = item.summaryText.toLowerCase().includes(q);
+    return titleMatch || summaryMatch;
   });
+
+  const handleCardClick = (item: UnifiedItem) => {
+    if (item.entry) {
+      onOpenDocument(item.entry, item.filePath);
+    } else if (item.doc) {
+      onOpenDocument(item.doc, item.filePath);
+    }
+  };
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 overflow-y-auto">
@@ -109,33 +182,71 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
       )}
 
       {/* Main Content Area */}
-      <main className="max-w-6xl w-full mx-auto px-10 py-8 flex flex-col gap-8">
-        {/* Folders & Collections Overview */}
-        <section>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-            <Folder size={14} />
-            Local Collections
-          </div>
-          <div className="grid grid-cols-4 gap-4">
-            {['Architecture Probes', 'Study & Reading Notes', 'Workflow Pipelines', 'Product Ideas'].map((folder) => (
-              <div
-                key={folder}
-                className="p-3.5 bg-white border border-slate-200/70 rounded-xl hover:border-slate-300 transition-all flex items-center gap-3 cursor-pointer group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <Folder size={16} />
-                </div>
-                <div className="truncate">
-                  <div className="text-sm font-medium text-slate-700 truncate">{folder}</div>
-                  <div className="text-xs text-slate-400">Local folder</div>
-                </div>
+      <main className="max-w-6xl w-full mx-auto px-10 py-8 flex flex-col gap-6">
+        {/* Local Library Folder Bar */}
+        <section className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Folder size={20} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Active Library Folder</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span className="text-[10px] text-emerald-600 font-medium">Native Disk Sync</span>
               </div>
-            ))}
+              <div
+                className="text-sm font-medium text-slate-800 truncate font-mono mt-0.5"
+                title={currentFolder || 'Default Documents'}
+                data-testid="current-library-folder"
+              >
+                {currentFolder || 'Documents/Gedankenfaden'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {onChangeFolder && (
+              <button
+                type="button"
+                onClick={onChangeFolder}
+                data-testid="btn-change-folder"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors"
+                title="Change Library Storage Directory"
+              >
+                <FolderSync size={13} />
+                Change Folder...
+              </button>
+            )}
+            {onRefreshLibrary && (
+              <button
+                type="button"
+                onClick={onRefreshLibrary}
+                data-testid="btn-rescan-disk"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors"
+                title="Rescan Disk for Documents"
+              >
+                <RotateCcw size={13} />
+                Rescan Disk
+              </button>
+            )}
+            {onImportDocument && (
+              <button
+                type="button"
+                onClick={onImportDocument}
+                data-testid="btn-import-file"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium transition-colors"
+                title="Open or Import File (.mflow, .json)"
+              >
+                <Upload size={13} />
+                Import File...
+              </button>
+            )}
           </div>
         </section>
 
         {/* Filter & Search Bar */}
-        <section className="flex items-center justify-between gap-4 pt-2">
+        <section className="flex items-center justify-between gap-4 pt-1">
           <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1">
             <button
               onClick={() => setSelectedModeFilter('all')}
@@ -210,7 +321,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                   data-testid={`doc-card-${doc.id}`}
                   onMouseEnter={() => setHoveredDocId(doc.id)}
                   onMouseLeave={() => setHoveredDocId(null)}
-                  onClick={() => onOpenDocument(doc)}
+                  onClick={() => handleCardClick(doc)}
                   className={`relative p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-48 select-none ${
                     isHovered
                       ? 'bg-white border-blue-500 shadow-xl shadow-blue-500/10 -translate-y-1 scale-[1.02] z-10 signature-focus-elevate'
@@ -238,10 +349,26 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                         {doc.mode === 'mindmap' ? <Network size={12} /> : <GitFork size={12} />}
                         {doc.mode === 'mindmap' ? 'Mind Map' : 'Flowchart'}
                       </span>
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <FileText size={12} />
-                        {doc.nodes.length} nodes
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <FileText size={12} />
+                          {doc.nodeCount} nodes
+                        </span>
+                        {onDeleteDocument && (
+                          <button
+                            type="button"
+                            data-testid={`delete-doc-${doc.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteDocument((doc.entry || doc.doc)!);
+                            }}
+                            className="p-1 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            title="Move to Windows Recycle Bin"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <h3
@@ -253,7 +380,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                     </h3>
 
                     <p className="text-xs text-slate-500 line-clamp-2 mt-1.5">
-                      {doc.nodes.map((n) => n.text).slice(0, 3).join(' → ') || 'Empty graph'}
+                      {doc.summaryText}
                     </p>
                   </div>
 

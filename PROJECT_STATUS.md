@@ -1,8 +1,8 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 6 (Product Hardening, Performance & Edge-Case Polish) Corrective Gate Complete — All 15 Test Suites & 79 Tests Passing — Empirical Runtime DOM Latencies & Memory Plateau Verified on Reference Windows Hardware — Production Keyboard Dispatcher & 9 Signature Motions Fully Wired — Strict Feature Freeze Preserved — Ready for Independent M6 Review  
-**Current Milestone**: M6 Complete / Next: M7 Release Candidate, Packaging QA & Maintenance Transition (NOT started)  
-**Active Branch**: `hardening/m6-product-hardening`  
+**Current State**: Milestone 7-A (Release Candidate & Native Integration Preparation) Complete — All 18 Test Suites & 95 Tests Passing — Real Tauri Native Bridge & File System Library Wired — Windows Win32 Recycle Bin Non-Destructive Delete Verified — `.mflow` File Association & Cold-Start CLI Handling Verified — Release Binary & Standalone Portable Distribution Packaged & Empirically Verified (Gate H PASS) — Ready for User Manual Acceptance Testing (M7-B)  
+**Current Milestone**: M7-A Complete / Next: M7-B User Manual Acceptance & Release Sign-Off (NOT started)  
+**Active Branch**: `rc/m7-release-candidate-prep`  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-04  
 
@@ -24,7 +24,8 @@
 | **Architecture Decisions** | **Completed & Incorporated** | Distilled into `ARCHITECTURE.md` |
 | **V1 Feature Freeze** | **FROZEN (Feature Complete)** | All M1–M5 Features Implemented & Verified |
 | **M6 Product Hardening & Polish** | **Completed (PASS)** | Empirical browser DOM benchmarks, 20-cycle memory slope verification, 1,000-node stress, resource disposal, production keyboard dispatcher & motion wiring |
-| **M7 RC & Packaging QA** | **Planned (NOT started)** | Final packaging, installer testing, documentation freeze |
+| **M7-A RC Native Integration Prep** | **Completed (PASS)** | Gates A–H verified: Tauri native bridge, real filesystem library, Recycle Bin delete, `.mflow` OS association, release binary build, portable package, and empirical smoke test |
+| **M7-B User Manual Acceptance** | **Planned (NOT started)** | Final user smoke, packaging QA, release sign-off |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
 | **Architecture Freeze** | **FROZEN** | `ARCHITECTURE.md` |
 | **Milestone Roadmap** | **Frozen (M0–M7)** | `ROADMAP.md` |
@@ -58,29 +59,15 @@
    - Single-file container (`.mflow` logical package: `document.json` + `assets/`).
    - Pure transformation adapters for auto-layout and import/export formats.
 
-3. **Explicit Implementation-Verification Items (Verified on Reference Hardware)**:
-   - *Tauri 2 Native Packaging & Verification*: Verified in M4 Corrective Gate. Standard `src-tauri/build.rs` and Windows icons added; real Windows native compilation executed via Cargo producing `src-tauri/target/debug/gedankenfaden.exe`; Windows native Tauri build gate integrated into GitHub Actions CI (`windows-latest`).
-   - *Centered Bidirectional Layout Algorithm*: Verified in M2 (`layoutMindMapDocument` with balanced wings, LR/RL/TB presets, and manual offset retention).
-   - *`.mflow` Single-File Packager & Asset Extraction*: Verified in M1 & M5 (`packageDocumentToMflow` / `parseMflowFromBytes` with pure JS `fflate` ZIP container).
-   - *Autosave & Local Snapshot Rotator*: Verified in M4 (`AutoSaveEngine`, `atomicWriteTextFile`, `saveRollingSnapshot`, `detectCrashOrUnsaved`, `restoreDocumentFromSnapshot`).
-   - *Structured Import & 11 Exporters Matrix*: Verified in M5 (`importFromMarkdown`, `importFromOPML`, 11 export formats in `exporter.ts`, node image asset pipeline).
-   - *Flowchart Graph-Specific Keyboard Mappings & Shape Family*: Verified in M3 (Enter downstream, Shift+Enter upstream, Tab branch, Arrow navigation along graph edges, orthogonal routing with fillets and loopbacks, visual group containers).
-   - *Production Keyboard Dispatcher & Strict Text Isolation*: Verified in M6 (`dispatchCanvasKeyDown` in `src/interaction/keyboardDispatcher.ts` cleanly separates canvas shortcuts from active input/textarea/contentEditable and routes mode-specific shortcuts).
-   - *Production Motion System & Accessibility*: Verified in M6 (`src/interaction/motion.ts` wires all 9 signature motions into `CustomNode`, `adapter.ts`, and `LibraryHome`, with full `@media (prefers-reduced-motion: reduce)` overrides and removal of CSS `forwards` retention).
-   - *Empirical Browser DOM Interaction Latency*: Verified in M6 on reference Windows hardware via CDP harness (`scripts/measure-runtime.mjs`):
-     - Initial Render: 100 nodes = 136.64 ms, 500 nodes = 115.59 ms, 1000 nodes = 678.22 ms.
-     - Node selection & breathing glow: 85.33 ms.
-     - Viewport pan drag translation: 208.87 ms.
-     - Production toolbar LR re-layout preset switch: 272.04 ms.
-   - *Extended-Session Memory Trend & Linear Regression*: Verified in M6 via 20-cycle observation on 500-node document:
-     - Baseline heap (post warm-up GC): 4.54 MB.
-     - Average peak during 500-node session: 63.53 MB.
-     - Final post-cleanup heap (cycle 20): 5.16 MB.
-     - Post-cleanup DOM nodes: 223 (constant across all cycles).
-     - Linear regression slope on post-cleanup heap: 0.0170 MB/cycle ($\le 0.05 \text{ MB/cycle}$).
-     - Persistent upward creep detected: NO (flat plateau / bounded oscillation).
-   - *Stress & Recovery*: Verified in M6 (1,000-node full lifecycle, 150-step rapid undo/redo, extreme coordinates `[-50000, 50000]` & zoom bounds `0.05x–5.0x`, dirty session crash recovery).
-   - *Resource Disposal & Leak Audit*: Verified in M6 (50 autosave debounce/cancel iterations with 0 zombie timers, 30 asset allocations with 100% object URL revocations).
+3. **M7-A Native Release Candidate Integration Gates (Verified)**:
+   - *Gate A — Real Tauri Native Bridge*: Auto-selects `TauriNativeBridge` in Tauri runtime via `@tauri-apps/api/core` and falls back to `MemoryMockNativeBridge` in browser/headless test runners.
+   - *Gate B — Real Filesystem Library/Home*: LibraryHome displays active folder path, supports directory switching (`pickFolder`), disk rescan (`readDir`), external document import (`pickDocumentFile`), and metadata cache sync (`library.json`).
+   - *Gate C — Real Direct File I/O*: Canvas save writes directly to active document path (`.mflow` container or `.json`), with atomic write swap safety and debounced rolling snapshot autosave.
+   - *Gate D — Safe Delete / Windows Recycle Bin Semantics*: Integrated `trash = "5.2"` crate in Rust backend invoking Win32 `IFileOperation` (`FOF_ALLOWUNDO`) for non-destructive document deletion.
+   - *Gate E — `.mflow` Windows File Association & Cold-Start CLI Handling*: Packaged file associations in `tauri.conf.json` (`ext: ["mflow"]`, `mimeType: application/x-gedankenfaden-mflow`, `role: Editor`). Rust backend inspects CLI args via `get_cli_open_file`, frontend unpacks container on mount, and projects directly into canvas editor.
+   - *Gate F — Windows RC Packaging*: Release binary compiled via Cargo (`src-tauri/target/release/gedankenfaden.exe` 4.82 MB). Standalone portable distribution package generated via `scripts/package-portable.mjs` (`dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip` 1.99 MB).
+   - *Gate G — Packaging CI & Artifact Handoff*: Extended `.github/workflows/ci.yml` with `rc/**` trigger, Windows release binary compilation, portable zip packaging, artifact validation, and GitHub Actions artifact upload.
+   - *Gate H — Local Native RC Smoke Test*: Empirically executed via `scripts/verify-smoke-native.mjs`: verified release binary existence, generated real `.mflow` container, launched native process with file association argument, confirmed process stability (uptime > 3.5s, exitCode=null), and verified zip package integrity.
 
 ---
 
@@ -95,24 +82,26 @@
 | **M4** | Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine | **COMPLETED (PASS)** | Complete |
 | **M4 Native Gate** | M4 Native Verification Corrective Gate (Rust/Cargo toolchain, native Windows build, CI gate) | **COMPLETED (PASS)** | Complete |
 | **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | **COMPLETED (PASS)** | Feature Freeze Reached |
-| **M6** | Product Hardening, Performance & Edge-Case Polish | **COMPLETED (PASS)** | Ready for Independent Review |
-| **M7** | Release Candidate, Packaging QA & Maintenance Transition | Planned (NOT started) | M6 Review Acceptance |
+| **M6** | Product Hardening, Performance & Edge-Case Polish | **COMPLETED (PASS)** | Complete |
+| **M7-A** | Release Candidate & Native Integration Preparation | **COMPLETED (PASS)** | Ready for M7-B Acceptance |
+| **M7-B** | User Manual Acceptance Testing & Release Sign-Off | Planned (NOT started) | M7-A Handoff |
 
 ---
 
 ## 4. Git & Privacy Status
 
-- **Current Active Branch**: `hardening/m6-product-hardening`.
+- **Current Active Branch**: `rc/m7-release-candidate-prep`.
 - **Privacy Exclusions**:
-  - `grill/` and `prompt-drafts/` are strictly protected in `.gitignore` and `.git/info/exclude`.
-  - Zero sensitive research notes, discovery files, machine-specific absolute paths, or competitor trade names are tracked.
+  - `grill/`, `prompt-drafts/`, `dist-portable/`, and `*.mflow` are strictly protected in `.gitignore` and `.git/info/exclude`.
+  - Zero sensitive research notes, discovery files, machine-specific absolute paths, or credentials are tracked.
 - **Remote Status**: Connected to official remote `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`.
 
 ---
 
 ## 5. Next Operational Steps
 
-1. Commit and push Milestone 6 checkpoint to `origin hardening/m6-product-hardening`.
-2. Await 100% green GitHub Actions CI run (verifying Ubuntu Vitest suite and Windows native Tauri Cargo build).
-3. Present comprehensive M6 Hardening Report and await independent review. Do NOT merge to `main` and do NOT begin Milestone 7 without explicit user approval.
+1. Review git diff and privacy checks.
+2. Commit and push Milestone 7-A checkpoint to `origin rc/m7-release-candidate-prep` (never force push).
+3. Await 100% green GitHub Actions CI run (verifying test suites, native Windows release build, portable package, and artifact upload).
+4. Report M7-A Release Candidate completion and await user acceptance testing (M7-B). Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT begin M7-B without user instruction.
 
