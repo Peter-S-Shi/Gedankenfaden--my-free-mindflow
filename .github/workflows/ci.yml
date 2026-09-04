@@ -39,3 +39,12 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+      - name: Setup Rust toolchain (Windows native)
+        if: matrix.os == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Windows Native Tauri Build
+        if: matrix.os == 'windows-latest'
+        run: cargo build --manifest-path src-tauri/Cargo.toml
+

@@ -3,7 +3,6 @@ name = "gedankenfaden"
 version = "0.1.0"
 description = "A free, local-first Windows visual thinking workspace for mind maps and flowcharts"
 authors = ["Gedankenfaden Contributors"]
-license = "MIT"
 repository = "https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow"
 edition = "2021"
 

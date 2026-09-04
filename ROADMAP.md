@@ -109,6 +109,7 @@
   - Standalone Windows executable launches cleanly from desktop and opens `.mflow` files via double-click.
   - Files created or renamed in Windows Explorer reflect synchronously in the Library.
   - Simulated process kill during editing successfully prompts recovery and restores dirty state upon relaunch.
+  - Native Windows desktop build verified via Cargo (`gedankenfaden.exe`) locally and on GitHub Actions `windows-latest` CI.
 
 ---
 
