@@ -1,0 +1,26 @@
+[package]
+name = "gedankenfaden"
+version = "0.1.0"
+description = "A free, local-first Windows visual thinking workspace for mind maps and flowcharts"
+authors = ["Gedankenfaden Contributors"]
+license = "MIT"
+repository = "https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0.0", features = [] }
+tauri-plugin-fs = "2.0.0"
+tauri-plugin-dialog = "2.0.0"
+tauri-plugin-shell = "2.0.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

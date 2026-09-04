@@ -1,9 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CanonicalDocument } from './model/types';
 import { createEmptyDocument } from './model/document';
 import { getDefaultTheme } from './model/theme';
 import { LibraryHome } from './components/LibraryHome';
 import { CanvasEditor } from './components/CanvasEditor';
+import {
+  AutoSaveEngine,
+  saveRollingSnapshot,
+  markSessionActive,
+  markSessionClean,
+  detectCrashOrUnsaved,
+  restoreDocumentFromSnapshot,
+  CrashDetectionResult,
+} from './model/recovery';
 
 const STORAGE_KEY = 'gedankenfaden_recent_docs_v1';
 
@@ -145,33 +154,80 @@ export const App: React.FC = () => {
   });
 
   const [activeDoc, setActiveDoc] = useState<CanonicalDocument | null>(null);
+  const [crashRecovery, setCrashRecovery] = useState<CrashDetectionResult | null>(null);
+  const autoSaveEngineRef = useRef<AutoSaveEngine>(new AutoSaveEngine(600));
+
+  // Check for crash or unsaved sessions on initial mount
+  useEffect(() => {
+    detectCrashOrUnsaved().then((result) => {
+      if (result.hasUnsavedOrCrash) {
+        setCrashRecovery(result);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
     } catch {
-      // Storage error ignored in spike
+      // Storage error ignored
     }
   }, [documents]);
 
-  const handleOpenDoc = (doc: CanonicalDocument) => {
+  const handleOpenDoc = async (doc: CanonicalDocument) => {
+    await markSessionActive(doc.id, doc.title);
     setActiveDoc(doc);
   };
 
-  const handleCreateNew = (mode: 'mindmap' | 'flowchart') => {
+  const handleCreateNew = async (mode: 'mindmap' | 'flowchart') => {
     const newDoc = createEmptyDocument(
       mode === 'mindmap' ? 'New Mind Map' : 'New Flowchart',
       mode
     );
     setDocuments((prev) => [newDoc, ...prev]);
+    await markSessionActive(newDoc.id, newDoc.title);
     setActiveDoc(newDoc);
   };
 
-  const handleSaveDoc = (updatedDoc: CanonicalDocument) => {
+  const handleSaveDoc = async (updatedDoc: CanonicalDocument) => {
     setDocuments((prev) =>
       prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
     );
     setActiveDoc(updatedDoc);
+
+    // Schedule debounced autosave snapshot
+    autoSaveEngineRef.current.scheduleSave(updatedDoc, async (doc) => {
+      await saveRollingSnapshot(doc, 'autosave');
+    });
+  };
+
+  const handleBackToLibrary = async () => {
+    await autoSaveEngineRef.current.flushPending();
+    await markSessionClean();
+    setActiveDoc(null);
+  };
+
+  const handleRestoreCrashSnapshot = async () => {
+    if (crashRecovery?.latestSnapshot) {
+      try {
+        const restored = await restoreDocumentFromSnapshot(crashRecovery.latestSnapshot);
+        setDocuments((prev) => {
+          const exists = prev.some((d) => d.id === restored.id);
+          return exists ? prev.map((d) => (d.id === restored.id ? restored : d)) : [restored, ...prev];
+        });
+        await markSessionActive(restored.id, restored.title);
+        setActiveDoc(restored);
+      } catch {
+        // Failed to deserialize
+      }
+    }
+    await markSessionClean();
+    setCrashRecovery(null);
+  };
+
+  const handleDismissCrashRecovery = async () => {
+    await markSessionClean();
+    setCrashRecovery(null);
   };
 
   return (
@@ -179,7 +235,7 @@ export const App: React.FC = () => {
       {activeDoc ? (
         <CanvasEditor
           initialDocument={activeDoc}
-          onBackToLibrary={() => setActiveDoc(null)}
+          onBackToLibrary={handleBackToLibrary}
           onSaveDocument={handleSaveDoc}
         />
       ) : (
@@ -187,6 +243,9 @@ export const App: React.FC = () => {
           recentDocuments={documents}
           onOpenDocument={handleOpenDoc}
           onCreateNew={handleCreateNew}
+          crashRecovery={crashRecovery}
+          onRestoreCrashSnapshot={handleRestoreCrashSnapshot}
+          onDismissCrashRecovery={handleDismissCrashRecovery}
         />
       )}
     </div>

@@ -1,19 +1,39 @@
 import React, { useState } from 'react';
 import { CanonicalDocument } from '../model/types';
-import { Plus, Network, GitFork, Folder, Clock, FileText } from 'lucide-react';
+import { Plus, Network, GitFork, Folder, Clock, FileText, Search, AlertTriangle, RotateCcw, X } from 'lucide-react';
+import { CrashDetectionResult } from '../model/recovery';
 
 interface LibraryHomeProps {
   onOpenDocument: (doc: CanonicalDocument) => void;
   onCreateNew: (mode: 'mindmap' | 'flowchart') => void;
   recentDocuments: CanonicalDocument[];
+  crashRecovery?: CrashDetectionResult | null;
+  onRestoreCrashSnapshot?: () => void;
+  onDismissCrashRecovery?: () => void;
 }
 
 export const LibraryHome: React.FC<LibraryHomeProps> = ({
   onOpenDocument,
   onCreateNew,
   recentDocuments,
+  crashRecovery,
+  onRestoreCrashSnapshot,
+  onDismissCrashRecovery,
 }) => {
   const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedModeFilter, setSelectedModeFilter] = useState<'all' | 'mindmap' | 'flowchart'>('all');
+
+  const filteredDocs = recentDocuments.filter((doc) => {
+    if (selectedModeFilter !== 'all' && doc.mode !== selectedModeFilter) {
+      return false;
+    }
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const titleMatch = doc.title.toLowerCase().includes(q);
+    const nodeMatch = doc.nodes.some((n) => n.text.toLowerCase().includes(q));
+    return titleMatch || nodeMatch;
+  });
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 overflow-y-auto">
@@ -47,8 +67,49 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
         </div>
       </header>
 
+      {/* Crash Recovery Notification Banner */}
+      {crashRecovery?.hasUnsavedOrCrash && (
+        <div className="bg-amber-50 border-b border-amber-200 px-10 py-3 flex items-center justify-between shadow-xs animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-amber-900">
+                Crash Recovery: Unsaved Session Detected
+              </div>
+              <div className="text-xs text-amber-700">
+                Gedankenfaden detected an abnormal shutdown with unsaved changes for "
+                <span className="font-semibold">{crashRecovery.uncleanSession?.activeDocTitle || 'Untitled'}</span>
+                " ({crashRecovery.latestSnapshot ? new Date(crashRecovery.latestSnapshot.timestamp).toLocaleTimeString() : 'Recent snapshot'}).
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {onRestoreCrashSnapshot && (
+              <button
+                onClick={onRestoreCrashSnapshot}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+              >
+                <RotateCcw size={13} />
+                Restore Unsaved Version
+              </button>
+            )}
+            {onDismissCrashRecovery && (
+              <button
+                onClick={onDismissCrashRecovery}
+                className="p-1.5 text-amber-700 hover:bg-amber-100 rounded-lg transition-colors"
+                title="Dismiss"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area */}
-      <main className="max-w-6xl w-full mx-auto px-10 py-8 flex flex-col gap-10">
+      <main className="max-w-6xl w-full mx-auto px-10 py-8 flex flex-col gap-8">
         {/* Folders & Collections Overview */}
         <section>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
@@ -73,6 +134,55 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
           </div>
         </section>
 
+        {/* Filter & Search Bar */}
+        <section className="flex items-center justify-between gap-4 pt-2">
+          <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1">
+            <button
+              onClick={() => setSelectedModeFilter('all')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedModeFilter === 'all'
+                  ? 'bg-white text-slate-800 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Documents
+            </button>
+            <button
+              onClick={() => setSelectedModeFilter('mindmap')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedModeFilter === 'mindmap'
+                  ? 'bg-white text-blue-700 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Network size={12} />
+              Mind Maps
+            </button>
+            <button
+              onClick={() => setSelectedModeFilter('flowchart')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                selectedModeFilter === 'flowchart'
+                  ? 'bg-white text-emerald-700 shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <GitFork size={12} />
+              Flowcharts
+            </button>
+          </div>
+
+          <div className="relative w-72">
+            <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search library titles and nodes..."
+              className="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+          </div>
+        </section>
+
         {/* Signature Motion: Library Focus Grid */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -81,7 +191,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
               Recent Documents (Signature Motion: Focus & Recede)
             </div>
             <div className="text-xs text-slate-400">
-              Hover cards to observe restrained elevation &amp; contextual recession
+              {filteredDocs.length} {filteredDocs.length === 1 ? 'document' : 'documents'} found
             </div>
           </div>
 
@@ -89,7 +199,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
             className="grid grid-cols-3 gap-6 group/library-grid"
             data-testid="library-card-grid"
           >
-            {recentDocuments.map((doc) => {
+            {filteredDocs.map((doc) => {
               const isHovered = hoveredDocId === doc.id;
               const isAnyHovered = hoveredDocId !== null;
               const isReceded = isAnyHovered && !isHovered;
