@@ -1,0 +1,50 @@
+/* Signature Motion Animations */
+
+@keyframes nodeBirth {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(6px);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.04) translateY(-1px);
+    box-shadow: 0 0 12px 2px rgba(59, 130, 246, 0.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  }
+}
+
+.animate-node-birth {
+  animation: nodeBirth 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-node-birth {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* React Flow custom styling adjustments */
+.react-flow__handle {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.react-flow__handle:hover {
+  transform: scale(1.3);
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #3b82f6 !important;
+  stroke-width: 3px !important;
+}
