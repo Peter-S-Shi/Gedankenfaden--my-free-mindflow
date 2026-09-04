@@ -1,7 +1,7 @@
 import React from 'react';
 import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
-import { PanelRightClose, RotateCcw, Palette, Layers, Sparkles } from 'lucide-react';
+import { PanelRightClose, RotateCcw, Palette, Layers, Sparkles, Image as ImageIcon, Trash2, Upload } from 'lucide-react';
 
 interface InspectorPanelProps {
   document: CanonicalDocument;
@@ -259,6 +259,53 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   className="w-28"
                 />
               </div>
+            </div>
+
+            {/* Embedded Node Image Attachment */}
+            <div className="pt-2 border-t border-slate-200">
+              <label className="text-[11px] font-semibold text-slate-600 block mb-1.5 flex items-center gap-1.5">
+                <ImageIcon size={12} className="text-blue-500" />
+                Image Attachment
+              </label>
+
+              {selectedNode.assetRef ? (
+                <div className="space-y-2">
+                  <div className="w-full h-24 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={selectedNode.assetRef}
+                      alt="Attachment Preview"
+                      className="h-full object-contain"
+                    />
+                  </div>
+                  <button
+                    onClick={() => onUpdateNode(selectedNode.id, { assetRef: undefined })}
+                    className="w-full py-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-medium rounded-lg border border-rose-200 transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Trash2 size={12} />
+                    Remove Image
+                  </button>
+                </div>
+              ) : (
+                <label className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 border-dashed transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Upload size={13} className="text-slate-500" />
+                  <span>Attach Image...</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const dataUrl = ev.target?.result as string;
+                        onUpdateNode(selectedNode.id, { assetRef: dataUrl });
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                </label>
+              )}
             </div>
 
             {/* Visual Group Container */}

@@ -21,7 +21,20 @@ import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme } from '
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
-import { exportToJSON, exportToSVG } from '../export/exporter';
+import {
+  exportToJSON,
+  exportToSVG,
+  exportToPNG,
+  exportToJPEG,
+  exportToPDF,
+  exportToMarkdown,
+  exportToHTML,
+  exportToMermaid,
+  exportToOPML,
+  exportToLegacyMindMapXML,
+  exportToJSONCanvas,
+} from '../export/exporter';
+import { importFromMarkdown, importFromOPML } from '../model/importers';
 import { packageDocumentToMflow, parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
@@ -46,6 +59,7 @@ import {
   GitFork,
   Layers,
   CornerDownRight,
+  ChevronDown,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -80,6 +94,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   // 3-Pane workspace shell visibility
   const [isOutlineOpen, setIsOutlineOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Focus node helper
   const focusNodeOnCanvas = useCallback(
@@ -851,53 +866,103 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Saved to local storage');
   }, [nodes, edges, doc, onSaveDocument]);
 
-  const handleExportJSON = useCallback(() => {
-    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-    const json = exportToJSON(currentDoc);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatusMessage('Exported lossless JSON');
-  }, [nodes, edges, doc]);
+  const handleExportFormat = useCallback(
+    async (format: string) => {
+      const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+      const baseName = doc.title.toLowerCase().replace(/\s+/g, '_') || 'gedankenfaden_doc';
 
-  const handleExportSVG = useCallback(() => {
-    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-    const svg = exportToSVG(currentDoc);
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatusMessage('Exported vector SVG');
-  }, [nodes, edges, doc]);
+      let blob: Blob;
+      let filename: string;
 
-  const handleExportMflow = useCallback(() => {
-    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-    const bytes = packageDocumentToMflow(currentDoc, assetStoreRef.current.toBytesMap());
-    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.gedankenfaden.mflow' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${doc.title.toLowerCase().replace(/\s+/g, '_')}.mflow`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatusMessage('Exported .mflow container');
-  }, [nodes, edges, doc]);
+      switch (format) {
+        case 'mflow': {
+          const bytes = packageDocumentToMflow(currentDoc, assetStoreRef.current.toBytesMap());
+          blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.gedankenfaden.mflow' });
+          filename = `${baseName}.mflow`;
+          break;
+        }
+        case 'json': {
+          blob = new Blob([exportToJSON(currentDoc)], { type: 'application/json' });
+          filename = `${baseName}.json`;
+          break;
+        }
+        case 'svg': {
+          blob = new Blob([exportToSVG(currentDoc)], { type: 'image/svg+xml' });
+          filename = `${baseName}.svg`;
+          break;
+        }
+        case 'png': {
+          const bytes = await exportToPNG(currentDoc);
+          blob = new Blob([bytes as unknown as BlobPart], { type: 'image/png' });
+          filename = `${baseName}.png`;
+          break;
+        }
+        case 'jpeg': {
+          const bytes = await exportToJPEG(currentDoc);
+          blob = new Blob([bytes as unknown as BlobPart], { type: 'image/jpeg' });
+          filename = `${baseName}.jpeg`;
+          break;
+        }
+        case 'pdf': {
+          const bytes = await exportToPDF(currentDoc);
+          blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
+          filename = `${baseName}.pdf`;
+          break;
+        }
+        case 'markdown': {
+          blob = new Blob([exportToMarkdown(currentDoc)], { type: 'text/markdown' });
+          filename = `${baseName}.md`;
+          break;
+        }
+        case 'html': {
+          blob = new Blob([exportToHTML(currentDoc)], { type: 'text/html' });
+          filename = `${baseName}.html`;
+          break;
+        }
+        case 'mermaid': {
+          blob = new Blob([exportToMermaid(currentDoc)], { type: 'text/plain' });
+          filename = `${baseName}.mmd`;
+          break;
+        }
+        case 'opml': {
+          blob = new Blob([exportToOPML(currentDoc)], { type: 'text/xml' });
+          filename = `${baseName}.opml`;
+          break;
+        }
+        case 'mm': {
+          blob = new Blob([exportToLegacyMindMapXML(currentDoc)], { type: 'text/xml' });
+          filename = `${baseName}.mm`;
+          break;
+        }
+        case 'canvas': {
+          blob = new Blob([exportToJSONCanvas(currentDoc)], { type: 'application/json' });
+          filename = `${baseName}.canvas`;
+          break;
+        }
+        default:
+          return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setIsExportMenuOpen(false);
+      setStatusMessage(`Exported ${format.toUpperCase()}`);
+    },
+    [nodes, edges, doc]
+  );
 
   const handleImportFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      const isMflow = file.name.endsWith('.mflow');
+      const lower = file.name.toLowerCase();
 
-      if (isMflow) {
+      if (lower.endsWith('.mflow')) {
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
@@ -912,11 +977,47 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             historyRef.current = new HistoryManager(container.document);
             updateHistoryStatus();
             setStatusMessage(`Loaded container: ${container.document.title}`);
-          } catch (err) {
+          } catch {
             setStatusMessage('Failed to parse .mflow container');
           }
         };
         reader.readAsArrayBuffer(file);
+      } else if (lower.endsWith('.md')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const content = event.target?.result as string;
+            const imported = importFromMarkdown(content, file.name.replace(/\.md$/i, ''));
+            setDoc(imported);
+            const projected = canonicalToReactFlow(imported, { onToggleFold: handleToggleFold });
+            setNodes(projected.nodes);
+            setEdges(projected.edges);
+            historyRef.current = new HistoryManager(imported);
+            updateHistoryStatus();
+            setStatusMessage(`Imported Markdown: ${imported.title}`);
+          } catch {
+            setStatusMessage('Failed to import Markdown');
+          }
+        };
+        reader.readAsText(file);
+      } else if (lower.endsWith('.opml')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const content = event.target?.result as string;
+            const imported = importFromOPML(content, file.name.replace(/\.opml$/i, ''));
+            setDoc(imported);
+            const projected = canonicalToReactFlow(imported, { onToggleFold: handleToggleFold });
+            setNodes(projected.nodes);
+            setEdges(projected.edges);
+            historyRef.current = new HistoryManager(imported);
+            updateHistoryStatus();
+            setStatusMessage(`Imported OPML: ${imported.title}`);
+          } catch {
+            setStatusMessage('Failed to import OPML');
+          }
+        };
+        reader.readAsText(file);
       } else {
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -933,7 +1034,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             historyRef.current = new HistoryManager(parsed);
             updateHistoryStatus();
             setStatusMessage(`Loaded: ${parsed.title}`);
-          } catch (err) {
+          } catch {
             setStatusMessage('Failed to load JSON document');
           }
         };
@@ -1255,41 +1356,117 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
           <label className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer">
             <Upload size={14} />
-            Open
+            Import
             <input
               type="file"
-              accept=".mflow,.json"
+              accept=".mflow,.json,.md,.opml"
               onChange={handleImportFile}
               className="hidden"
             />
           </label>
 
-          <button
-            onClick={handleExportMflow}
-            title="Export native container (.mflow)"
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-medium rounded-lg transition-colors"
-          >
-            <Download size={14} />
-            .mflow
-          </button>
+          {/* Multi-Format Export Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsExportMenuOpen((prev) => !prev)}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-medium rounded-lg transition-colors"
+            >
+              <Download size={14} />
+              Export
+              <ChevronDown size={12} />
+            </button>
 
-          <button
-            onClick={handleExportJSON}
-            title="Export JSON"
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-          >
-            <Download size={14} />
-            JSON
-          </button>
+            {isExportMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 text-xs">
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Native Package
+                </div>
+                <button
+                  onClick={() => handleExportFormat('mflow')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span className="font-medium">.mflow Container</span>
+                  <span className="text-[10px] text-slate-400">Single File</span>
+                </button>
 
-          <button
-            onClick={handleExportSVG}
-            title="Export Vector SVG"
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-          >
-            <Download size={14} />
-            SVG
-          </button>
+                <div className="my-1 border-t border-slate-100" />
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Visual & Document
+                </div>
+                <button
+                  onClick={() => handleExportFormat('svg')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Vector SVG (.svg)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('png')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Raster PNG (.png)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('jpeg')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Raster JPEG (.jpeg)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('pdf')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>PDF Document (.pdf)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('html')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Interactive HTML (.html)</span>
+                </button>
+
+                <div className="my-1 border-t border-slate-100" />
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Outline & Interop
+                </div>
+                <button
+                  onClick={() => handleExportFormat('markdown')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Markdown Outline (.md)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('mermaid')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Mermaid Diagram (.mmd)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('opml')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>OPML Outline (.opml)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('mm')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Legacy Mind-Map XML (.mm)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('canvas')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>JSON Canvas (.canvas)</span>
+                </button>
+                <button
+                  onClick={() => handleExportFormat('json')}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                >
+                  <span>Canonical JSON (.json)</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           <div className="h-4 w-px bg-slate-200" />
 

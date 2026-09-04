@@ -1,7 +1,7 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 4 Implementation Complete (Local Verification Gate Passed)  
-**Current Milestone**: Milestone 4: Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine  
+**Current State**: Milestone 5 Implementation Complete — V1 Feature Freeze Reached (Local Verification Gate Passed)  
+**Current Milestone**: Milestone 5: Structured Import, Multi-Format Export & Node Image Pipeline (FEATURE FREEZE)  
 **Active Branch**: `feature/v1-autonomous-development`  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-04  
@@ -19,8 +19,9 @@
 | **M2 Mind Map & Keyboard First** | **Completed (PASS)** | Centered Bidirectional Layout, Multiline Paste, Numbering |
 | **M3 Flowchart & Group Containers** | **Completed (PASS)** | Orthogonal Routing, Standard Shapes, Waypoints, Group Containers |
 | **M4 Hybrid Library & Recovery** | **Completed (PASS)** | Debounced Autosave, Atomic Writes, Crash Recovery, Rolling Snapshots |
+| **M5 Structured Import & Export** | **Completed (PASS)** | Markdown/OPML Importers, 11 Exporters Matrix, Image Node Pipeline |
 | **Architecture Decisions** | **Completed & Incorporated** | Distilled into `ARCHITECTURE.md` |
-| **V1 Feature Intake** | **Strictly Closed** | `PRODUCT_SPEC.md` |
+| **V1 Feature Freeze** | **FROZEN (Feature Complete)** | All M1–M5 Features Implemented & Verified |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
 | **Architecture Freeze** | **FROZEN** | `ARCHITECTURE.md` |
 | **Milestone Roadmap** | **Frozen (M0–M7)** | `ROADMAP.md` |
@@ -56,9 +57,9 @@
 3. **Explicit Implementation-Verification Items (To Be Executed in Upcoming Milestones)**:
    - *Tauri 2 Native Packaging*: Configuration and native bridge scaffolded in M4 (`src-tauri/Cargo.toml`, `tauri.conf.json`, `main.rs`, `capabilities/default.json`, `tauriBridge.ts`).
    - *Centered Bidirectional Layout Algorithm*: Verified in M2 (`layoutMindMapDocument` with balanced wings, LR/RL/TB presets, and manual offset retention).
-   - *`.mflow` Single-File Packager & Asset Extraction*: Verified in M1 (`packageDocumentToMflow` / `parseMflowFromBytes` with pure JS `fflate` ZIP container).
+   - *`.mflow` Single-File Packager & Asset Extraction*: Verified in M1 & M5 (`packageDocumentToMflow` / `parseMflowFromBytes` with pure JS `fflate` ZIP container).
    - *Autosave & Local Snapshot Rotator*: Verified in M4 (`AutoSaveEngine`, `atomicWriteTextFile`, `saveRollingSnapshot`, `detectCrashOrUnsaved`, `restoreDocumentFromSnapshot`).
-   - *Structured Import & Remaining Exporters*: To be implemented and verified in M5.
+   - *Structured Import & 11 Exporters Matrix*: Verified in M5 (`importFromMarkdown`, `importFromOPML`, 11 export formats in `exporter.ts`, node image asset pipeline).
    - *Flowchart Graph-Specific Keyboard Mappings & Shape Family*: Verified in M3 (Enter downstream, Shift+Enter upstream, Tab branch, Arrow navigation along graph edges, orthogonal routing with fillets and loopbacks, visual group containers).
    - *Performance Budgets on Reference Hardware*: To be validated during M6 Product Hardening.
 
@@ -73,8 +74,8 @@
 | **M2** | Mind Map Experience, Centered Bidirectional Layout & Keyboard-First Interaction | **COMPLETED (PASS)** | Complete |
 | **M3** | Flowchart Engine, Orthogonal Routing & Visual Group Containers | **COMPLETED (PASS)** | Complete |
 | **M4** | Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine | **COMPLETED (PASS)** | Complete |
-| **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | **Active Next Milestone** | Ready to begin |
-| **M6** | Product Hardening, Performance & Edge-Case Polish | Planned | M5 (Feature Freeze) |
+| **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | **COMPLETED (PASS)** | **FEATURE FREEZE REACHED** |
+| **M6** | Product Hardening, Performance & Edge-Case Polish | Planned | Feature Freeze Verification |
 | **M7** | Release Candidate, Packaging QA & Maintenance Transition | Planned | M6 |
 
 ---
@@ -91,6 +92,6 @@
 
 ## 5. Next Operational Steps
 
-1. Commit and push Milestone 4 checkpoint to `origin feature/v1-autonomous-development`.
-2. Await green GitHub Actions CI run for Milestone 4 checkpoint.
-3. Advance to **Milestone 5 (Structured Import, Multi-Format Export & Node Image Pipeline)**.
+1. Commit and push Milestone 5 checkpoint to `origin feature/v1-autonomous-development`.
+2. Await green GitHub Actions CI run for Milestone 5 checkpoint.
+3. Formally declare **V1 Feature Freeze**. As instructed in master prompt authorization, STOP at Feature Freeze and do NOT enter Milestone 6 without explicit user direction.

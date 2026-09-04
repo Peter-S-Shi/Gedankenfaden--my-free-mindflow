@@ -144,35 +144,48 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
       {/* Node Content Container */}
       <div
-        className="relative z-10 flex items-center justify-center text-center w-full gap-1.5 px-1"
+        className="relative z-10 flex flex-col items-center justify-center text-center w-full gap-1 px-1"
         style={{ fontSize: `${visuals.fontSize}px` }}
       >
-        {/* Dynamic Branch Numbering Badge */}
-        {numberingBadge && (
-          <span
-            className="text-[11px] font-bold text-slate-500 bg-slate-100/90 dark:bg-slate-800/80 px-1 py-0.5 rounded select-none shrink-0"
-            title="Structural Presentation Numbering"
-          >
-            {numberingBadge}
-          </span>
+        {/* Embedded Node Image Asset */}
+        {nodeData.assetRef && (
+          <div className="w-full max-h-28 mb-1 overflow-hidden rounded flex items-center justify-center bg-slate-50">
+            <img
+              src={nodeData.assetRef}
+              alt="Node Asset"
+              className="max-h-28 max-w-full object-contain rounded"
+            />
+          </div>
         )}
 
-        {isEditing ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            className="w-full text-center bg-transparent border-none outline-none font-medium"
-            style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
-          />
-        ) : (
-          <span className="font-medium tracking-tight select-none break-words">
-            {text}
-          </span>
-        )}
+        <div className="flex items-center justify-center text-center w-full gap-1.5">
+          {/* Dynamic Branch Numbering Badge */}
+          {numberingBadge && (
+            <span
+              className="text-[11px] font-bold text-slate-500 bg-slate-100/90 dark:bg-slate-800/80 px-1 py-0.5 rounded select-none shrink-0"
+              title="Structural Presentation Numbering"
+            >
+              {numberingBadge}
+            </span>
+          )}
+
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className="w-full text-center bg-transparent border-none outline-none font-medium"
+              style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
+            />
+          ) : (
+            <span className="font-medium tracking-tight select-none break-words">
+              {text}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Branch Fold/Unfold Indicator */}
