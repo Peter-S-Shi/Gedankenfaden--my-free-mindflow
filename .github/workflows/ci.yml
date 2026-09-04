@@ -6,6 +6,7 @@ on:
       - main
       - 'feature/**'
       - 'milestone/**'
+      - 'hardening/**'
   pull_request:
     branches:
       - main
