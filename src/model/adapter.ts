@@ -2,6 +2,7 @@ import type { Node, Edge } from '@xyflow/react';
 import { CanonicalDocument, CanonicalNode, CanonicalEdge, NodeShape } from './types';
 import { cloneDocument } from './document';
 import { resolveNodeVisuals, BUILTIN_THEMES, ResolvedNodeVisuals } from './theme';
+import { computeDocumentNumbering } from './numbering';
 
 export interface CustomNodeData extends Record<string, unknown> {
   label: string;
@@ -14,30 +15,76 @@ export interface CustomNodeData extends Record<string, unknown> {
   parentId?: string;
   isNewBorn?: boolean;
   visuals?: ResolvedNodeVisuals;
+  numberingBadge?: string;
+  hasChildren?: boolean;
+  childCount?: number;
+  onToggleFold?: (nodeId: string) => void;
 }
 
-export function canonicalToReactFlow(doc: CanonicalDocument): {
+export function canonicalToReactFlow(
+  doc: CanonicalDocument,
+  callbacks?: { onToggleFold?: (nodeId: string) => void }
+): {
   nodes: Node<CustomNodeData>[];
   edges: Edge[];
 } {
   const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
+  const numberingMap = computeDocumentNumbering(doc);
+
+  // Identify collapsed nodes and their descendant tree
+  const collapsedNodeIds = new Set<string>();
+  const childrenMap = new Map<string, string[]>();
+
+  for (const n of doc.nodes) {
+    if (n.collapsed) {
+      collapsedNodeIds.add(n.id);
+    }
+    if (n.parentId) {
+      const list = childrenMap.get(n.parentId) || [];
+      list.push(n.id);
+      childrenMap.set(n.parentId, list);
+    }
+  }
+
+  const hiddenNodeIds = new Set<string>();
+  if (collapsedNodeIds.size > 0) {
+    const hideDescendants = (parentId: string) => {
+      const children = childrenMap.get(parentId) || [];
+      for (const childId of children) {
+        hiddenNodeIds.add(childId);
+        hideDescendants(childId);
+      }
+    };
+    for (const cId of collapsedNodeIds) {
+      hideDescendants(cId);
+    }
+  }
 
   const nodes: Node<CustomNodeData>[] = doc.nodes.map((n) => {
     const visuals = resolveNodeVisuals(n, theme);
+    const directChildren = childrenMap.get(n.id) || [];
+    const hasChildren = directChildren.length > 0;
+    const isHidden = hiddenNodeIds.has(n.id);
+
     return {
       id: n.id,
       type: 'customNode',
       position: { x: n.geometry.x, y: n.geometry.y },
+      hidden: isHidden,
       data: {
         label: n.text,
         nodeType: n.type,
         style: n.style,
         shape: n.shape || visuals.shape,
         assetRef: n.assetRef,
-        collapsed: n.collapsed,
+        collapsed: Boolean(n.collapsed),
         manualOffset: n.manualOffset,
         parentId: n.parentId,
         visuals,
+        numberingBadge: numberingMap.get(n.id),
+        hasChildren,
+        childCount: directChildren.length,
+        onToggleFold: callbacks?.onToggleFold,
         ...(n.data || {}),
       },
       style: {
@@ -48,18 +95,25 @@ export function canonicalToReactFlow(doc: CanonicalDocument): {
   });
 
   const defaultEdgeColor = theme.edgeColor || '#94a3b8';
-  const edges: Edge[] = doc.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    type: e.type || (doc.mode === 'mindmap' ? 'smoothstep' : 'bezier'),
-    animated: false,
-    style: {
-      stroke: e.style?.stroke || defaultEdgeColor,
-      strokeWidth: e.style?.strokeWidth || 2,
-    },
-  }));
+  const edges: Edge[] = doc.edges.map((e) => {
+    const isHidden = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target);
+
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+      label: e.label,
+      type: e.type || (doc.mode === 'mindmap' ? 'smoothstep' : 'bezier'),
+      animated: false,
+      hidden: isHidden,
+      style: {
+        stroke: e.style?.stroke || defaultEdgeColor,
+        strokeWidth: e.style?.strokeWidth || 2,
+      },
+    };
+  });
 
   return { nodes, edges };
 }
@@ -103,6 +157,8 @@ export function reactFlowToCanonical(
       id: re.id,
       source: re.source,
       target: re.target,
+      sourceHandle: re.sourceHandle || existing?.sourceHandle,
+      targetHandle: re.targetHandle || existing?.targetHandle,
       label: typeof re.label === 'string' ? re.label : existing?.label,
       type: (re.type as CanonicalEdge['type']) || existing?.type || 'smoothstep',
       style: existing?.style,

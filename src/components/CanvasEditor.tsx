@@ -17,14 +17,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { CanonicalDocument, CanonicalNode, DocumentTheme } from '../model/types';
+import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme } from '../model/types';
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
-import { autoLayoutDocument } from '../model/layout';
+import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
 import { exportToJSON, exportToSVG } from '../export/exporter';
 import { packageDocumentToMflow, parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
+import { parseMultilineToTree } from '../model/pasteParser';
 import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
@@ -41,6 +42,7 @@ import {
   FolderSync,
   PanelLeft,
   PanelRight,
+  GitFork,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -64,14 +66,62 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
+  const [layoutPreset, setLayoutPreset] = useState<LayoutOptions['preset']>('balanced');
+
+  // Internal clipboard for branch copy/cut/paste
+  const clipboardSubtreeRef = useRef<{
+    nodes: CanonicalNode[];
+    edges: CanonicalEdge[];
+  } | null>(null);
 
   // 3-Pane workspace shell visibility
   const [isOutlineOpen, setIsOutlineOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
 
+  // Focus node helper
+  const focusNodeOnCanvas = useCallback(
+    (nodeId: string, customNodes?: Node<CustomNodeData>[]) => {
+      const targetList = customNodes || [];
+      const target = targetList.find((n) => n.id === nodeId);
+      if (target && rfInstanceRef.current) {
+        rfInstanceRef.current.setCenter(
+          target.position.x + (typeof target.style?.width === 'number' ? target.style.width / 2 : 75),
+          target.position.y + (typeof target.style?.height === 'number' ? target.style.height / 2 : 22),
+          { zoom: 1.1, duration: 300 }
+        );
+      }
+    },
+    []
+  );
+
+  // Fold / Unfold branch callback
+  const handleToggleFold = useCallback(
+    (nodeId: string) => {
+      setDoc((prevDoc) => {
+        const nextNodes = prevDoc.nodes.map((n) =>
+          n.id === nodeId ? { ...n, collapsed: !n.collapsed } : n
+        );
+        const updatedDoc: CanonicalDocument = {
+          ...prevDoc,
+          nodes: nextNodes,
+          updatedAt: new Date().toISOString(),
+        };
+        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset });
+        const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        historyRef.current.pushState(layouted);
+        updateHistoryStatus();
+        return layouted;
+      });
+      setStatusMessage('Toggled branch fold');
+    },
+    [layoutPreset]
+  );
+
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => canonicalToReactFlow(initialDocument),
-    [initialDocument]
+    () => canonicalToReactFlow(initialDocument, { onToggleFold: handleToggleFold }),
+    [initialDocument, handleToggleFold]
   );
   const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
@@ -162,128 +212,442 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           selected: n.id === nodeId,
         }))
       );
-
-      const target = nodes.find((n) => n.id === nodeId);
-      if (target && rfInstanceRef.current) {
-        rfInstanceRef.current.setCenter(
-          target.position.x + (typeof target.style?.width === 'number' ? target.style.width / 2 : 75),
-          target.position.y + (typeof target.style?.height === 'number' ? target.style.height / 2 : 22),
-          { zoom: 1.2, duration: 400 }
-        );
-      }
+      focusNodeOnCanvas(nodeId, nodes);
     },
-    [nodes]
+    [nodes, focusNodeOnCanvas]
   );
 
-  // Signature Motion Track B: Node Birth interaction
-  const handleAddNode = useCallback(() => {
-    const selectedNode = nodes.find((n) => n.selected);
-    const newId = `node_${Date.now()}`;
-    let newX = 400;
-    let newY = 300;
-    let parentId: string | undefined = undefined;
+  // Apply auto-layout with preset
+  const handleAutoLayoutWithPreset = useCallback(
+    (preset: LayoutOptions['preset']) => {
+      setLayoutPreset(preset);
+      const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+      const layoutedDoc = autoLayoutDocument(currentDoc, { preset });
+      const projected = canonicalToReactFlow(layoutedDoc, { onToggleFold: handleToggleFold });
 
-    if (selectedNode) {
-      newX = selectedNode.position.x + (doc.mode === 'mindmap' ? 220 : 0);
-      newY = selectedNode.position.y + (doc.mode === 'mindmap' ? 40 : 120);
-      parentId = selectedNode.id;
-    }
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      setDoc(layoutedDoc);
+      historyRef.current.pushState(layoutedDoc);
+      updateHistoryStatus();
+      setStatusMessage(`Layout: ${preset || 'Balanced'}`);
+    },
+    [nodes, edges, doc, updateHistoryStatus, handleToggleFold]
+  );
 
-    const newNode: Node<CustomNodeData> = {
-      id: newId,
-      type: 'customNode',
-      position: { x: newX, y: newY },
-      data: {
-        label: doc.mode === 'mindmap' ? 'Sub Idea' : 'Process Step',
-        nodeType: 'default',
+  // Keyboard Contract: Add Sibling Node (Enter / Shift+Enter)
+  const handleAddSiblingNode = useCallback(
+    (direction: 'below' | 'above' = 'below') => {
+      const selected = doc.nodes.find((n) => n.id === selectedNodeId);
+      if (!selected) return;
+
+      const isRoot = selected.type === 'root' || !selected.parentId;
+      const parentId = isRoot ? selected.id : selected.parentId;
+      const newId = `node_${Date.now()}`;
+
+      const newNode: CanonicalNode = {
+        id: newId,
+        text: 'New Topic',
+        geometry: { x: selected.geometry.x + 100, y: selected.geometry.y + 40, width: 140, height: 44 },
+        type: 'default',
         parentId,
-        isNewBorn: true,
-      },
-      style: { width: 140, height: 44 },
+      };
+
+      const newEdge: CanonicalEdge = {
+        id: `edge_${parentId}_${newId}`,
+        source: parentId!,
+        target: newId,
+        type: 'smoothstep',
+      };
+
+      let nextNodes = [...doc.nodes];
+      if (isRoot) {
+        nextNodes.push(newNode);
+      } else {
+        const index = nextNodes.findIndex((n) => n.id === selected.id);
+        const insertIndex = direction === 'below' ? index + 1 : index;
+        nextNodes.splice(insertIndex, 0, newNode);
+      }
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: nextNodes,
+        edges: [...doc.edges, newEdge],
+        updatedAt: new Date().toISOString(),
+      };
+
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+
+      const updatedRfNodes = projected.nodes.map((n) => ({
+        ...n,
+        selected: n.id === newId,
+      }));
+
+      setDoc(layouted);
+      setNodes(updatedRfNodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      focusNodeOnCanvas(newId, updatedRfNodes);
+      setStatusMessage(`Created sibling (${direction})`);
+    },
+    [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]
+  );
+
+  // Keyboard Contract: Add Child Node (Tab)
+  const handleAddChildNode = useCallback(() => {
+    const selected = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!selected) return;
+
+    const newId = `node_${Date.now()}`;
+    const newNode: CanonicalNode = {
+      id: newId,
+      text: 'Sub Topic',
+      geometry: { x: selected.geometry.x + 180, y: selected.geometry.y, width: 140, height: 44 },
+      type: 'default',
+      parentId: selected.id,
     };
 
-    let nextEdges = [...edges];
-    if (selectedNode) {
-      const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
-      const newEdge: Edge = {
-        id: `edge_${selectedNode.id}_${newId}`,
-        source: selectedNode.id,
-        target: newId,
-        type: doc.mode === 'mindmap' ? 'smoothstep' : 'bezier',
-        style: { stroke: theme.edgeColor || '#3b82f6', strokeWidth: 2 },
+    const newEdge: CanonicalEdge = {
+      id: `edge_${selected.id}_${newId}`,
+      source: selected.id,
+      target: newId,
+      type: 'smoothstep',
+    };
+
+    // Unfold parent if it was collapsed
+    const nextNodes = doc.nodes.map((n) =>
+      n.id === selected.id ? { ...n, collapsed: false } : n
+    );
+    nextNodes.push(newNode);
+
+    const nextDoc: CanonicalDocument = {
+      ...doc,
+      nodes: nextNodes,
+      edges: [...doc.edges, newEdge],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+    const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+
+    const updatedRfNodes = projected.nodes.map((n) => ({
+      ...n,
+      selected: n.id === newId,
+    }));
+
+    setDoc(layouted);
+    setNodes(updatedRfNodes);
+    setEdges(projected.edges);
+    historyRef.current.pushState(layouted);
+    updateHistoryStatus();
+    focusNodeOnCanvas(newId, updatedRfNodes);
+    setStatusMessage('Created child node (Tab)');
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]);
+
+  // Keyboard Contract: Delete Branch Subtree (Del / Backspace)
+  const handleDeleteSelectedSubtree = useCallback(() => {
+    if (!selectedNodeId) return;
+
+    const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!targetNode) return;
+
+    // Do not delete central root if it's the only one
+    if (targetNode.type === 'root' && doc.nodes.filter((n) => n.type === 'root').length <= 1) {
+      // Clear children instead of deleting root
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: [targetNode],
+        edges: [],
+        updatedAt: new Date().toISOString(),
       };
-      nextEdges.push(newEdge);
-    }
-
-    const nextNodes = [...nodes, newNode];
-    setNodes(nextNodes);
-    setEdges(nextEdges);
-    syncToCanonical(nextNodes, nextEdges, true);
-    setStatusMessage('Added node');
-
-    setTimeout(() => {
-      setNodes((currentNodes) =>
-        currentNodes.map((n) =>
-          n.id === newId ? { ...n, data: { ...n.data, isNewBorn: false } } : n
-        )
-      );
-    }, 400);
-  }, [nodes, edges, doc.mode, doc.theme, syncToCanonical]);
-
-  const handleDeleteSelected = useCallback(() => {
-    const selectedNodeIds = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
-    if (selectedNodeIds.size === 0) {
-      setStatusMessage('Select a node to delete');
+      setDoc(nextDoc);
+      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setStatusMessage('Cleared branches from root');
       return;
     }
 
-    const nextNodes = nodes.filter((n) => !selectedNodeIds.has(n.id));
-    const nextEdges = edges.filter(
-      (e) => !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target)
+    // Collect target node and all recursive descendants
+    const deletedIds = new Set<string>([selectedNodeId]);
+    const childrenMap = new Map<string, string[]>();
+    for (const n of doc.nodes) {
+      if (n.parentId) {
+        const list = childrenMap.get(n.parentId) || [];
+        list.push(n.id);
+        childrenMap.set(n.parentId, list);
+      }
+    }
+
+    const collectDescendants = (pId: string) => {
+      const ch = childrenMap.get(pId) || [];
+      for (const c of ch) {
+        deletedIds.add(c);
+        collectDescendants(c);
+      }
+    };
+    collectDescendants(selectedNodeId);
+
+    const nextNodes = doc.nodes.filter((n) => !deletedIds.has(n.id));
+    const nextEdges = doc.edges.filter(
+      (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
     );
 
-    setNodes(nextNodes);
-    setEdges(nextEdges);
-    syncToCanonical(nextNodes, nextEdges, true);
-    setStatusMessage(`Deleted ${selectedNodeIds.size} node(s)`);
-  }, [nodes, edges, syncToCanonical]);
+    const parentToSelect = targetNode.parentId || (nextNodes[0] ? nextNodes[0].id : null);
 
-  const handleAutoLayout = useCallback(() => {
-    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-    const layoutedDoc = autoLayoutDocument(currentDoc);
-    const projected = canonicalToReactFlow(layoutedDoc);
+    const nextDoc: CanonicalDocument = {
+      ...doc,
+      nodes: nextNodes,
+      edges: nextEdges,
+      updatedAt: new Date().toISOString(),
+    };
 
-    setNodes(projected.nodes);
+    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+    const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+
+    const updatedRfNodes = projected.nodes.map((n) => ({
+      ...n,
+      selected: n.id === parentToSelect,
+    }));
+
+    setDoc(layouted);
+    setNodes(updatedRfNodes);
     setEdges(projected.edges);
-    setDoc(layoutedDoc);
-    historyRef.current.pushState(layoutedDoc);
+    historyRef.current.pushState(layouted);
     updateHistoryStatus();
-    setStatusMessage('Auto-layout applied (Dagre)');
-  }, [nodes, edges, doc, updateHistoryStatus]);
+    setStatusMessage(`Deleted branch (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
+
+  // Spatial / Hierarchical Arrow Navigation
+  const handleArrowNavigation = useCallback(
+    (arrowKey: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') => {
+      if (doc.nodes.length === 0) return;
+
+      const currentNode = doc.nodes.find((n) => n.id === selectedNodeId) || doc.nodes[0];
+      const rootNode = doc.nodes.find((n) => n.type === 'root') || doc.nodes[0];
+
+      // Build hierarchy lookups
+      const childrenMap = new Map<string, CanonicalNode[]>();
+      for (const n of doc.nodes) {
+        if (n.parentId) {
+          const list = childrenMap.get(n.parentId) || [];
+          list.push(n);
+          childrenMap.set(n.parentId, list);
+        }
+      }
+
+      let targetId: string | null = null;
+      const isRoot = currentNode.id === rootNode.id;
+      const isRightWing = currentNode.geometry.x >= rootNode.geometry.x;
+
+      if (arrowKey === 'ArrowUp' || arrowKey === 'ArrowDown') {
+        if (currentNode.parentId) {
+          const siblings = childrenMap.get(currentNode.parentId) || [];
+          const idx = siblings.findIndex((s) => s.id === currentNode.id);
+          if (arrowKey === 'ArrowUp' && idx > 0) {
+            targetId = siblings[idx - 1].id;
+          } else if (arrowKey === 'ArrowDown' && idx < siblings.length - 1) {
+            targetId = siblings[idx + 1].id;
+          }
+        }
+      } else if (arrowKey === 'ArrowRight') {
+        if (isRoot) {
+          const children = childrenMap.get(rootNode.id) || [];
+          const rightChild = children.find((c) => c.geometry.x >= rootNode.geometry.x) || children[0];
+          targetId = rightChild ? rightChild.id : null;
+        } else if (isRightWing) {
+          const children = childrenMap.get(currentNode.id) || [];
+          if (children.length > 0) targetId = children[0].id;
+        } else {
+          // In Left wing, Right points to parent
+          targetId = currentNode.parentId || rootNode.id;
+        }
+      } else if (arrowKey === 'ArrowLeft') {
+        if (isRoot) {
+          const children = childrenMap.get(rootNode.id) || [];
+          const leftChild = children.find((c) => c.geometry.x < rootNode.geometry.x) || children[children.length - 1];
+          targetId = leftChild ? leftChild.id : null;
+        } else if (!isRightWing) {
+          // In Left wing, Left points to child
+          const children = childrenMap.get(currentNode.id) || [];
+          if (children.length > 0) targetId = children[0].id;
+        } else {
+          // In Right wing, Left points to parent
+          targetId = currentNode.parentId || rootNode.id;
+        }
+      }
+
+      if (targetId && targetId !== currentNode.id) {
+        setNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            selected: n.id === targetId,
+          }))
+        );
+        focusNodeOnCanvas(targetId, nodes);
+      }
+    },
+    [doc.nodes, selectedNodeId, nodes, focusNodeOnCanvas]
+  );
+
+  // Copy branch subtree
+  const handleCopyBranch = useCallback(() => {
+    if (!selectedNodeId) return;
+
+    const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!targetNode) return;
+
+    const subtreeNodeIds = new Set<string>([selectedNodeId]);
+    const childrenMap = new Map<string, string[]>();
+    for (const n of doc.nodes) {
+      if (n.parentId) {
+        const list = childrenMap.get(n.parentId) || [];
+        list.push(n.id);
+        childrenMap.set(n.parentId, list);
+      }
+    }
+    const collectDescendants = (pId: string) => {
+      const ch = childrenMap.get(pId) || [];
+      for (const c of ch) {
+        subtreeNodeIds.add(c);
+        collectDescendants(c);
+      }
+    };
+    collectDescendants(selectedNodeId);
+
+    const subtreeNodes = doc.nodes.filter((n) => subtreeNodeIds.has(n.id));
+    const subtreeEdges = doc.edges.filter(
+      (e) => subtreeNodeIds.has(e.source) && subtreeNodeIds.has(e.target)
+    );
+
+    clipboardSubtreeRef.current = { nodes: subtreeNodes, edges: subtreeEdges };
+    setStatusMessage(`Copied branch (${subtreeNodes.length} node${subtreeNodes.length > 1 ? 's' : ''})`);
+  }, [doc, selectedNodeId]);
+
+  // Cut branch subtree
+  const handleCutBranch = useCallback(() => {
+    handleCopyBranch();
+    handleDeleteSelectedSubtree();
+    setStatusMessage('Cut branch to clipboard');
+  }, [handleCopyBranch, handleDeleteSelectedSubtree]);
+
+  // Paste branch or multiline text
+  const handlePaste = useCallback(async () => {
+    if (!selectedNodeId) return;
+
+    const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!targetNode) return;
+
+    let clipboardText = '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        clipboardText = await navigator.clipboard.readText();
+      }
+    } catch {
+      // Browser clipboard read permission might not be granted
+    }
+
+    // Check if clipboard text has multiple lines
+    if (clipboardText && clipboardText.trim().includes('\n')) {
+      const parsed = parseMultilineToTree(clipboardText, targetNode.id, targetNode.geometry);
+      if (parsed.nodes.length > 0) {
+        const nextDoc: CanonicalDocument = {
+          ...doc,
+          nodes: [...doc.nodes, ...parsed.nodes],
+          edges: [...doc.edges, ...parsed.edges],
+          updatedAt: new Date().toISOString(),
+        };
+        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+        const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+
+        setDoc(layouted);
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        historyRef.current.pushState(layouted);
+        updateHistoryStatus();
+        setStatusMessage(`Pasted multiline structure (${parsed.nodes.length} nodes)`);
+        return;
+      }
+    }
+
+    // Otherwise paste from internal branch clipboard
+    if (clipboardSubtreeRef.current) {
+      const { nodes: subNodes, edges: subEdges } = clipboardSubtreeRef.current;
+      const idMap = new Map<string, string>();
+      const now = Date.now();
+
+      subNodes.forEach((n, idx) => {
+        idMap.set(n.id, `node_paste_${now}_${idx}`);
+      });
+
+      const rootOfSubtree = subNodes[0];
+      const clonedNodes: CanonicalNode[] = subNodes.map((n) => ({
+        ...n,
+        id: idMap.get(n.id)!,
+        parentId: n.id === rootOfSubtree.id ? targetNode.id : idMap.get(n.parentId || '') || targetNode.id,
+      }));
+
+      const clonedEdges: CanonicalEdge[] = subEdges.map((e, idx) => ({
+        ...e,
+        id: `edge_paste_${now}_${idx}`,
+        source: idMap.get(e.source)!,
+        target: idMap.get(e.target)!,
+      }));
+
+      // Edge connecting target to root of pasted subtree
+      clonedEdges.push({
+        id: `edge_connect_${now}`,
+        source: targetNode.id,
+        target: idMap.get(rootOfSubtree.id)!,
+        type: 'smoothstep',
+      });
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: [...doc.nodes, ...clonedNodes],
+        edges: [...doc.edges, ...clonedEdges],
+        updatedAt: new Date().toISOString(),
+      };
+
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+
+      setDoc(layouted);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      setStatusMessage(`Pasted branch subtree (${clonedNodes.length} nodes)`);
+    }
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
 
   const handleUndo = useCallback(() => {
     const prev = historyRef.current.undo();
     if (prev) {
       setDoc(prev);
-      const projected = canonicalToReactFlow(prev);
+      const projected = canonicalToReactFlow(prev, { onToggleFold: handleToggleFold });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       updateHistoryStatus();
       setStatusMessage('Undo');
     }
-  }, [updateHistoryStatus]);
+  }, [updateHistoryStatus, handleToggleFold]);
 
   const handleRedo = useCallback(() => {
     const next = historyRef.current.redo();
     if (next) {
       setDoc(next);
-      const projected = canonicalToReactFlow(next);
+      const projected = canonicalToReactFlow(next, { onToggleFold: handleToggleFold });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       updateHistoryStatus();
       setStatusMessage('Redo');
     }
-  }, [updateHistoryStatus]);
+  }, [updateHistoryStatus, handleToggleFold]);
 
   // Update theme from Inspector
   const handleUpdateTheme = useCallback(
@@ -294,14 +658,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       setDoc(nextDoc);
-      const projected = canonicalToReactFlow(nextDoc);
+      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       historyRef.current.pushState(nextDoc);
       updateHistoryStatus();
       setStatusMessage(`Theme applied: ${theme.name}`);
     },
-    [doc, updateHistoryStatus]
+    [doc, updateHistoryStatus, handleToggleFold]
   );
 
   // Update node style or shape from Inspector
@@ -313,13 +677,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       setDoc(nextDoc);
-      const projected = canonicalToReactFlow(nextDoc);
+      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       historyRef.current.pushState(nextDoc);
       updateHistoryStatus();
     },
-    [doc, updateHistoryStatus]
+    [doc, updateHistoryStatus, handleToggleFold]
   );
 
   // Reset node to theme defaults
@@ -366,7 +730,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Exported vector SVG');
   }, [nodes, edges, doc]);
 
-  // Export native .mflow container
   const handleExportMflow = useCallback(() => {
     const currentDoc = reactFlowToCanonical(nodes, edges, doc);
     const bytes = packageDocumentToMflow(currentDoc, assetStoreRef.current.toBytesMap());
@@ -380,7 +743,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Exported .mflow container');
   }, [nodes, edges, doc]);
 
-  // Import JSON or .mflow container
   const handleImportFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -397,7 +759,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             const container = parseMflowFromBytes(bytes);
             setDoc(container.document);
             assetStoreRef.current = AssetStore.fromBytesMap(container.assets);
-            const projected = canonicalToReactFlow(container.document);
+            const projected = canonicalToReactFlow(container.document, { onToggleFold: handleToggleFold });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(container.document);
@@ -418,7 +780,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               throw new Error('Invalid document schema');
             }
             setDoc(parsed);
-            const projected = canonicalToReactFlow(parsed);
+            const projected = canonicalToReactFlow(parsed, { onToggleFold: handleToggleFold });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(parsed);
@@ -431,7 +793,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         reader.readAsText(file);
       }
     },
-    [updateHistoryStatus]
+    [updateHistoryStatus, handleToggleFold]
   );
 
   // Global Keyboard Shortcuts
@@ -477,17 +839,92 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         return;
       }
 
-      // Delete selected: Delete or Backspace
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !isInput) {
-        e.preventDefault();
-        handleDeleteSelected();
+      // Copy: Ctrl+C
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
+        if (!isInput) {
+          e.preventDefault();
+          handleCopyBranch();
+        }
         return;
+      }
+
+      // Cut: Ctrl+X
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'x') {
+        if (!isInput) {
+          e.preventDefault();
+          handleCutBranch();
+        }
+        return;
+      }
+
+      // Paste: Ctrl+V
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'v') {
+        if (!isInput) {
+          e.preventDefault();
+          handlePaste();
+        }
+        return;
+      }
+
+      // Mind Map Keyboard Actions (active only when not inside text editing)
+      if (!isInput) {
+        // Enter: Add Sibling below (or child under root)
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          handleAddSiblingNode('below');
+          return;
+        }
+
+        // Shift + Enter: Add Sibling above
+        if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          handleAddSiblingNode('above');
+          return;
+        }
+
+        // Tab: Add Child Node
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          handleAddChildNode();
+          return;
+        }
+
+        // Delete or Backspace: Delete branch subtree
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          handleDeleteSelectedSubtree();
+          return;
+        }
+
+        // Arrow Keys: Navigate tree spatially / hierarchically
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          e.preventDefault();
+          handleArrowNavigation(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
+          return;
+        }
+
+        // Escape: Deselect
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+          return;
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleDeleteSelected]);
+  }, [
+    handleUndo,
+    handleRedo,
+    handleCopyBranch,
+    handleCutBranch,
+    handlePaste,
+    handleAddSiblingNode,
+    handleAddChildNode,
+    handleDeleteSelectedSubtree,
+    handleArrowNavigation,
+  ]);
 
   return (
     <div className="w-full h-full flex flex-col relative overflow-hidden">
@@ -556,29 +993,61 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
           <div className="h-4 w-px bg-slate-200" />
 
+          {/* Quick Sibling & Child Buttons */}
           <button
-            onClick={handleAddNode}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
+            onClick={() => handleAddSiblingNode('below')}
+            title="Add Sibling (Enter)"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
           >
             <Plus size={14} />
-            Add Node
+            Sibling
           </button>
 
           <button
-            onClick={handleDeleteSelected}
-            title="Delete Selected (Del)"
+            onClick={handleAddChildNode}
+            title="Add Child (Tab)"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
+          >
+            <GitFork size={14} />
+            Child
+          </button>
+
+          <button
+            onClick={handleDeleteSelectedSubtree}
+            title="Delete Branch (Del)"
             className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
           >
             <Trash2 size={16} />
           </button>
 
-          <button
-            onClick={handleAutoLayout}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-          >
-            <Sparkles size={14} className="text-amber-500" />
-            Auto Layout
-          </button>
+          <div className="h-4 w-px bg-slate-200" />
+
+          {/* Layout Presets for Mind Map */}
+          {doc.mode === 'mindmap' ? (
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+              {(['balanced', 'LR', 'RL', 'TB'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handleAutoLayoutWithPreset(p)}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md capitalize transition-colors ${
+                    layoutPreset === p
+                      ? 'bg-white text-blue-700 shadow-2xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {p === 'balanced' ? 'Balanced' : p}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => handleAutoLayoutWithPreset('TB')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+            >
+              <Sparkles size={14} className="text-amber-500" />
+              Auto Layout
+            </button>
+          )}
 
           <div className="h-4 w-px bg-slate-200" />
 

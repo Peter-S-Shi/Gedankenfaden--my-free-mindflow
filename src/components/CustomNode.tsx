@@ -35,6 +35,13 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
     }
   };
 
+  const handleToggleFold = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (nodeData.onToggleFold) {
+      nodeData.onToggleFold(id);
+    }
+  };
+
   const visuals = nodeData.visuals || {
     backgroundColor: '#ffffff',
     borderColor: '#cbd5e1',
@@ -47,7 +54,6 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   const shape: NodeShape = nodeData.shape || visuals.shape || 'rounded';
   const isNewBorn = Boolean(nodeData.isNewBorn);
-
   const isSvgShape = shape === 'diamond' || shape === 'parallelogram';
 
   let borderRadius = visuals.borderRadius;
@@ -58,10 +64,15 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const borderColor = selected ? '#3b82f6' : visuals.borderColor;
   const borderWidth = selected ? Math.max(visuals.borderWidth, 2) : visuals.borderWidth;
 
+  const hasChildren = Boolean(nodeData.hasChildren);
+  const isCollapsed = Boolean(nodeData.collapsed);
+  const childCount = nodeData.childCount || 0;
+  const numberingBadge = nodeData.numberingBadge;
+
   return (
     <div
       data-testid={`custom-node-${id}`}
-      className={`relative px-4 py-2.5 transition-all duration-150 group flex items-center justify-center ${
+      className={`relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center ${
         isNewBorn ? 'animate-node-birth' : ''
       }`}
       style={{
@@ -105,7 +116,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         </svg>
       )}
 
-      {/* Handles */}
+      {/* Connection Handles */}
       <Handle
         type="target"
         position={Position.Left}
@@ -131,11 +142,21 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
       />
 
-      {/* Node Content */}
+      {/* Node Content Container */}
       <div
-        className="relative z-10 flex items-center justify-center text-center w-full px-2"
+        className="relative z-10 flex items-center justify-center text-center w-full gap-1.5 px-1"
         style={{ fontSize: `${visuals.fontSize}px` }}
       >
+        {/* Dynamic Branch Numbering Badge */}
+        {numberingBadge && (
+          <span
+            className="text-[11px] font-bold text-slate-500 bg-slate-100/90 dark:bg-slate-800/80 px-1 py-0.5 rounded select-none shrink-0"
+            title="Structural Presentation Numbering"
+          >
+            {numberingBadge}
+          </span>
+        )}
+
         {isEditing ? (
           <input
             ref={inputRef}
@@ -153,6 +174,21 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           </span>
         )}
       </div>
+
+      {/* Branch Fold/Unfold Indicator */}
+      {hasChildren && (
+        <button
+          onClick={handleToggleFold}
+          title={isCollapsed ? `Expand branch (${childCount} children)` : 'Collapse branch'}
+          className={`absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full text-[10px] font-bold shadow-xs transition-all ${
+            isCollapsed
+              ? 'w-6 h-5 bg-blue-600 hover:bg-blue-700 text-white px-1'
+              : 'w-4 h-4 bg-slate-200 hover:bg-slate-300 text-slate-600 opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          {isCollapsed ? `+${childCount}` : '−'}
+        </button>
+      )}
     </div>
   );
 };
