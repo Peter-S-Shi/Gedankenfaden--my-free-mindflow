@@ -55,6 +55,7 @@
    - *`.mflow` Single-File Packager & Asset Extraction*: To be verified in M1 (ZIP container candidate).
    - *Autosave & Local Snapshot Rotator*: To be implemented and verified in M4.
    - *Structured Import & Remaining Exporters*: To be implemented and verified in M5.
+   - *Flowchart Graph-Specific Keyboard Mappings*: Universal desktop actions are frozen; graph-specific shortcuts (Enter/Tab/Arrow navigation) are pending external reference audit and verification in M3.
    - *Performance Budgets on Reference Hardware*: To be validated during M6 Product Hardening.
 
 ---

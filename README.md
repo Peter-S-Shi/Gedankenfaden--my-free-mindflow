@@ -22,7 +22,7 @@ Gedankenfaden is built for developers, researchers, technical writers, and syste
   - **Flowchart**: General directed graphs with cycles, orthogonal / smooth-step edge routing (with Bezier option), common flowchart shapes (terminal, process, decision, data), and structural node groups.
 - **Canvas-First Workspace**:
   - Distraction-free canvas with collapsible left Outline/Structure panel, collapsible right Inspector, and a floating Minimap.
-  - Full keyboard-first interaction model with established desktop shortcut conventions (Enter for sibling, Tab for child, Space/direct typing for edit, Delete to remove, multiline paste-to-structure).
+  - Full keyboard-first interaction model with established desktop shortcut conventions (Mind Map: Enter for sibling, Tab for child; universal: Space/direct typing for edit, Delete to remove, multiline paste-to-structure; Flowchart graph-specific shortcuts to be finalized in M3).
 - **Embedded Visual Assets**:
   - Nodes support embedded images bundled directly into a portable single-file container (`.mflow`).
 - **Hybrid Library & Home**:

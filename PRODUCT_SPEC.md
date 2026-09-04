@@ -142,15 +142,20 @@ The editor adopts a **Canvas-First** layout where visual thinking occupies the a
 
 ### 6.1 Core Key Bindings
 
-| Key Combination | Mind Map Mode Action | Flowchart Mode Action | Text Editing Context |
+> [!NOTE]
+> **Keyboard Strategy across Modes**:
+> - **Mind Map**: Core keyboard muscle memory (`Enter`, `Tab`, `Space`, `Delete`, Arrow keys) is fully frozen.
+> - **Flowchart**: Universal desktop operations (`Ctrl+C/X/V`, `Undo/Redo`, `Delete`, `Search`, panel toggles, pan/zoom, text edit/escape) are fully frozen and shared across modes. Graph-specific shortcuts (such as `Enter`, `Tab`, and edge-directed navigation) are candidate mappings to be finalized after the approved external reference audit in **Milestone 3**.
+
+| Key Combination | Mind Map Mode Action (Frozen) | Flowchart Mode Action | Text Editing Context |
 |---|---|---|---|
-| `Enter` | Create sibling node below | Insert connected process node | Commit text edit & exit |
-| `Shift + Enter` | Create sibling node above | Insert node above | Insert newline in text |
-| `Tab` | Create child node | Create connected branch node | Indent / insert tab |
+| `Enter` | Create sibling node below | *Pending M3 audit* (Candidate: insert connected step) | Commit text edit & exit |
+| `Shift + Enter` | Create sibling node above | *Pending M3 audit* (Candidate: insert node above) | Insert newline in text |
+| `Tab` | Create child node | *Pending M3 audit* (Candidate: branch connection) | Indent / insert tab |
 | `Space` or Direct Typing | Enter inline text editing | Enter inline text editing | Insert space |
 | `Escape` | Clear selection | Clear selection | Cancel text edit |
 | `Delete` / `Backspace` | Delete selected node & branch | Delete selected node & edges | Delete character |
-| `Arrow Keys` (`↑ ↓ ← →`) | Navigate to adjacent node | Navigate along connected edges | Move cursor in text |
+| `Arrow Keys` (`↑ ↓ ← →`) | Navigate to adjacent node | *Pending M3 audit* (Candidate: spatial / edge navigation) | Move cursor in text |
 | `Ctrl + C` / `Ctrl + X` | Copy / Cut selected branch | Copy / Cut selected elements | Copy / Cut text |
 | `Ctrl + V` | Paste (Structure / Multiline) | Paste elements | Paste raw text |
 | `Ctrl + Z` | Undo last action | Undo last action | Undo text input |
