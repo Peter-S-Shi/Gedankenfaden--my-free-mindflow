@@ -1,7 +1,7 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 2 Implementation Complete (Local Verification Gate Passed)  
-**Current Milestone**: Milestone 2: Mind Map Experience, Centered Bidirectional Layout & Keyboard-First Interaction  
+**Current State**: Milestone 3 Implementation Complete (Local Verification Gate Passed)  
+**Current Milestone**: Milestone 3: Flowchart Engine, Orthogonal Edge Routing & Visual Group Containers  
 **Active Branch**: `feature/v1-autonomous-development`  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-04  
@@ -17,6 +17,7 @@
 | **M0 Feasibility Spike** | **Completed (PASS)** | Historical spike code & test evidence |
 | **M1 Canonical & Workspace Shell** | **Completed (PASS)** | Vitest unit/integration suite & Remote CI Green |
 | **M2 Mind Map & Keyboard First** | **Completed (PASS)** | Centered Bidirectional Layout, Multiline Paste, Numbering |
+| **M3 Flowchart & Group Containers** | **Completed (PASS)** | Orthogonal Routing, Standard Shapes, Waypoints, Group Containers |
 | **Architecture Decisions** | **Completed & Incorporated** | Distilled into `ARCHITECTURE.md` |
 | **V1 Feature Intake** | **Strictly Closed** | `PRODUCT_SPEC.md` |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
@@ -57,7 +58,7 @@
    - *`.mflow` Single-File Packager & Asset Extraction*: Verified in M1 (`packageDocumentToMflow` / `parseMflowFromBytes` with pure JS `fflate` ZIP container).
    - *Autosave & Local Snapshot Rotator*: To be implemented and verified in M4.
    - *Structured Import & Remaining Exporters*: To be implemented and verified in M5.
-   - *Flowchart Graph-Specific Keyboard Mappings*: Universal desktop actions are frozen; graph-specific shortcuts (Enter/Tab/Arrow navigation) are pending external reference audit and verification in M3.
+   - *Flowchart Graph-Specific Keyboard Mappings & Shape Family*: Verified in M3 (Enter downstream, Shift+Enter upstream, Tab branch, Arrow navigation along graph edges, orthogonal routing with fillets and loopbacks, visual group containers).
    - *Performance Budgets on Reference Hardware*: To be validated during M6 Product Hardening.
 
 ---
@@ -69,8 +70,8 @@
 | **M0** | Technical & Autonomous Loop Feasibility Spike | **COMPLETED (PASS)** | Complete |
 | **M1** | Canonical Foundation, Workspace Shell & Native Document Foundation | **COMPLETED (PASS)** | Complete |
 | **M2** | Mind Map Experience, Centered Bidirectional Layout & Keyboard-First Interaction | **COMPLETED (PASS)** | Complete |
-| **M3** | Flowchart Engine, Orthogonal Routing & Keyboard-First Graph Interaction | **Active Next Milestone** | Ready to begin |
-| **M4** | Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine | Planned | M1, M2, M3 |
+| **M3** | Flowchart Engine, Orthogonal Routing & Visual Group Containers | **COMPLETED (PASS)** | Complete |
+| **M4** | Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine | **Active Next Milestone** | Ready to begin |
 | **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | Planned | M2, M3, M4 |
 | **M6** | Product Hardening, Performance & Edge-Case Polish | Planned | M5 (Feature Freeze) |
 | **M7** | Release Candidate, Packaging QA & Maintenance Transition | Planned | M6 |
@@ -89,6 +90,6 @@
 
 ## 5. Next Operational Steps
 
-1. Commit and push Milestone 2 checkpoint to `origin feature/v1-autonomous-development`.
-2. Await green GitHub Actions CI run.
-3. Advance to **Milestone 3 (Flowchart Engine, Orthogonal Routing & Keyboard-First Graph Interaction)**.
+1. Commit and push Milestone 3 checkpoint to `origin feature/v1-autonomous-development`.
+2. Await green GitHub Actions CI run for Milestone 3 checkpoint.
+3. Advance to **Milestone 4 (Hybrid Library/Home, Tauri 2 Shell & Local Recovery Engine)**.

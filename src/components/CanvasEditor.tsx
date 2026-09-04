@@ -26,6 +26,7 @@ import { packageDocumentToMflow, parseMflowFromBytes } from '../model/container'
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { parseMultilineToTree } from '../model/pasteParser';
+import { createGroup, computeGroupBounds } from '../model/groups';
 import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
@@ -43,6 +44,8 @@ import {
   PanelLeft,
   PanelRight,
   GitFork,
+  Layers,
+  CornerDownRight,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -186,12 +189,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const onConnect = useCallback(
     (params: Connection) => {
       const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
+      const edgeType = doc.mode === 'flowchart' ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep';
+
       setEdges((eds) => {
         const next = addEdge(
           {
             ...params,
-            type: doc.mode === 'mindmap' ? 'smoothstep' : 'bezier',
+            type: edgeType === 'orthogonal' ? 'smoothstep' : edgeType,
             style: { stroke: theme.edgeColor || '#94a3b8', strokeWidth: 2 },
+            markerEnd:
+              doc.mode === 'flowchart'
+                ? {
+                    type: 'arrowclosed' as const,
+                    color: theme.edgeColor || '#94a3b8',
+                    width: 16,
+                    height: 16,
+                  }
+                : undefined,
           },
           eds
         );
@@ -235,7 +249,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [nodes, edges, doc, updateHistoryStatus, handleToggleFold]
   );
 
-  // Keyboard Contract: Add Sibling Node (Enter / Shift+Enter)
+  // Keyboard Contract: Add Sibling Node (Enter / Shift+Enter for Mind Map)
   const handleAddSiblingNode = useCallback(
     (direction: 'below' | 'above' = 'below') => {
       const selected = doc.nodes.find((n) => n.id === selectedNodeId);
@@ -295,7 +309,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]
   );
 
-  // Keyboard Contract: Add Child Node (Tab)
+  // Keyboard Contract: Add Child Node (Tab for Mind Map)
   const handleAddChildNode = useCallback(() => {
     const selected = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!selected) return;
@@ -346,16 +360,135 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Created child node (Tab)');
   }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]);
 
-  // Keyboard Contract: Delete Branch Subtree (Del / Backspace)
+  // Flowchart Keyboard Action: Add Downstream Connected Step (Enter)
+  const handleAddFlowchartStep = useCallback(
+    (direction: 'downstream' | 'upstream' = 'downstream') => {
+      const selected = doc.nodes.find((n) => n.id === selectedNodeId);
+      if (!selected) return;
+
+      const newId = `fc_step_${Date.now()}`;
+      const dx = 0;
+      const dy = direction === 'downstream' ? 120 : -120;
+
+      const newNode: CanonicalNode = {
+        id: newId,
+        text: 'Next Step',
+        geometry: {
+          x: selected.geometry.x + dx,
+          y: selected.geometry.y + dy,
+          width: 140,
+          height: 44,
+        },
+        type: 'process',
+        shape: 'rounded',
+      };
+
+      const newEdge: CanonicalEdge = {
+        id: `edge_${Date.now()}`,
+        source: direction === 'downstream' ? selected.id : newId,
+        target: direction === 'downstream' ? newId : selected.id,
+        type: 'smoothstep',
+      };
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: [...doc.nodes, newNode],
+        edges: [...doc.edges, newEdge],
+        updatedAt: new Date().toISOString(),
+      };
+
+      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+      const updatedRfNodes = projected.nodes.map((n) => ({
+        ...n,
+        selected: n.id === newId,
+      }));
+
+      setDoc(nextDoc);
+      setNodes(updatedRfNodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      focusNodeOnCanvas(newId, updatedRfNodes);
+      setStatusMessage(`Added connected step (${direction})`);
+    },
+    [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]
+  );
+
+  // Flowchart Keyboard Action: Add Decision Branch (Tab)
+  const handleAddFlowchartBranch = useCallback(() => {
+    const selected = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!selected) return;
+
+    const newId = `fc_branch_${Date.now()}`;
+    const newNode: CanonicalNode = {
+      id: newId,
+      text: 'Branch Step',
+      geometry: {
+        x: selected.geometry.x + 200,
+        y: selected.geometry.y + 30,
+        width: 140,
+        height: 44,
+      },
+      type: 'process',
+      shape: 'rounded',
+    };
+
+    const newEdge: CanonicalEdge = {
+      id: `edge_branch_${Date.now()}`,
+      source: selected.id,
+      target: newId,
+      label: 'Yes',
+      type: 'smoothstep',
+    };
+
+    const nextDoc: CanonicalDocument = {
+      ...doc,
+      nodes: [...doc.nodes, newNode],
+      edges: [...doc.edges, newEdge],
+      updatedAt: new Date().toISOString(),
+    };
+
+    const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+    const updatedRfNodes = projected.nodes.map((n) => ({
+      ...n,
+      selected: n.id === newId,
+    }));
+
+    setDoc(nextDoc);
+    setNodes(updatedRfNodes);
+    setEdges(projected.edges);
+    historyRef.current.pushState(nextDoc);
+    updateHistoryStatus();
+    focusNodeOnCanvas(newId, updatedRfNodes);
+    setStatusMessage('Added decision branch (Tab)');
+  }, [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]);
+
+  // Group Container Management
+  const handleCreateGroup = useCallback(
+    (title: string, nodeIds: string[]) => {
+      const newGroup = createGroup(title, nodeIds, doc.nodes);
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        groups: [...(doc.groups || []), newGroup],
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setStatusMessage(`Created group container: ${title}`);
+    },
+    [doc, updateHistoryStatus]
+  );
+
+  // Delete Selected (Subtree for Mind Map, Node/Edges for Flowchart)
   const handleDeleteSelectedSubtree = useCallback(() => {
     if (!selectedNodeId) return;
 
     const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!targetNode) return;
 
-    // Do not delete central root if it's the only one
-    if (targetNode.type === 'root' && doc.nodes.filter((n) => n.type === 'root').length <= 1) {
-      // Clear children instead of deleting root
+    // Do not delete central root in mindmap if it's the only one
+    if (doc.mode === 'mindmap' && targetNode.type === 'root' && doc.nodes.filter((n) => n.type === 'root').length <= 1) {
       const nextDoc: CanonicalDocument = {
         ...doc,
         nodes: [targetNode],
@@ -374,23 +507,25 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
     // Collect target node and all recursive descendants
     const deletedIds = new Set<string>([selectedNodeId]);
-    const childrenMap = new Map<string, string[]>();
-    for (const n of doc.nodes) {
-      if (n.parentId) {
-        const list = childrenMap.get(n.parentId) || [];
-        list.push(n.id);
-        childrenMap.set(n.parentId, list);
+    if (doc.mode === 'mindmap') {
+      const childrenMap = new Map<string, string[]>();
+      for (const n of doc.nodes) {
+        if (n.parentId) {
+          const list = childrenMap.get(n.parentId) || [];
+          list.push(n.id);
+          childrenMap.set(n.parentId, list);
+        }
       }
-    }
 
-    const collectDescendants = (pId: string) => {
-      const ch = childrenMap.get(pId) || [];
-      for (const c of ch) {
-        deletedIds.add(c);
-        collectDescendants(c);
-      }
-    };
-    collectDescendants(selectedNodeId);
+      const collectDescendants = (pId: string) => {
+        const ch = childrenMap.get(pId) || [];
+        for (const c of ch) {
+          deletedIds.add(c);
+          collectDescendants(c);
+        }
+      };
+      collectDescendants(selectedNodeId);
+    }
 
     const nextNodes = doc.nodes.filter((n) => !deletedIds.has(n.id));
     const nextEdges = doc.edges.filter(
@@ -406,7 +541,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
     const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
 
     const updatedRfNodes = projected.nodes.map((n) => ({
@@ -419,7 +554,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setEdges(projected.edges);
     historyRef.current.pushState(layouted);
     updateHistoryStatus();
-    setStatusMessage(`Deleted branch (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
+    setStatusMessage(`Deleted (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
   }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
 
   // Spatial / Hierarchical Arrow Navigation
@@ -428,56 +563,69 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       if (doc.nodes.length === 0) return;
 
       const currentNode = doc.nodes.find((n) => n.id === selectedNodeId) || doc.nodes[0];
-      const rootNode = doc.nodes.find((n) => n.type === 'root') || doc.nodes[0];
-
-      // Build hierarchy lookups
-      const childrenMap = new Map<string, CanonicalNode[]>();
-      for (const n of doc.nodes) {
-        if (n.parentId) {
-          const list = childrenMap.get(n.parentId) || [];
-          list.push(n);
-          childrenMap.set(n.parentId, list);
-        }
-      }
-
       let targetId: string | null = null;
-      const isRoot = currentNode.id === rootNode.id;
-      const isRightWing = currentNode.geometry.x >= rootNode.geometry.x;
 
-      if (arrowKey === 'ArrowUp' || arrowKey === 'ArrowDown') {
-        if (currentNode.parentId) {
-          const siblings = childrenMap.get(currentNode.parentId) || [];
-          const idx = siblings.findIndex((s) => s.id === currentNode.id);
-          if (arrowKey === 'ArrowUp' && idx > 0) {
-            targetId = siblings[idx - 1].id;
-          } else if (arrowKey === 'ArrowDown' && idx < siblings.length - 1) {
-            targetId = siblings[idx + 1].id;
+      if (doc.mode === 'flowchart') {
+        // Flowchart graph-connectivity navigation
+        const outgoing = doc.edges.filter((e) => e.source === currentNode.id);
+        const incoming = doc.edges.filter((e) => e.target === currentNode.id);
+
+        if (arrowKey === 'ArrowDown' && outgoing.length > 0) {
+          targetId = outgoing[0].target;
+        } else if (arrowKey === 'ArrowRight' && outgoing.length > 1) {
+          targetId = outgoing[1].target;
+        } else if (arrowKey === 'ArrowUp' && incoming.length > 0) {
+          targetId = incoming[0].source;
+        } else if (arrowKey === 'ArrowLeft' && incoming.length > 1) {
+          targetId = incoming[1].source;
+        }
+      } else {
+        // Mind Map hierarchy navigation
+        const rootNode = doc.nodes.find((n) => n.type === 'root') || doc.nodes[0];
+        const childrenMap = new Map<string, CanonicalNode[]>();
+        for (const n of doc.nodes) {
+          if (n.parentId) {
+            const list = childrenMap.get(n.parentId) || [];
+            list.push(n);
+            childrenMap.set(n.parentId, list);
           }
         }
-      } else if (arrowKey === 'ArrowRight') {
-        if (isRoot) {
-          const children = childrenMap.get(rootNode.id) || [];
-          const rightChild = children.find((c) => c.geometry.x >= rootNode.geometry.x) || children[0];
-          targetId = rightChild ? rightChild.id : null;
-        } else if (isRightWing) {
-          const children = childrenMap.get(currentNode.id) || [];
-          if (children.length > 0) targetId = children[0].id;
-        } else {
-          // In Left wing, Right points to parent
-          targetId = currentNode.parentId || rootNode.id;
-        }
-      } else if (arrowKey === 'ArrowLeft') {
-        if (isRoot) {
-          const children = childrenMap.get(rootNode.id) || [];
-          const leftChild = children.find((c) => c.geometry.x < rootNode.geometry.x) || children[children.length - 1];
-          targetId = leftChild ? leftChild.id : null;
-        } else if (!isRightWing) {
-          // In Left wing, Left points to child
-          const children = childrenMap.get(currentNode.id) || [];
-          if (children.length > 0) targetId = children[0].id;
-        } else {
-          // In Right wing, Left points to parent
-          targetId = currentNode.parentId || rootNode.id;
+
+        const isRoot = currentNode.id === rootNode.id;
+        const isRightWing = currentNode.geometry.x >= rootNode.geometry.x;
+
+        if (arrowKey === 'ArrowUp' || arrowKey === 'ArrowDown') {
+          if (currentNode.parentId) {
+            const siblings = childrenMap.get(currentNode.parentId) || [];
+            const idx = siblings.findIndex((s) => s.id === currentNode.id);
+            if (arrowKey === 'ArrowUp' && idx > 0) {
+              targetId = siblings[idx - 1].id;
+            } else if (arrowKey === 'ArrowDown' && idx < siblings.length - 1) {
+              targetId = siblings[idx + 1].id;
+            }
+          }
+        } else if (arrowKey === 'ArrowRight') {
+          if (isRoot) {
+            const children = childrenMap.get(rootNode.id) || [];
+            const rightChild = children.find((c) => c.geometry.x >= rootNode.geometry.x) || children[0];
+            targetId = rightChild ? rightChild.id : null;
+          } else if (isRightWing) {
+            const children = childrenMap.get(currentNode.id) || [];
+            if (children.length > 0) targetId = children[0].id;
+          } else {
+            targetId = currentNode.parentId || rootNode.id;
+          }
+        } else if (arrowKey === 'ArrowLeft') {
+          if (isRoot) {
+            const children = childrenMap.get(rootNode.id) || [];
+            const leftChild = children.find((c) => c.geometry.x < rootNode.geometry.x) || children[children.length - 1];
+            targetId = leftChild ? leftChild.id : null;
+          } else if (!isRightWing) {
+            const children = childrenMap.get(currentNode.id) || [];
+            if (children.length > 0) targetId = children[0].id;
+          } else {
+            targetId = currentNode.parentId || rootNode.id;
+          }
         }
       }
 
@@ -491,7 +639,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         focusNodeOnCanvas(targetId, nodes);
       }
     },
-    [doc.nodes, selectedNodeId, nodes, focusNodeOnCanvas]
+    [doc.nodes, doc.edges, doc.mode, selectedNodeId, nodes, focusNodeOnCanvas]
   );
 
   // Copy branch subtree
@@ -548,7 +696,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         clipboardText = await navigator.clipboard.readText();
       }
     } catch {
-      // Browser clipboard read permission might not be granted
+      // Browser clipboard read permission
     }
 
     // Check if clipboard text has multiple lines
@@ -598,7 +746,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         target: idMap.get(e.target)!,
       }));
 
-      // Edge connecting target to root of pasted subtree
       clonedEdges.push({
         id: `edge_connect_${now}`,
         source: targetNode.id,
@@ -866,37 +1013,56 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         return;
       }
 
-      // Mind Map Keyboard Actions (active only when not inside text editing)
+      // Graph & Mindmap Keyboard Actions (active only when not inside text editing)
       if (!isInput) {
-        // Enter: Add Sibling below (or child under root)
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          handleAddSiblingNode('below');
-          return;
+        if (doc.mode === 'flowchart') {
+          // Flowchart shortcuts
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleAddFlowchartStep('downstream');
+            return;
+          }
+
+          if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault();
+            handleAddFlowchartStep('upstream');
+            return;
+          }
+
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            handleAddFlowchartBranch();
+            return;
+          }
+        } else {
+          // Mind Map shortcuts
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleAddSiblingNode('below');
+            return;
+          }
+
+          if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault();
+            handleAddSiblingNode('above');
+            return;
+          }
+
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            handleAddChildNode();
+            return;
+          }
         }
 
-        // Shift + Enter: Add Sibling above
-        if (e.key === 'Enter' && e.shiftKey) {
-          e.preventDefault();
-          handleAddSiblingNode('above');
-          return;
-        }
-
-        // Tab: Add Child Node
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          handleAddChildNode();
-          return;
-        }
-
-        // Delete or Backspace: Delete branch subtree
+        // Delete or Backspace: Delete branch subtree / selected element
         if (e.key === 'Delete' || e.key === 'Backspace') {
           e.preventDefault();
           handleDeleteSelectedSubtree();
           return;
         }
 
-        // Arrow Keys: Navigate tree spatially / hierarchically
+        // Arrow Keys: Navigate tree or connectivity
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
           e.preventDefault();
           handleArrowNavigation(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
@@ -915,6 +1081,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    doc.mode,
     handleUndo,
     handleRedo,
     handleCopyBranch,
@@ -922,6 +1089,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     handlePaste,
     handleAddSiblingNode,
     handleAddChildNode,
+    handleAddFlowchartStep,
+    handleAddFlowchartBranch,
     handleDeleteSelectedSubtree,
     handleArrowNavigation,
   ]);
@@ -993,28 +1162,52 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
           <div className="h-4 w-px bg-slate-200" />
 
-          {/* Quick Sibling & Child Buttons */}
-          <button
-            onClick={() => handleAddSiblingNode('below')}
-            title="Add Sibling (Enter)"
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-          >
-            <Plus size={14} />
-            Sibling
-          </button>
+          {/* Flowchart vs Mind Map Quick Action Buttons */}
+          {doc.mode === 'flowchart' ? (
+            <>
+              <button
+                onClick={() => handleAddFlowchartStep('downstream')}
+                title="Add Downstream Step (Enter)"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-medium rounded-lg transition-colors"
+              >
+                <Plus size={14} />
+                Next Step
+              </button>
 
-          <button
-            onClick={handleAddChildNode}
-            title="Add Child (Tab)"
-            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
-          >
-            <GitFork size={14} />
-            Child
-          </button>
+              <button
+                onClick={handleAddFlowchartBranch}
+                title="Add Branch (Tab)"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
+              >
+                <CornerDownRight size={14} />
+                Branch
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => handleAddSiblingNode('below')}
+                title="Add Sibling (Enter)"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+              >
+                <Plus size={14} />
+                Sibling
+              </button>
+
+              <button
+                onClick={handleAddChildNode}
+                title="Add Child (Tab)"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
+              >
+                <GitFork size={14} />
+                Child
+              </button>
+            </>
+          )}
 
           <button
             onClick={handleDeleteSelectedSubtree}
-            title="Delete Branch (Del)"
+            title="Delete Selected (Del)"
             className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
           >
             <Trash2 size={16} />
@@ -1045,7 +1238,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
             >
               <Sparkles size={14} className="text-amber-500" />
-              Auto Layout
+              Auto Layout (Dagre)
             </button>
           )}
 
@@ -1158,6 +1351,31 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               style={{ borderRadius: 8, overflow: 'hidden' }}
             />
 
+            {/* Visual Group Containers Layer */}
+            {doc.groups &&
+              doc.groups.map((group) => {
+                const bounds = computeGroupBounds(group, doc.nodes);
+                return (
+                  <div
+                    key={group.id}
+                    className="absolute pointer-events-none rounded-xl border-2 border-dashed transition-all"
+                    style={{
+                      transform: `translate(${bounds.x}px, ${bounds.y}px)`,
+                      width: `${bounds.width}px`,
+                      height: `${bounds.height}px`,
+                      backgroundColor: group.style?.backgroundColor || 'rgba(241, 245, 249, 0.65)',
+                      borderColor: group.style?.borderColor || '#cbd5e1',
+                      zIndex: 0,
+                    }}
+                  >
+                    <div className="px-2.5 py-1 bg-white/90 border-b border-slate-200/90 rounded-t-xl text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shadow-2xs">
+                      <Layers size={12} className="text-blue-500" />
+                      <span>{group.title}</span>
+                    </div>
+                  </div>
+                );
+              })}
+
             <Panel position="bottom-center" className="mb-4">
               <div className="px-3 py-1.5 bg-slate-900/80 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
                 <FolderSync size={12} className="text-blue-400" />
@@ -1175,6 +1393,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             onUpdateTheme={handleUpdateTheme}
             onUpdateNode={handleUpdateNode}
             onResetNodeStyle={handleResetNodeStyle}
+            onCreateGroup={handleCreateGroup}
             onClose={() => setIsInspectorOpen(false)}
           />
         )}

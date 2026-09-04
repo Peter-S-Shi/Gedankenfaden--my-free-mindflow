@@ -98,6 +98,12 @@ export function canonicalToReactFlow(
   const edges: Edge[] = doc.edges.map((e) => {
     const isHidden = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target);
 
+    const isFlowchart = doc.mode === 'flowchart';
+    const edgeType =
+      e.type === 'orthogonal'
+        ? 'smoothstep'
+        : e.type || (isFlowchart ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep');
+
     return {
       id: e.id,
       source: e.source,
@@ -105,9 +111,18 @@ export function canonicalToReactFlow(
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       label: e.label,
-      type: e.type || (doc.mode === 'mindmap' ? 'smoothstep' : 'bezier'),
+      type: edgeType,
       animated: false,
       hidden: isHidden,
+      markerEnd:
+        isFlowchart || e.style?.arrowEnd
+          ? {
+              type: 'arrowclosed' as const,
+              color: e.style?.stroke || defaultEdgeColor,
+              width: 16,
+              height: 16,
+            }
+          : undefined,
       style: {
         stroke: e.style?.stroke || defaultEdgeColor,
         strokeWidth: e.style?.strokeWidth || 2,

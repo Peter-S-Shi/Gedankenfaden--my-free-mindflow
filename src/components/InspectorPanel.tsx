@@ -9,6 +9,7 @@ interface InspectorPanelProps {
   onUpdateTheme: (theme: DocumentTheme) => void;
   onUpdateNode: (nodeId: string, updates: Partial<CanonicalNode>) => void;
   onResetNodeStyle: (nodeId: string) => void;
+  onCreateGroup?: (title: string, nodeIds: string[]) => void;
   onClose: () => void;
 }
 
@@ -44,6 +45,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onUpdateTheme,
   onUpdateNode,
   onResetNodeStyle,
+  onCreateGroup,
   onClose,
 }) => {
   const currentTheme = document.theme || {
@@ -258,6 +260,19 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 />
               </div>
             </div>
+
+            {/* Visual Group Container */}
+            {onCreateGroup && (
+              <div className="pt-2 border-t border-slate-200">
+                <button
+                  onClick={() => onCreateGroup('Process Group', [selectedNode.id])}
+                  className="w-full py-1.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Layers size={13} />
+                  Wrap in Group Container
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="p-3 bg-white border border-slate-200 rounded-lg text-center space-y-1 shadow-2xs">
@@ -380,6 +395,28 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 onChange={(e) => onUpdateTheme({ ...currentTheme, edgeColor: e.target.value })}
                 className="flex-1 text-xs px-2 py-1 bg-white border border-slate-200 rounded font-mono"
               />
+            </div>
+          </div>
+
+          {/* Edge Routing Style */}
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1.5">
+              Default Edge Routing
+            </label>
+            <div className="grid grid-cols-3 gap-1">
+              {(['smoothstep', 'orthogonal', 'bezier'] as const).map((routing) => (
+                <button
+                  key={routing}
+                  onClick={() => onUpdateTheme({ ...currentTheme, defaultEdgeRouting: routing })}
+                  className={`text-xs py-1 px-1.5 rounded border capitalize ${
+                    (currentTheme.defaultEdgeRouting || 'smoothstep') === routing
+                      ? 'bg-blue-50 border-blue-500 text-blue-700 font-semibold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {routing === 'smoothstep' ? 'Smooth' : routing === 'orthogonal' ? 'Ortho' : 'Curved'}
+                </button>
+              ))}
             </div>
           </div>
         </div>
