@@ -123,6 +123,7 @@ export function canonicalToReactFlow(
               height: 16,
             }
           : undefined,
+      className: 'signature-connect-draw',
       style: {
         stroke: e.style?.stroke || defaultEdgeColor,
         strokeWidth: e.style?.strokeWidth || 2,

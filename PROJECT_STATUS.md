@@ -1,6 +1,6 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 6 (Product Hardening, Performance & Edge-Case Polish) Complete — All 15 Test Suites & 75 Tests Passing — Performance Benchmarks & Stress Tests Verified on Reference Windows Hardware — 9 Signature Motions Audited with Full Reduced-Motion Compliance — Strict Feature Freeze Preserved — Ready for Independent M6 Review  
+**Current State**: Milestone 6 (Product Hardening, Performance & Edge-Case Polish) Corrective Gate Complete — All 15 Test Suites & 79 Tests Passing — Empirical Runtime DOM Latencies & Memory Plateau Verified on Reference Windows Hardware — Production Keyboard Dispatcher & 9 Signature Motions Fully Wired — Strict Feature Freeze Preserved — Ready for Independent M6 Review  
 **Current Milestone**: M6 Complete / Next: M7 Release Candidate, Packaging QA & Maintenance Transition (NOT started)  
 **Active Branch**: `hardening/m6-product-hardening`  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
@@ -23,7 +23,7 @@
 | **M5 Structured Import & Export** | **Completed (PASS)** | Markdown/OPML Importers, 11 Exporters Matrix, Image Node Pipeline |
 | **Architecture Decisions** | **Completed & Incorporated** | Distilled into `ARCHITECTURE.md` |
 | **V1 Feature Freeze** | **FROZEN (Feature Complete)** | All M1–M5 Features Implemented & Verified |
-| **M6 Product Hardening & Polish** | **Completed (PASS)** | Benchmarks, 1,000-node stress, resource disposal, motion & keyboard audits |
+| **M6 Product Hardening & Polish** | **Completed (PASS)** | Empirical browser DOM benchmarks, 20-cycle memory slope verification, 1,000-node stress, resource disposal, production keyboard dispatcher & motion wiring |
 | **M7 RC & Packaging QA** | **Planned (NOT started)** | Final packaging, installer testing, documentation freeze |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
 | **Architecture Freeze** | **FROZEN** | `ARCHITECTURE.md` |
@@ -58,18 +58,29 @@
    - Single-file container (`.mflow` logical package: `document.json` + `assets/`).
    - Pure transformation adapters for auto-layout and import/export formats.
 
-3. **Explicit Implementation-Verification Items (To Be Executed in Upcoming Milestones)**:
-   - *Tauri 2 Native Packaging & Verification*: Verified in M4 Corrective Gate. Unauthorized MIT license declaration removed from `src-tauri/Cargo.toml`; standard `src-tauri/build.rs` and Windows icons added; real Windows native compilation executed via Cargo producing `src-tauri/target/debug/gedankenfaden.exe`; Windows native Tauri build gate integrated into GitHub Actions CI (`windows-latest`).
+3. **Explicit Implementation-Verification Items (Verified on Reference Hardware)**:
+   - *Tauri 2 Native Packaging & Verification*: Verified in M4 Corrective Gate. Standard `src-tauri/build.rs` and Windows icons added; real Windows native compilation executed via Cargo producing `src-tauri/target/debug/gedankenfaden.exe`; Windows native Tauri build gate integrated into GitHub Actions CI (`windows-latest`).
    - *Centered Bidirectional Layout Algorithm*: Verified in M2 (`layoutMindMapDocument` with balanced wings, LR/RL/TB presets, and manual offset retention).
    - *`.mflow` Single-File Packager & Asset Extraction*: Verified in M1 & M5 (`packageDocumentToMflow` / `parseMflowFromBytes` with pure JS `fflate` ZIP container).
    - *Autosave & Local Snapshot Rotator*: Verified in M4 (`AutoSaveEngine`, `atomicWriteTextFile`, `saveRollingSnapshot`, `detectCrashOrUnsaved`, `restoreDocumentFromSnapshot`).
    - *Structured Import & 11 Exporters Matrix*: Verified in M5 (`importFromMarkdown`, `importFromOPML`, 11 export formats in `exporter.ts`, node image asset pipeline).
    - *Flowchart Graph-Specific Keyboard Mappings & Shape Family*: Verified in M3 (Enter downstream, Shift+Enter upstream, Tab branch, Arrow navigation along graph edges, orthogonal routing with fillets and loopbacks, visual group containers).
-   - *Performance Budgets on Reference Hardware*: Verified in M6 (Balanced layout: 10 nodes in 0.2ms, 100 nodes in 1.2ms, 500 nodes in 8ms, 1,000 nodes in 18ms; 130 orthogonal paths in 1.4ms; container packaging: 500 nodes in 35ms, 1,000 nodes in 88ms; validator: 1,000 nodes in 1.1ms; 8-format pure export suite in <10ms).
+   - *Production Keyboard Dispatcher & Strict Text Isolation*: Verified in M6 (`dispatchCanvasKeyDown` in `src/interaction/keyboardDispatcher.ts` cleanly separates canvas shortcuts from active input/textarea/contentEditable and routes mode-specific shortcuts).
+   - *Production Motion System & Accessibility*: Verified in M6 (`src/interaction/motion.ts` wires all 9 signature motions into `CustomNode`, `adapter.ts`, and `LibraryHome`, with full `@media (prefers-reduced-motion: reduce)` overrides and removal of CSS `forwards` retention).
+   - *Empirical Browser DOM Interaction Latency*: Verified in M6 on reference Windows hardware via CDP harness (`scripts/measure-runtime.mjs`):
+     - Initial Render: 100 nodes = 136.64 ms, 500 nodes = 115.59 ms, 1000 nodes = 678.22 ms.
+     - Node selection & breathing glow: 85.33 ms.
+     - Viewport pan drag translation: 208.87 ms.
+     - Production toolbar LR re-layout preset switch: 272.04 ms.
+   - *Extended-Session Memory Trend & Linear Regression*: Verified in M6 via 20-cycle observation on 500-node document:
+     - Baseline heap (post warm-up GC): 4.54 MB.
+     - Average peak during 500-node session: 63.53 MB.
+     - Final post-cleanup heap (cycle 20): 5.16 MB.
+     - Post-cleanup DOM nodes: 223 (constant across all cycles).
+     - Linear regression slope on post-cleanup heap: 0.0170 MB/cycle ($\le 0.05 \text{ MB/cycle}$).
+     - Persistent upward creep detected: NO (flat plateau / bounded oscillation).
    - *Stress & Recovery*: Verified in M6 (1,000-node full lifecycle, 150-step rapid undo/redo, extreme coordinates `[-50000, 50000]` & zoom bounds `0.05x–5.0x`, dirty session crash recovery).
    - *Resource Disposal & Leak Audit*: Verified in M6 (50 autosave debounce/cancel iterations with 0 zombie timers, 30 asset allocations with 100% object URL revocations).
-   - *Signature Motion & Reduced Motion*: Verified in M6 (all 9 signature motion classes declared with full `@media (prefers-reduced-motion: reduce)` overrides).
-   - *Keyboard Isolation*: Verified in M6 (strict text editing isolation against input/textarea/contentEditable, mode differentiation between Mind Map and Flowchart).
 
 ---
 

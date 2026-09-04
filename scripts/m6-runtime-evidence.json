@@ -1,0 +1,30 @@
+{
+  "renderResults": [
+    {
+      "name": "100 nodes (Medium)",
+      "count": 100,
+      "duration": 136.63750000000005
+    },
+    {
+      "name": "500 nodes (Large)",
+      "count": 500,
+      "duration": 115.58539999999994
+    },
+    {
+      "name": "1000 nodes (Extreme)",
+      "count": 1000,
+      "duration": 678.2162999999998
+    }
+  ],
+  "selectDuration": 85.32709999999997,
+  "panDuration": 208.8666000000003,
+  "relayoutDuration": 272.03639999999996,
+  "memory": {
+    "samples": 20,
+    "baselineMb": 4.537315368652344,
+    "avgPeakMb": 63.5287784576416,
+    "finalPostMb": 5.162761688232422,
+    "slopeMbPerCycle": 0.017017949613413415,
+    "hasUpwardTrend": false
+  }
+}

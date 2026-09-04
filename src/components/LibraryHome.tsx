@@ -213,9 +213,9 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                   onClick={() => onOpenDocument(doc)}
                   className={`relative p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col justify-between h-48 select-none ${
                     isHovered
-                      ? 'bg-white border-blue-500 shadow-xl shadow-blue-500/10 -translate-y-1 scale-[1.02] z-10'
+                      ? 'bg-white border-blue-500 shadow-xl shadow-blue-500/10 -translate-y-1 scale-[1.02] z-10 signature-focus-elevate'
                       : isReceded
-                      ? 'bg-white/80 border-slate-200/60 opacity-60 scale-[0.98]'
+                      ? 'bg-white/80 border-slate-200/60 opacity-60 scale-[0.98] signature-deselect-recede'
                       : 'bg-white border-slate-200/80 shadow-sm hover:border-slate-300'
                   }`}
                   style={{

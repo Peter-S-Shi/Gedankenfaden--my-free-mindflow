@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
+import {
+  dispatchCanvasKeyDown,
+  isTextInputElement,
+  CanvasKeyboardCallbacks,
+} from '../interaction/keyboardDispatcher';
 
-// Ensure DOM element classes exist in Node environment
+// Ensure standard DOM classes exist in Node environment
 if (typeof (globalThis as any).HTMLInputElement === 'undefined') {
   (globalThis as any).HTMLInputElement = class HTMLInputElement {};
 }
@@ -11,187 +16,21 @@ if (typeof (globalThis as any).HTMLElement === 'undefined') {
   (globalThis as any).HTMLElement = class HTMLElement {};
 }
 
-describe('M6 Keyboard Routing, Mode Differentiation & Text Isolation Audit', () => {
-  // Pure keyboard event dispatcher mirroring CanvasEditor's exact contract
-  function dispatchKeyContract(
-    eventInit: {
-      key?: string;
-      ctrlKey?: boolean;
-      shiftKey?: boolean;
-      target?: any;
-    },
-    mode: 'mindmap' | 'flowchart',
-    callbacks: {
-      onSave: () => void;
-      onUndo: () => void;
-      onRedo: () => void;
-      onCopy: () => void;
-      onCut: () => void;
-      onPaste: () => void;
-      onAddSiblingBelow: () => void;
-      onAddSiblingAbove: () => void;
-      onAddChild: () => void;
-      onAddFlowchartDownstream: () => void;
-      onAddFlowchartUpstream: () => void;
-      onAddFlowchartBranch: () => void;
-      onDelete: () => void;
-      onArrow: (key: string) => void;
-      onEdit: () => void;
-      onDeselect: () => void;
-      onToggleOutline: () => void;
-      onToggleInspector: () => void;
-    }
-  ): { prevented: boolean } {
-    let prevented = false;
-    const fakeEvent = {
-      key: eventInit.key,
-      ctrlKey: !!eventInit.ctrlKey,
-      shiftKey: !!eventInit.shiftKey,
-      target: eventInit.target,
-      preventDefault: () => {
-        prevented = true;
-      },
-    };
+describe('M6 Production-Path Keyboard Dispatcher & Text Isolation Audit', () => {
+  it('correctly identifies text inputs, textareas, and contenteditable elements via isTextInputElement', () => {
+    const inputEl = new (globalThis as any).HTMLInputElement();
+    const textareaEl = new (globalThis as any).HTMLTextAreaElement();
+    const contentEditableDiv = { isContentEditable: true };
+    const contentEditableAttr = { getAttribute: (attr: string) => (attr === 'contenteditable' ? 'true' : null) };
+    const plainCanvasDiv = { isContentEditable: false };
 
-    const isInput =
-      fakeEvent.target instanceof (globalThis as any).HTMLInputElement ||
-      fakeEvent.target instanceof (globalThis as any).HTMLTextAreaElement ||
-      (fakeEvent.target as any)?.isContentEditable === true;
-
-    // Save: Ctrl+S
-    if (fakeEvent.ctrlKey && !fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 's') {
-      fakeEvent.preventDefault();
-      callbacks.onSave();
-      return { prevented };
-    }
-
-    // Toggle Left Outline: Ctrl+\
-    if (fakeEvent.ctrlKey && fakeEvent.key === '\\') {
-      fakeEvent.preventDefault();
-      callbacks.onToggleOutline();
-      return { prevented };
-    }
-
-    // Toggle Right Inspector: Ctrl+/
-    if (fakeEvent.ctrlKey && fakeEvent.key === '/') {
-      fakeEvent.preventDefault();
-      callbacks.onToggleInspector();
-      return { prevented };
-    }
-
-    // Undo: Ctrl+Z
-    if (fakeEvent.ctrlKey && !fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 'z') {
-      if (!isInput) {
-        fakeEvent.preventDefault();
-        callbacks.onUndo();
-      }
-      return { prevented };
-    }
-
-    // Redo: Ctrl+Y or Ctrl+Shift+Z
-    if (
-      (fakeEvent.ctrlKey && fakeEvent.key?.toLowerCase() === 'y') ||
-      (fakeEvent.ctrlKey && fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 'z')
-    ) {
-      if (!isInput) {
-        fakeEvent.preventDefault();
-        callbacks.onRedo();
-      }
-      return { prevented };
-    }
-
-    // Copy: Ctrl+C
-    if (fakeEvent.ctrlKey && !fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 'c') {
-      if (!isInput) {
-        fakeEvent.preventDefault();
-        callbacks.onCopy();
-      }
-      return { prevented };
-    }
-
-    // Cut: Ctrl+X
-    if (fakeEvent.ctrlKey && !fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 'x') {
-      if (!isInput) {
-        fakeEvent.preventDefault();
-        callbacks.onCut();
-      }
-      return { prevented };
-    }
-
-    // Paste: Ctrl+V
-    if (fakeEvent.ctrlKey && !fakeEvent.shiftKey && fakeEvent.key?.toLowerCase() === 'v') {
-      if (!isInput) {
-        fakeEvent.preventDefault();
-        callbacks.onPaste();
-      }
-      return { prevented };
-    }
-
-    // Canvas actions (only active when not inside text editing)
-    if (!isInput) {
-      // Space or F2: Edit selected node
-      if (fakeEvent.key === ' ' || fakeEvent.key === 'F2') {
-        fakeEvent.preventDefault();
-        callbacks.onEdit();
-        return { prevented };
-      }
-
-      if (mode === 'flowchart') {
-        if (fakeEvent.key === 'Enter' && !fakeEvent.shiftKey) {
-          fakeEvent.preventDefault();
-          callbacks.onAddFlowchartDownstream();
-          return { prevented };
-        }
-        if (fakeEvent.key === 'Enter' && fakeEvent.shiftKey) {
-          fakeEvent.preventDefault();
-          callbacks.onAddFlowchartUpstream();
-          return { prevented };
-        }
-        if (fakeEvent.key === 'Tab') {
-          fakeEvent.preventDefault();
-          callbacks.onAddFlowchartBranch();
-          return { prevented };
-        }
-      } else {
-        // Mindmap
-        if (fakeEvent.key === 'Enter' && !fakeEvent.shiftKey) {
-          fakeEvent.preventDefault();
-          callbacks.onAddSiblingBelow();
-          return { prevented };
-        }
-        if (fakeEvent.key === 'Enter' && fakeEvent.shiftKey) {
-          fakeEvent.preventDefault();
-          callbacks.onAddSiblingAbove();
-          return { prevented };
-        }
-        if (fakeEvent.key === 'Tab') {
-          fakeEvent.preventDefault();
-          callbacks.onAddChild();
-          return { prevented };
-        }
-      }
-
-      if (fakeEvent.key === 'Delete' || fakeEvent.key === 'Backspace') {
-        fakeEvent.preventDefault();
-        callbacks.onDelete();
-        return { prevented };
-      }
-
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(fakeEvent.key || '')) {
-        fakeEvent.preventDefault();
-        callbacks.onArrow(fakeEvent.key!);
-        return { prevented };
-      }
-
-      if (fakeEvent.key === 'Escape') {
-        fakeEvent.preventDefault();
-        callbacks.onDeselect();
-        return { prevented };
-      }
-    }
-
-    return { prevented };
-  }
+    expect(isTextInputElement(inputEl)).toBe(true);
+    expect(isTextInputElement(textareaEl)).toBe(true);
+    expect(isTextInputElement(contentEditableDiv)).toBe(true);
+    expect(isTextInputElement(contentEditableAttr)).toBe(true);
+    expect(isTextInputElement(plainCanvasDiv)).toBe(false);
+    expect(isTextInputElement(null)).toBe(false);
+  });
 
   it('guarantees text editing isolation: inputs and textareas do not trigger canvas shortcuts or prevent defaults', () => {
     const inputEl = new (globalThis as any).HTMLInputElement();
@@ -199,82 +38,112 @@ describe('M6 Keyboard Routing, Mode Differentiation & Text Isolation Audit', () 
     const contentEditableDiv = { isContentEditable: true };
 
     const testTargets = [inputEl, textareaEl, contentEditableDiv];
-    const interceptedKeys = ['Enter', 'Tab', 'Delete', 'Backspace', 'ArrowUp', 'ArrowRight', ' ', 'F2'];
+    const interceptedKeys = ['Enter', 'Tab', 'Delete', 'Backspace', 'ArrowUp', 'ArrowRight', ' ', 'F2', 'z', 'y', 'c', 'x', 'v'];
 
     for (const target of testTargets) {
       for (const key of interceptedKeys) {
-        const callbacks = {
+        let prevented = false;
+        const fakeEvent = {
+          key,
+          ctrlKey: ['z', 'y', 'c', 'x', 'v'].includes(key),
+          shiftKey: false,
+          target,
+          preventDefault: () => {
+            prevented = true;
+          },
+        };
+
+        const callbacks: CanvasKeyboardCallbacks = {
           onSave: vi.fn(),
+          onSearch: vi.fn(),
+          onToggleOutline: vi.fn(),
+          onToggleInspector: vi.fn(),
           onUndo: vi.fn(),
           onRedo: vi.fn(),
           onCopy: vi.fn(),
           onCut: vi.fn(),
           onPaste: vi.fn(),
+          onEditSelectedNode: vi.fn(),
           onAddSiblingBelow: vi.fn(),
           onAddSiblingAbove: vi.fn(),
           onAddChild: vi.fn(),
           onAddFlowchartDownstream: vi.fn(),
           onAddFlowchartUpstream: vi.fn(),
           onAddFlowchartBranch: vi.fn(),
-          onDelete: vi.fn(),
-          onArrow: vi.fn(),
-          onEdit: vi.fn(),
+          onDeleteSelected: vi.fn(),
+          onArrowNavigation: vi.fn(),
           onDeselect: vi.fn(),
-          onToggleOutline: vi.fn(),
-          onToggleInspector: vi.fn(),
         };
 
-        const result = dispatchKeyContract({ key, target }, 'mindmap', callbacks);
+        const handled = dispatchCanvasKeyDown(fakeEvent, 'mindmap', callbacks);
 
-        // None of the canvas mutations must trigger when typing in text input
-        expect(result.prevented).toBe(false);
+        // Crucial verification: production dispatcher refuses to intercept keystrokes when editing text
+        expect(handled).toBe(false);
+        expect(prevented).toBe(false);
         expect(callbacks.onAddSiblingBelow).not.toHaveBeenCalled();
         expect(callbacks.onAddChild).not.toHaveBeenCalled();
-        expect(callbacks.onDelete).not.toHaveBeenCalled();
-        expect(callbacks.onArrow).not.toHaveBeenCalled();
-        expect(callbacks.onEdit).not.toHaveBeenCalled();
+        expect(callbacks.onDeleteSelected).not.toHaveBeenCalled();
+        expect(callbacks.onUndo).not.toHaveBeenCalled();
+        expect(callbacks.onRedo).not.toHaveBeenCalled();
+        expect(callbacks.onCopy).not.toHaveBeenCalled();
       }
     }
   });
 
-  it('differentiates Mind Map vs Flowchart graph shortcuts when canvas is active', () => {
-    const canvasTarget = {}; // non-input canvas container
+  it('differentiates Mind Map vs Flowchart graph shortcuts on canvas target in production module', () => {
+    const canvasTarget = { isContentEditable: false };
 
-    const mmCallbacks = {
+    const mmCallbacks: CanvasKeyboardCallbacks = {
       onSave: vi.fn(),
+      onSearch: vi.fn(),
+      onToggleOutline: vi.fn(),
+      onToggleInspector: vi.fn(),
       onUndo: vi.fn(),
       onRedo: vi.fn(),
       onCopy: vi.fn(),
       onCut: vi.fn(),
       onPaste: vi.fn(),
+      onEditSelectedNode: vi.fn(),
       onAddSiblingBelow: vi.fn(),
       onAddSiblingAbove: vi.fn(),
       onAddChild: vi.fn(),
       onAddFlowchartDownstream: vi.fn(),
       onAddFlowchartUpstream: vi.fn(),
       onAddFlowchartBranch: vi.fn(),
-      onDelete: vi.fn(),
-      onArrow: vi.fn(),
-      onEdit: vi.fn(),
+      onDeleteSelected: vi.fn(),
+      onArrowNavigation: vi.fn(),
       onDeselect: vi.fn(),
-      onToggleOutline: vi.fn(),
-      onToggleInspector: vi.fn(),
     };
 
     // 1. Mind Map: Enter -> Sibling Below, Shift+Enter -> Sibling Above, Tab -> Child
-    dispatchKeyContract({ key: 'Enter', target: canvasTarget }, 'mindmap', mmCallbacks);
+    let prevented = false;
+    let handled = dispatchCanvasKeyDown(
+      { key: 'Enter', target: canvasTarget, preventDefault: () => { prevented = true; } },
+      'mindmap',
+      mmCallbacks
+    );
+    expect(handled).toBe(true);
+    expect(prevented).toBe(true);
     expect(mmCallbacks.onAddSiblingBelow).toHaveBeenCalledTimes(1);
     expect(mmCallbacks.onAddFlowchartDownstream).not.toHaveBeenCalled();
 
-    dispatchKeyContract({ key: 'Enter', shiftKey: true, target: canvasTarget }, 'mindmap', mmCallbacks);
+    dispatchCanvasKeyDown(
+      { key: 'Enter', shiftKey: true, target: canvasTarget },
+      'mindmap',
+      mmCallbacks
+    );
     expect(mmCallbacks.onAddSiblingAbove).toHaveBeenCalledTimes(1);
 
-    dispatchKeyContract({ key: 'Tab', target: canvasTarget }, 'mindmap', mmCallbacks);
+    dispatchCanvasKeyDown(
+      { key: 'Tab', target: canvasTarget },
+      'mindmap',
+      mmCallbacks
+    );
     expect(mmCallbacks.onAddChild).toHaveBeenCalledTimes(1);
     expect(mmCallbacks.onAddFlowchartBranch).not.toHaveBeenCalled();
 
     // 2. Flowchart: Enter -> Downstream step, Shift+Enter -> Upstream step, Tab -> Branch
-    const fcCallbacks = {
+    const fcCallbacks: CanvasKeyboardCallbacks = {
       ...mmCallbacks,
       onAddSiblingBelow: vi.fn(),
       onAddSiblingAbove: vi.fn(),
@@ -284,73 +153,102 @@ describe('M6 Keyboard Routing, Mode Differentiation & Text Isolation Audit', () 
       onAddFlowchartBranch: vi.fn(),
     };
 
-    dispatchKeyContract({ key: 'Enter', target: canvasTarget }, 'flowchart', fcCallbacks);
+    handled = dispatchCanvasKeyDown(
+      { key: 'Enter', target: canvasTarget },
+      'flowchart',
+      fcCallbacks
+    );
+    expect(handled).toBe(true);
     expect(fcCallbacks.onAddFlowchartDownstream).toHaveBeenCalledTimes(1);
     expect(fcCallbacks.onAddSiblingBelow).not.toHaveBeenCalled();
 
-    dispatchKeyContract({ key: 'Enter', shiftKey: true, target: canvasTarget }, 'flowchart', fcCallbacks);
+    dispatchCanvasKeyDown(
+      { key: 'Enter', shiftKey: true, target: canvasTarget },
+      'flowchart',
+      fcCallbacks
+    );
     expect(fcCallbacks.onAddFlowchartUpstream).toHaveBeenCalledTimes(1);
 
-    dispatchKeyContract({ key: 'Tab', target: canvasTarget }, 'flowchart', fcCallbacks);
+    dispatchCanvasKeyDown(
+      { key: 'Tab', target: canvasTarget },
+      'flowchart',
+      fcCallbacks
+    );
     expect(fcCallbacks.onAddFlowchartBranch).toHaveBeenCalledTimes(1);
     expect(fcCallbacks.onAddChild).not.toHaveBeenCalled();
   });
 
-  it('handles universal canvas actions (Save, Undo, Redo, Space/F2 edit, Delete, Escape, Panels)', () => {
-    const canvasTarget = {};
-    const callbacks = {
+  it('handles universal canvas actions (Save, Panels, Undo, Redo, Edit, Delete, Escape) via production dispatcher', () => {
+    const canvasTarget = { isContentEditable: false };
+    const callbacks: CanvasKeyboardCallbacks = {
       onSave: vi.fn(),
+      onSearch: vi.fn(),
+      onToggleOutline: vi.fn(),
+      onToggleInspector: vi.fn(),
       onUndo: vi.fn(),
       onRedo: vi.fn(),
       onCopy: vi.fn(),
       onCut: vi.fn(),
       onPaste: vi.fn(),
+      onEditSelectedNode: vi.fn(),
       onAddSiblingBelow: vi.fn(),
       onAddSiblingAbove: vi.fn(),
       onAddChild: vi.fn(),
       onAddFlowchartDownstream: vi.fn(),
       onAddFlowchartUpstream: vi.fn(),
       onAddFlowchartBranch: vi.fn(),
-      onDelete: vi.fn(),
-      onArrow: vi.fn(),
-      onEdit: vi.fn(),
+      onDeleteSelected: vi.fn(),
+      onArrowNavigation: vi.fn(),
       onDeselect: vi.fn(),
-      onToggleOutline: vi.fn(),
-      onToggleInspector: vi.fn(),
     };
 
-    // Ctrl+S
-    dispatchKeyContract({ key: 's', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    // Ctrl+S: Save
+    let handled = dispatchCanvasKeyDown({ key: 's', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
     expect(callbacks.onSave).toHaveBeenCalledTimes(1);
 
-    // Ctrl+\ (Toggle Outline)
-    dispatchKeyContract({ key: '\\', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    // Ctrl+F: Search
+    handled = dispatchCanvasKeyDown({ key: 'f', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
+    expect(callbacks.onSearch).toHaveBeenCalledTimes(1);
+
+    // Ctrl+\: Toggle Outline
+    handled = dispatchCanvasKeyDown({ key: '\\', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
     expect(callbacks.onToggleOutline).toHaveBeenCalledTimes(1);
 
-    // Ctrl+/ (Toggle Inspector)
-    dispatchKeyContract({ key: '/', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    // Ctrl+/: Toggle Inspector
+    handled = dispatchCanvasKeyDown({ key: '/', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
     expect(callbacks.onToggleInspector).toHaveBeenCalledTimes(1);
 
-    // Ctrl+Z
-    dispatchKeyContract({ key: 'z', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    // Ctrl+Z: Undo
+    handled = dispatchCanvasKeyDown({ key: 'z', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
     expect(callbacks.onUndo).toHaveBeenCalledTimes(1);
 
-    // Ctrl+Shift+Z / Ctrl+Y
-    dispatchKeyContract({ key: 'y', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    // Ctrl+Y: Redo
+    handled = dispatchCanvasKeyDown({ key: 'y', ctrlKey: true, target: canvasTarget }, 'mindmap', callbacks);
+    expect(handled).toBe(true);
     expect(callbacks.onRedo).toHaveBeenCalledTimes(1);
 
-    // Space & F2
-    dispatchKeyContract({ key: ' ', target: canvasTarget }, 'mindmap', callbacks);
-    expect(callbacks.onEdit).toHaveBeenCalledTimes(1);
-    dispatchKeyContract({ key: 'F2', target: canvasTarget }, 'mindmap', callbacks);
-    expect(callbacks.onEdit).toHaveBeenCalledTimes(2);
+    // Space & F2: Edit selected node
+    dispatchCanvasKeyDown({ key: ' ', target: canvasTarget }, 'mindmap', callbacks);
+    expect(callbacks.onEditSelectedNode).toHaveBeenCalledTimes(1);
+
+    dispatchCanvasKeyDown({ key: 'F2', target: canvasTarget }, 'mindmap', callbacks);
+    expect(callbacks.onEditSelectedNode).toHaveBeenCalledTimes(2);
 
     // Delete
-    dispatchKeyContract({ key: 'Delete', target: canvasTarget }, 'mindmap', callbacks);
-    expect(callbacks.onDelete).toHaveBeenCalledTimes(1);
+    dispatchCanvasKeyDown({ key: 'Delete', target: canvasTarget }, 'mindmap', callbacks);
+    expect(callbacks.onDeleteSelected).toHaveBeenCalledTimes(1);
 
     // Escape
-    dispatchKeyContract({ key: 'Escape', target: canvasTarget }, 'mindmap', callbacks);
+    dispatchCanvasKeyDown({ key: 'Escape', target: canvasTarget }, 'mindmap', callbacks);
     expect(callbacks.onDeselect).toHaveBeenCalledTimes(1);
+
+    // Arrow keys
+    dispatchCanvasKeyDown({ key: 'ArrowDown', target: canvasTarget }, 'mindmap', callbacks);
+    expect(callbacks.onArrowNavigation).toHaveBeenCalledWith('ArrowDown');
   });
 });

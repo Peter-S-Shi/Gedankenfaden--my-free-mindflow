@@ -72,8 +72,12 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   return (
     <div
       data-testid={`custom-node-${id}`}
-      className={`relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center ${
-        isNewBorn ? 'animate-node-birth' : ''
+      className={`relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center signature-move-glide ${
+        isNewBorn ? 'signature-create-grow animate-node-birth' : ''
+      } ${
+        selected ? 'signature-select-breathe' : ''
+      } ${
+        nodeData.isDeleting ? 'signature-delete-dissolve' : ''
       }`}
       style={{
         minWidth: shape === 'diamond' ? 140 : 120,
@@ -195,8 +199,8 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           title={isCollapsed ? `Expand branch (${childCount} children)` : 'Collapse branch'}
           className={`absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full text-[10px] font-bold shadow-xs transition-all ${
             isCollapsed
-              ? 'w-6 h-5 bg-blue-600 hover:bg-blue-700 text-white px-1'
-              : 'w-4 h-4 bg-slate-200 hover:bg-slate-300 text-slate-600 opacity-0 group-hover:opacity-100'
+              ? 'w-6 h-5 bg-blue-600 hover:bg-blue-700 text-white px-1 signature-collapse-gather'
+              : 'w-4 h-4 bg-slate-200 hover:bg-slate-300 text-slate-600 opacity-0 group-hover:opacity-100 signature-expand-unfold'
           }`}
         >
           {isCollapsed ? `+${childCount}` : '−'}

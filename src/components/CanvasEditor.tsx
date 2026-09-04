@@ -40,6 +40,7 @@ import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, computeGroupBounds } from '../model/groups';
+import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
 import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
@@ -90,6 +91,26 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     nodes: CanonicalNode[];
     edges: CanonicalEdge[];
   } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Clean lifecycle unmount: cancel animations and release instances
+  useEffect(() => {
+    return () => {
+      if (containerRef.current) {
+        try {
+          const anims = containerRef.current.getAnimations({ subtree: true });
+          for (const anim of anims) {
+            anim.cancel();
+          }
+        } catch {
+          // Ignored in headless/test environments
+        }
+      }
+      rfInstanceRef.current = null;
+      clipboardSubtreeRef.current = null;
+    };
+  }, []);
 
   // 3-Pane workspace shell visibility
   const [isOutlineOpen, setIsOutlineOpen] = useState(true);
@@ -1044,166 +1065,38 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [updateHistoryStatus, handleToggleFold]
   );
 
-  // Global Keyboard Shortcuts
+  // Global Keyboard Shortcuts (Production-wired via dispatchCanvasKeyDown)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        (e.target as HTMLElement).isContentEditable;
-
-      // Save: Ctrl+S
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        onSaveDocument(doc);
-        setStatusMessage('Document saved');
-        return;
-      }
-
-      // Search / Outline: Ctrl+F
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        if (!isInput) {
-          e.preventDefault();
-          setIsOutlineOpen(true);
-          return;
-        }
-      }
-
-      // Toggle Left Outline: Ctrl+\
-      if (e.ctrlKey && e.key === '\\') {
-        e.preventDefault();
-        setIsOutlineOpen((prev) => !prev);
-        return;
-      }
-
-      // Toggle Right Inspector: Ctrl+/
-      if (e.ctrlKey && e.key === '/') {
-        e.preventDefault();
-        setIsInspectorOpen((prev) => !prev);
-        return;
-      }
-
-      // Undo: Ctrl+Z
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        if (!isInput) {
-          e.preventDefault();
-          handleUndo();
-        }
-        return;
-      }
-
-      // Redo: Ctrl+Y or Ctrl+Shift+Z
-      if (
-        (e.ctrlKey && e.key.toLowerCase() === 'y') ||
-        (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')
-      ) {
-        if (!isInput) {
-          e.preventDefault();
-          handleRedo();
-        }
-        return;
-      }
-
-      // Copy: Ctrl+C
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
-        if (!isInput) {
-          e.preventDefault();
-          handleCopyBranch();
-        }
-        return;
-      }
-
-      // Cut: Ctrl+X
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'x') {
-        if (!isInput) {
-          e.preventDefault();
-          handleCutBranch();
-        }
-        return;
-      }
-
-      // Paste: Ctrl+V
-      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'v') {
-        if (!isInput) {
-          e.preventDefault();
-          handlePaste();
-        }
-        return;
-      }
-
-      // Graph & Mindmap Keyboard Actions (active only when not inside text editing)
-      if (!isInput) {
-        // Space or F2: Edit selected node text
-        if (e.key === ' ' || e.key === 'F2') {
+      dispatchCanvasKeyDown(e, doc.mode, {
+        onSave: () => {
+          onSaveDocument(doc);
+          setStatusMessage('Document saved');
+        },
+        onSearch: () => setIsOutlineOpen(true),
+        onToggleOutline: () => setIsOutlineOpen((prev) => !prev),
+        onToggleInspector: () => setIsInspectorOpen((prev) => !prev),
+        onUndo: handleUndo,
+        onRedo: handleRedo,
+        onCopy: handleCopyBranch,
+        onCut: handleCutBranch,
+        onPaste: handlePaste,
+        onEditSelectedNode: () => {
           const selectedEl = document.querySelector('.react-flow__node.selected');
           if (selectedEl) {
-            e.preventDefault();
             selectedEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-            return;
           }
-        }
-
-        if (doc.mode === 'flowchart') {
-          // Flowchart shortcuts
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleAddFlowchartStep('downstream');
-            return;
-          }
-
-          if (e.key === 'Enter' && e.shiftKey) {
-            e.preventDefault();
-            handleAddFlowchartStep('upstream');
-            return;
-          }
-
-          if (e.key === 'Tab') {
-            e.preventDefault();
-            handleAddFlowchartBranch();
-            return;
-          }
-        } else {
-          // Mind Map shortcuts
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleAddSiblingNode('below');
-            return;
-          }
-
-          if (e.key === 'Enter' && e.shiftKey) {
-            e.preventDefault();
-            handleAddSiblingNode('above');
-            return;
-          }
-
-          if (e.key === 'Tab') {
-            e.preventDefault();
-            handleAddChildNode();
-            return;
-          }
-        }
-
-        // Delete or Backspace: Delete branch subtree / selected element
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-          e.preventDefault();
-          handleDeleteSelectedSubtree();
-          return;
-        }
-
-        // Arrow Keys: Navigate tree or connectivity
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-          e.preventDefault();
-          handleArrowNavigation(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
-          return;
-        }
-
-        // Escape: Deselect
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
-          return;
-        }
-      }
+        },
+        onAddSiblingBelow: () => handleAddSiblingNode('below'),
+        onAddSiblingAbove: () => handleAddSiblingNode('above'),
+        onAddChild: handleAddChildNode,
+        onAddFlowchartDownstream: () => handleAddFlowchartStep('downstream'),
+        onAddFlowchartUpstream: () => handleAddFlowchartStep('upstream'),
+        onAddFlowchartBranch: handleAddFlowchartBranch,
+        onDeleteSelected: handleDeleteSelectedSubtree,
+        onArrowNavigation: handleArrowNavigation,
+        onDeselect: () => setNodes((nds) => nds.map((n) => ({ ...n, selected: false }))),
+      });
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -1225,12 +1118,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   ]);
 
   return (
-    <div className="w-full h-full flex flex-col relative overflow-hidden">
+    <div ref={containerRef} className="w-full h-full flex flex-col relative overflow-hidden">
       {/* Top Navigation Bar */}
       <div className="h-14 px-4 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center justify-between z-20 shadow-xs shrink-0">
         <div className="flex items-center gap-3">
           <button
             onClick={onBackToLibrary}
+            data-testid="back-to-library-btn"
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
           >
             <ArrowLeft size={14} />
