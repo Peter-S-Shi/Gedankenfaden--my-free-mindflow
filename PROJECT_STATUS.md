@@ -1,10 +1,10 @@
 # Project Status: Gedankenfaden
 
 **Current State**: V1 Product Development COMPLETE — Release `v1.0.0` Published — Milestones M0–M7 COMPLETE (PASS) — All 20 Test Suites & 116 Tests Passing (100% Green) — Windows Native Release Binary, Installers (NSIS, MSI), and Portable Package Verified & Published — Maintenance Mode ACTIVE  
-**Current Milestone**: V1 Release Closure COMPLETE / Next: Portfolio Packaging (External Packaging & Presentation Activity)  
-**Active Branch**: `main` (Release Baseline: `v1.0.0`)  
+**Current Milestone**: Portfolio Packaging (External Packaging & Presentation Activity)  
+**Active Branch**: `docs/portfolio-packaging` (Release Baseline: `v1.0.0`)  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
-**Last Updated**: 2026-09-04  
+**Last Updated**: 2026-09-05  
 
 ---
 
@@ -91,7 +91,7 @@
 
 ## 4. Git & Privacy Status
 
-- **Current Active Branch**: `main` (Release Tag: `v1.0.0`, Release PR merged from `release/v1.0.0-closure`).
+- **Current Active Branch**: `docs/portfolio-packaging` (Release Baseline: `v1.0.0`).
 - **Privacy Exclusions**:
   - `grill/`, `prompt-drafts/`, `dist-portable/`, and `*.mflow` are strictly protected in `.gitignore` and `.git/info/exclude`.
   - Zero sensitive research notes, discovery files, machine-specific absolute paths, or credentials are tracked.
@@ -118,8 +118,8 @@
    - Tauri Native Release Build: `src-tauri/target/release/gedankenfaden.exe` compiled with embedded production bundle.
    - Empirical Native Smoke Test (`verify-smoke-native.mjs`): 100% PASS via Chrome DevTools Protocol attached to real Windows WebView2 runtime (file association cold-start, multi-attribute Inspector edits with persistent selection, and pane click deselect).
    - Remote GitHub Actions CI: 100% Green across matrix targets.
-4. **Next Activity**:
-   - Portfolio Packaging (External packaging, portfolio presentation, recruiter-readable documentation). Not a V1 development milestone.
+4. **Current & Next Activity**:
+   - Portfolio Packaging: README redesigned with real proof visuals (`assets/readme/`), concise value narrative, desktop workflow, engineering highlights, and download entry points; submitted via branch PR.
 5. **Governance & Boundaries Preserved**:
    - Feature Freeze respected (zero new functional features).
    - No license declared or added (undecided license status preserved).
