@@ -17,6 +17,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { CrashDetectionResult } from '../model/recovery';
+import { ConfirmationDialog } from './ConfirmationDialog';
 
 export interface LibraryHomeProps {
   onOpenDocument: (doc: CanonicalDocument | LibraryEntry, filePath?: string) => void;
@@ -50,6 +51,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
   const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModeFilter, setSelectedModeFilter] = useState<'all' | 'mindmap' | 'flowchart'>('all');
+  const [pendingDelete, setPendingDelete] = useState<UnifiedItem | null>(null);
 
   interface UnifiedItem {
     id: string;
@@ -111,8 +113,8 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
   return (
     <div className="w-full h-full flex flex-col bg-slate-50 overflow-y-auto">
       {/* Top Header */}
-      <header className="px-10 py-6 border-b border-slate-200/80 bg-white/70 backdrop-blur-md flex items-center justify-between sticky top-0 z-10">
-        <div>
+      <header className="px-5 lg:px-8 xl:px-10 py-4 lg:py-6 border-b border-slate-200/80 bg-white/70 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 sticky top-0 z-10">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold tracking-tight text-slate-800 flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
             Gedankenfaden
@@ -122,7 +124,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 lg:gap-3 shrink-0">
           <button
             onClick={() => onCreateNew('mindmap')}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-sm font-medium shadow-sm transition-all hover:shadow"
@@ -142,7 +144,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
 
       {/* Crash Recovery Notification Banner */}
       {crashRecovery?.hasUnsavedOrCrash && (
-        <div className="bg-amber-50 border-b border-amber-200 px-10 py-3 flex items-center justify-between shadow-xs animate-fadeIn">
+        <div className="bg-amber-50 border-b border-amber-200 px-5 lg:px-10 py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fadeIn">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
               <AlertTriangle size={18} />
@@ -182,9 +184,9 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
       )}
 
       {/* Main Content Area */}
-      <main className="max-w-6xl w-full mx-auto px-10 py-8 flex flex-col gap-6">
+      <main className="max-w-6xl w-full mx-auto px-5 lg:px-8 xl:px-10 py-6 lg:py-8 flex flex-col gap-6">
         {/* Local Library Folder Bar */}
-        <section className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-4">
+        <section className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3.5 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
               <Folder size={20} />
@@ -205,7 +207,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             {onChangeFolder && (
               <button
                 type="button"
@@ -236,7 +238,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                 onClick={onImportDocument}
                 data-testid="btn-import-file"
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium transition-colors"
-                title="Open or Import File (.mflow, .json)"
+                title="Open or Import File (.mflow, .json, .md, .markdown, .opml)"
               >
                 <Upload size={13} />
                 Import File...
@@ -246,7 +248,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
         </section>
 
         {/* Filter & Search Bar */}
-        <section className="flex items-center justify-between gap-4 pt-1">
+        <section className="flex flex-wrap items-center justify-between gap-4 pt-1">
           <div className="flex items-center bg-slate-200/60 p-1 rounded-xl gap-1">
             <button
               onClick={() => setSelectedModeFilter('all')}
@@ -369,7 +371,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
             </div>
           ) : (
             <div
-              className="grid grid-cols-3 gap-6 group/library-grid"
+              className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6 group/library-grid"
               data-testid="library-card-grid"
             >
               {filteredDocs.map((doc) => {
@@ -422,7 +424,7 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
                               data-testid={`delete-doc-${doc.id}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onDeleteDocument((doc.entry || doc.doc)!);
+                                setPendingDelete(doc);
                               }}
                               className="p-1 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                               title="Move to Windows Recycle Bin"
@@ -459,6 +461,18 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
           )}
         </section>
       </main>
+      {pendingDelete && onDeleteDocument && (
+        <ConfirmationDialog
+          title={`Move “${pendingDelete.title}” to Recycle Bin?`}
+          message="The document will be moved to the Windows Recycle Bin and can be restored from there."
+          confirmLabel="Move to Recycle Bin"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            onDeleteDocument((pendingDelete.entry || pendingDelete.doc)!);
+            setPendingDelete(null);
+          }}
+        />
+      )}
     </div>
   );
 };

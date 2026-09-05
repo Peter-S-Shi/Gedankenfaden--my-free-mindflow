@@ -21,6 +21,7 @@ import {
   createDocumentInLibrary,
   deleteDocumentFromLibrary,
   loadDocumentFromFile,
+  importDocumentIntoLibrary,
 } from './model/library';
 import { getNativeBridge } from './platform/tauriBridge';
 import { packageDocumentToMflow } from './model/container';
@@ -181,10 +182,19 @@ export const App: React.FC = () => {
       try {
         const cliFilePath = await bridge.getCliOpenFile();
         if (cliFilePath && (await bridge.exists(cliFilePath))) {
-          const cliDoc = await loadDocumentFromFile(cliFilePath, bridge);
+          const lower = cliFilePath.toLowerCase();
+          const isStructuredImport = lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.opml');
+          const defaultDocDir = await bridge.getDefaultDocumentsDir();
+          const storedFolder = localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
+          const imported = isStructuredImport
+            ? await importDocumentIntoLibrary(cliFilePath, storedFolder, bridge)
+            : null;
+          const cliDoc = imported?.document || await loadDocumentFromFile(cliFilePath, bridge);
           if (cliDoc && isMounted) {
+            setCurrentFolder(storedFolder);
+            if (imported) setLibraryEntries(imported.entries);
             setActiveDoc(cliDoc);
-            setActiveDocPath(cliFilePath);
+            setActiveDocPath(imported?.filePath || cliFilePath);
             await markSessionActive(cliDoc.id, cliDoc.title);
             return;
           }
@@ -346,29 +356,13 @@ export const App: React.FC = () => {
     const bridge = getNativeBridge();
     const picked = await bridge.pickDocumentFile();
     if (picked && (await bridge.exists(picked))) {
-      const doc = await loadDocumentFromFile(picked, bridge);
-      if (doc) {
-        const folder = currentFolder || (await bridge.getDefaultDocumentsDir());
-        const lower = picked.toLowerCase();
-        const isNativeFormat = lower.endsWith('.mflow') || lower.endsWith('.json');
-
-        let targetSavePath: string;
-        if (isNativeFormat) {
-          targetSavePath = picked;
-        } else {
-          // For imported .md and .opml, establish a user-owned .mflow file in active library folder
-          const safeTitle = (doc.title || 'imported_document').toLowerCase().replace(/[^a-z0-9_-]/gi, '_');
-          targetSavePath = `${folder}/${safeTitle}_${Date.now()}.mflow`.replace(/\\/g, '/');
-          const bytes = await packageDocumentToMflow(doc);
-          await atomicWriteBinaryFile(targetSavePath, bytes, bridge);
-        }
-
-        const entries = await syncLibraryWithDisk([folder], bridge);
-        setLibraryEntries(entries);
-
-        setActiveDoc(doc);
-        setActiveDocPath(targetSavePath);
-        await markSessionActive(doc.id, doc.title);
+      const folder = currentFolder || (await bridge.getDefaultDocumentsDir());
+      const imported = await importDocumentIntoLibrary(picked, folder, bridge);
+      if (imported) {
+        setLibraryEntries(imported.entries);
+        setActiveDoc(imported.document);
+        setActiveDocPath(imported.filePath);
+        await markSessionActive(imported.document.id, imported.document.title);
       }
     }
   };

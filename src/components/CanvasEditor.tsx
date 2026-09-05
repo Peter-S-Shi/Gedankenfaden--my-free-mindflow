@@ -14,6 +14,7 @@ import {
   EdgeChange,
   ReactFlowInstance,
   Panel,
+  ViewportPortal,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -21,29 +22,20 @@ import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme } from '
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
-import {
-  exportToJSON,
-  exportToSVG,
-  exportToPNG,
-  exportToJPEG,
-  exportToPDF,
-  exportToMarkdown,
-  exportToHTML,
-  exportToMermaid,
-  exportToOPML,
-  exportToLegacyMindMapXML,
-  exportToJSONCanvas,
-} from '../export/exporter';
+import { createExportArtifact, ExportFormat, saveExportWithNativeDialog } from '../export/saveExport';
 import { importFromMarkdown, importFromOPML } from '../model/importers';
-import { packageDocumentToMflow, parseMflowFromBytes } from '../model/container';
+import { parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, computeGroupBounds } from '../model/groups';
+import { DeletionPlan, planCanvasDeletion } from '../model/deletion';
+import { getNativeBridge } from '../platform/tauriBridge';
 import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
 import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
+import { ConfirmationDialog } from './ConfirmationDialog';
 import {
   ArrowLeft,
   Plus,
@@ -116,6 +108,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [isOutlineOpen, setIsOutlineOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [pendingDeletion, setPendingDeletion] = useState<DeletionPlan | null>(null);
 
   // Focus node helper
   const focusNodeOnCanvas = useCallback(
@@ -516,15 +509,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc, updateHistoryStatus]
   );
 
-  // Delete Selected (Subtree for Mind Map, Node/Edges for Flowchart)
+  // Request explicit confirmation before deleting canvas content.
   const handleDeleteSelectedSubtree = useCallback(() => {
     if (!selectedNodeId) return;
+    setPendingDeletion(planCanvasDeletion(doc, selectedNodeId));
+  }, [doc, selectedNodeId]);
 
+  const confirmPendingDeletion = useCallback(() => {
+    if (!pendingDeletion || !selectedNodeId) return;
     const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!targetNode) return;
 
-    // Do not delete central root in mindmap if it's the only one
-    if (doc.mode === 'mindmap' && targetNode.type === 'root' && doc.nodes.filter((n) => n.type === 'root').length <= 1) {
+    if (pendingDeletion.kind === 'clear-root-branches') {
       const nextDoc: CanonicalDocument = {
         ...doc,
         nodes: [targetNode],
@@ -538,30 +534,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       historyRef.current.pushState(nextDoc);
       updateHistoryStatus();
       setStatusMessage('Cleared branches from root');
+      setPendingDeletion(null);
       return;
     }
 
-    // Collect target node and all recursive descendants
-    const deletedIds = new Set<string>([selectedNodeId]);
-    if (doc.mode === 'mindmap') {
-      const childrenMap = new Map<string, string[]>();
-      for (const n of doc.nodes) {
-        if (n.parentId) {
-          const list = childrenMap.get(n.parentId) || [];
-          list.push(n.id);
-          childrenMap.set(n.parentId, list);
-        }
-      }
-
-      const collectDescendants = (pId: string) => {
-        const ch = childrenMap.get(pId) || [];
-        for (const c of ch) {
-          deletedIds.add(c);
-          collectDescendants(c);
-        }
-      };
-      collectDescendants(selectedNodeId);
-    }
+    const deletedIds = new Set(pendingDeletion.nodeIds);
 
     const nextNodes = doc.nodes.filter((n) => !deletedIds.has(n.id));
     const nextEdges = doc.edges.filter(
@@ -591,7 +568,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     historyRef.current.pushState(layouted);
     updateHistoryStatus();
     setStatusMessage(`Deleted (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
-  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
+    setPendingDeletion(null);
+  }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
 
   // Spatial / Hierarchical Arrow Navigation
   const handleArrowNavigation = useCallback(
@@ -888,90 +866,31 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   }, [nodes, edges, doc, onSaveDocument]);
 
   const handleExportFormat = useCallback(
-    async (format: string) => {
-      const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-      const baseName = doc.title.toLowerCase().replace(/\s+/g, '_') || 'gedankenfaden_doc';
-
-      let blob: Blob;
-      let filename: string;
-
-      switch (format) {
-        case 'mflow': {
-          const bytes = packageDocumentToMflow(currentDoc, assetStoreRef.current.toBytesMap());
-          blob = new Blob([bytes as unknown as BlobPart], { type: 'application/vnd.gedankenfaden.mflow' });
-          filename = `${baseName}.mflow`;
-          break;
-        }
-        case 'json': {
-          blob = new Blob([exportToJSON(currentDoc)], { type: 'application/json' });
-          filename = `${baseName}.json`;
-          break;
-        }
-        case 'svg': {
-          blob = new Blob([exportToSVG(currentDoc)], { type: 'image/svg+xml' });
-          filename = `${baseName}.svg`;
-          break;
-        }
-        case 'png': {
-          const bytes = await exportToPNG(currentDoc);
-          blob = new Blob([bytes as unknown as BlobPart], { type: 'image/png' });
-          filename = `${baseName}.png`;
-          break;
-        }
-        case 'jpeg': {
-          const bytes = await exportToJPEG(currentDoc);
-          blob = new Blob([bytes as unknown as BlobPart], { type: 'image/jpeg' });
-          filename = `${baseName}.jpeg`;
-          break;
-        }
-        case 'pdf': {
-          const bytes = await exportToPDF(currentDoc);
-          blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' });
-          filename = `${baseName}.pdf`;
-          break;
-        }
-        case 'markdown': {
-          blob = new Blob([exportToMarkdown(currentDoc)], { type: 'text/markdown' });
-          filename = `${baseName}.md`;
-          break;
-        }
-        case 'html': {
-          blob = new Blob([exportToHTML(currentDoc)], { type: 'text/html' });
-          filename = `${baseName}.html`;
-          break;
-        }
-        case 'mermaid': {
-          blob = new Blob([exportToMermaid(currentDoc)], { type: 'text/plain' });
-          filename = `${baseName}.mmd`;
-          break;
-        }
-        case 'opml': {
-          blob = new Blob([exportToOPML(currentDoc)], { type: 'text/xml' });
-          filename = `${baseName}.opml`;
-          break;
-        }
-        case 'mm': {
-          blob = new Blob([exportToLegacyMindMapXML(currentDoc)], { type: 'text/xml' });
-          filename = `${baseName}.mm`;
-          break;
-        }
-        case 'canvas': {
-          blob = new Blob([exportToJSONCanvas(currentDoc)], { type: 'application/json' });
-          filename = `${baseName}.canvas`;
-          break;
-        }
-        default:
+    async (format: ExportFormat) => {
+      try {
+        const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+        const artifact = await createExportArtifact(currentDoc, format, assetStoreRef.current.toBytesMap());
+        const bridge = getNativeBridge();
+        if (bridge.isTauri()) {
+          const result = await saveExportWithNativeDialog(artifact, bridge);
+          setIsExportMenuOpen(false);
+          setStatusMessage(result.status === 'saved' ? `Exported ${format.toUpperCase()} to ${result.path}` : 'Export cancelled');
           return;
-      }
+        }
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      setIsExportMenuOpen(false);
-      setStatusMessage(`Exported ${format.toUpperCase()}`);
+        const blob = new Blob([artifact.contents as BlobPart], { type: artifact.mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = artifact.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        setIsExportMenuOpen(false);
+        setStatusMessage(`Exported ${format.toUpperCase()}`);
+      } catch (error) {
+        setIsExportMenuOpen(false);
+        setStatusMessage(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     },
     [nodes, edges, doc]
   );
@@ -1003,12 +922,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           }
         };
         reader.readAsArrayBuffer(file);
-      } else if (lower.endsWith('.md')) {
+      } else if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
             const content = event.target?.result as string;
-            const imported = importFromMarkdown(content, file.name.replace(/\.md$/i, ''));
+            const imported = importFromMarkdown(content, file.name.replace(/\.(md|markdown)$/i, ''));
             setDoc(imported);
             const projected = canonicalToReactFlow(imported, { onToggleFold: handleToggleFold });
             setNodes(projected.nodes);
@@ -1124,8 +1043,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       className="w-full h-full flex flex-col relative overflow-hidden"
     >
       {/* Top Navigation Bar */}
-      <div className="h-14 px-4 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center justify-between z-20 shadow-xs shrink-0">
-        <div className="flex items-center gap-3">
+      <div className="min-h-14 px-3 lg:px-4 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 z-20 shadow-xs shrink-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
           <button
             onClick={onBackToLibrary}
             data-testid="back-to-library-btn"
@@ -1155,11 +1074,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             data-testid="canvas-document-title"
             value={doc.title}
             onChange={(e) => setDoc({ ...doc, title: e.target.value })}
-            className="text-sm font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none px-1 py-0.5"
+            className="min-w-24 max-w-48 flex-1 truncate text-sm font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none px-1 py-0.5"
           />
 
           <span
-            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+            className={`whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium ${
               doc.mode === 'mindmap'
                 ? 'bg-blue-100 text-blue-700'
                 : 'bg-emerald-100 text-emerald-700'
@@ -1170,7 +1089,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         </div>
 
         {/* Center/Right Action Tools */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <button
             onClick={handleUndo}
             disabled={!canUndo}
@@ -1286,7 +1205,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             Import
             <input
               type="file"
-              accept=".mflow,.json,.md,.opml"
+              accept=".mflow,.json,.md,.markdown,.opml"
               onChange={handleImportFile}
               className="hidden"
             />
@@ -1456,8 +1375,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             />
 
             {/* Visual Group Containers Layer */}
-            {doc.groups &&
-              doc.groups.map((group) => {
+            <ViewportPortal>
+              {doc.groups && doc.groups.map((group) => {
                 const bounds = computeGroupBounds(group, doc.nodes);
                 return (
                   <div
@@ -1479,6 +1398,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                   </div>
                 );
               })}
+            </ViewportPortal>
 
             <Panel position="bottom-center" className="mb-4">
               <div className="px-3 py-1.5 bg-slate-900/80 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
@@ -1502,6 +1422,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           />
         )}
       </div>
+      {pendingDeletion && (
+        <ConfirmationDialog
+          title={pendingDeletion.title}
+          message={pendingDeletion.message}
+          confirmLabel={pendingDeletion.kind === 'clear-root-branches' ? 'Clear branches' : 'Delete'}
+          onConfirm={confirmPendingDeletion}
+          onCancel={() => setPendingDeletion(null)}
+        />
+      )}
     </div>
   );
 };

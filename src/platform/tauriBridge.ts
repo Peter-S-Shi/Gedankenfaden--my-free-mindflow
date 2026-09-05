@@ -4,7 +4,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 export interface FileEntry {
   name: string;
@@ -31,6 +31,7 @@ export interface INativeBridge {
   getCliOpenFile(): Promise<string | null>;
   pickFolder(): Promise<string | null>;
   pickDocumentFile(): Promise<string | null>;
+  pickExportFile(suggestedFilename: string, extension: string): Promise<string | null>;
 }
 
 export function isRunningInTauri(): boolean {
@@ -135,6 +136,15 @@ export class TauriNativeBridge implements INativeBridge {
       return null;
     }
   }
+
+  async pickExportFile(suggestedFilename: string, extension: string): Promise<string | null> {
+    const selected = await save({
+      title: 'Export Gedankenfaden Document',
+      defaultPath: suggestedFilename,
+      filters: [{ name: `${extension.toUpperCase()} file`, extensions: [extension] }],
+    });
+    return typeof selected === 'string' ? selected.replace(/\\/g, '/') : null;
+  }
 }
 
 /**
@@ -156,6 +166,7 @@ export class MemoryMockNativeBridge implements INativeBridge {
   private cliOpenFile: string | null = null;
   private pickedFolder: string | null = null;
   private pickedDocumentFile: string | null = null;
+  private pickedExportFile: string | null = null;
 
   private normalize(p: string): string {
     return p.replace(/\\/g, '/');
@@ -271,6 +282,10 @@ export class MemoryMockNativeBridge implements INativeBridge {
     this.pickedDocumentFile = path;
   }
 
+  simulatePickedExportFile(path: string | null): void {
+    this.pickedExportFile = path;
+  }
+
   async getCliOpenFile(): Promise<string | null> {
     return this.cliOpenFile;
   }
@@ -281,6 +296,10 @@ export class MemoryMockNativeBridge implements INativeBridge {
 
   async pickDocumentFile(): Promise<string | null> {
     return this.pickedDocumentFile;
+  }
+
+  async pickExportFile(_suggestedFilename: string, _extension: string): Promise<string | null> {
+    return this.pickedExportFile;
   }
 
   async readDir(dirPath: string): Promise<FileEntry[]> {

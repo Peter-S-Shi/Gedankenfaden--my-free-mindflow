@@ -116,6 +116,40 @@ export async function loadDocumentFromFile(
   return null;
 }
 
+export interface ImportedLibraryDocument {
+  document: CanonicalDocument;
+  filePath: string;
+  entries: LibraryEntry[];
+}
+
+/** Runs the same native import-to-owned-library path used by the Library UI. */
+export async function importDocumentIntoLibrary(
+  sourcePath: string,
+  libraryFolder: string,
+  bridge: INativeBridge = getNativeBridge(),
+  uniqueSuffix = Date.now().toString()
+): Promise<ImportedLibraryDocument | null> {
+  const document = await loadDocumentFromFile(sourcePath, bridge);
+  if (!document) return null;
+
+  const lower = sourcePath.toLowerCase();
+  let filePath = sourcePath.replace(/\\/g, '/');
+  if (!lower.endsWith('.mflow') && !lower.endsWith('.json')) {
+    const safeTitle = (document.title || 'imported_document')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/gi, '_');
+    filePath = `${libraryFolder}/${safeTitle}_${uniqueSuffix}.mflow`.replace(/\\/g, '/');
+    const bytes = packageDocumentToMflow(document);
+    await atomicWriteBinaryFile(filePath, bytes, bridge);
+  }
+
+  return {
+    document,
+    filePath,
+    entries: await syncLibraryWithDisk([libraryFolder], bridge),
+  };
+}
+
 /**
  * Inspects a document file and generates a metadata catalog entry
  */

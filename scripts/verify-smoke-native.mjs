@@ -6,6 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import * as fflate from 'fflate';
@@ -13,6 +14,23 @@ import * as fflate from 'fflate';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+let smokeProcess = null;
+let smokeMflowPath = null;
+let isolatedAppDataDir = null;
+
+function cleanupSmokeState() {
+  if (smokeProcess) {
+    // Emergency fallback only. A passing smoke must close through Tauri and clear this handle first.
+    try { smokeProcess.kill('SIGKILL'); } catch {}
+    smokeProcess = null;
+  }
+  if (smokeMflowPath && fs.existsSync(smokeMflowPath)) {
+    fs.unlinkSync(smokeMflowPath);
+  }
+  if (isolatedAppDataDir && fs.existsSync(isolatedAppDataDir)) {
+    fs.rmSync(isolatedAppDataDir, { recursive: true, force: true });
+  }
+}
 
 async function runSmokeTest() {
   console.log('=== Milestone 7-A: Windows Native RC Smoke Verification ===\n');
@@ -27,7 +45,8 @@ async function runSmokeTest() {
   console.log(`       Size: ${(stats.size / (1024 * 1024)).toFixed(2)} MB (${stats.size} bytes)\n`);
 
   // Step 2: Create a real .mflow container for File Association Smoke Test
-  const smokeMflowPath = path.resolve(rootDir, 'test_association_smoke.mflow');
+  smokeMflowPath = path.resolve(rootDir, 'test_association_smoke.mflow');
+  isolatedAppDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gedankenfaden-smoke-'));
   const testDoc = {
     schemaVersion: '1.0',
     id: 'doc_smoke_mflow_1',
@@ -78,8 +97,11 @@ async function runSmokeTest() {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
+      WEBVIEW2_USER_DATA_FOLDER: path.join(isolatedAppDataDir, 'webview2'),
+      APPDATA: isolatedAppDataDir,
     },
   });
+  smokeProcess = child;
 
   if (!child.pid) {
     throw new Error('Failed to spawn gedankenfaden.exe process');
@@ -190,6 +212,10 @@ async function runSmokeTest() {
           if (!domEvidence) {
             reject(new Error('CanvasEditor or sentinel node was not rendered in the live WebView2 DOM'));
           } else {
+            await sendCdp('Runtime.evaluate', {
+              expression: `setTimeout(() => window.__TAURI_INTERNALS__.invoke('plugin:window|close', { label: 'main' }), 100); 'close-scheduled'`,
+              returnByValue: true,
+            });
             resolve(domEvidence);
           }
         } catch (err) {
@@ -222,13 +248,19 @@ async function runSmokeTest() {
   console.log(`       Rendered Node Count on Canvas: ${domProof.renderedNodeCount}`);
   console.log(`       Live DOM Content Preview: "${domProof.bodyPreview}"\n`);
 
-  // Terminate test process cleanly
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    // Process already terminated
+  const gracefulExit = await new Promise((resolve) => {
+    if (child.exitCode !== null) return resolve({ code: child.exitCode, signal: child.signalCode });
+    const timeout = setTimeout(() => resolve(null), 10000);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ code, signal });
+    });
+  });
+  if (!gracefulExit || gracefulExit.code !== 0 || gracefulExit.signal) {
+    throw new Error(`Native app did not exit gracefully: ${JSON.stringify(gracefulExit)}`);
   }
-  console.log(`       Native process PID ${child.pid} gracefully closed.\n`);
+  smokeProcess = null;
+  console.log(`       Native process PID ${child.pid} closed through Tauri with exit code 0.\n`);
 
   // Step 4: Verify Portable Distribution Package
   const zipPath = path.resolve(rootDir, 'dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip');
@@ -258,10 +290,11 @@ async function runSmokeTest() {
     }
   }
 
-  // Clean up smoke test container
-  if (fs.existsSync(smokeMflowPath)) {
-    fs.unlinkSync(smokeMflowPath);
+  cleanupSmokeState();
+  if (fs.existsSync(isolatedAppDataDir || '')) {
+    throw new Error('Isolated smoke AppData was not removed');
   }
+  console.log('[PASS] 5. Smoke recovery/AppData state isolated and removed.');
 
   console.log('\n======================================================================');
   console.log('ALL LOCAL NATIVE RC SMOKE TESTS PASSED (GATE H: VERIFIED)');
@@ -269,6 +302,7 @@ async function runSmokeTest() {
 }
 
 runSmokeTest().catch((err) => {
+  cleanupSmokeState();
   console.error('\n[FAIL] Smoke verification failed:', err);
   process.exit(1);
 });

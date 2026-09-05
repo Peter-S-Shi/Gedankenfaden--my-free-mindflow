@@ -21,6 +21,32 @@ export interface CustomNodeData extends Record<string, unknown> {
   onToggleFold?: (nodeId: string) => void;
 }
 
+const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
+  'label',
+  'nodeType',
+  'style',
+  'shape',
+  'assetRef',
+  'collapsed',
+  'manualOffset',
+  'parentId',
+  'isNewBorn',
+  'isDeleting',
+  'visuals',
+  'numberingBadge',
+  'hasChildren',
+  'childCount',
+  'onToggleFold',
+]);
+
+function preserveDomainNodeData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!data) return undefined;
+  const preserved = Object.fromEntries(
+    Object.entries(data).filter(([key]) => !PROJECTION_ONLY_NODE_DATA_KEYS.has(key))
+  );
+  return Object.keys(preserved).length > 0 ? preserved : undefined;
+}
+
 export function canonicalToReactFlow(
   doc: CanonicalDocument,
   callbacks?: { onToggleFold?: (nodeId: string) => void }
@@ -72,6 +98,7 @@ export function canonicalToReactFlow(
       position: { x: n.geometry.x, y: n.geometry.y },
       hidden: isHidden,
       data: {
+        ...preserveDomainNodeData(n.data),
         label: n.text,
         nodeType: n.type,
         style: n.style,
@@ -85,7 +112,6 @@ export function canonicalToReactFlow(
         hasChildren,
         childCount: directChildren.length,
         onToggleFold: callbacks?.onToggleFold,
-        ...(n.data || {}),
       },
       style: {
         width: n.geometry.width,
@@ -161,7 +187,7 @@ export function reactFlowToCanonical(
       collapsed: typeof rn.data?.collapsed === 'boolean' ? rn.data.collapsed : existing?.collapsed,
       manualOffset: rn.data?.manualOffset || existing?.manualOffset,
       style: rn.data?.style || existing?.style,
-      data: rn.data,
+      data: preserveDomainNodeData(rn.data),
     };
   });
 
