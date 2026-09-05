@@ -151,24 +151,32 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [layoutPreset]
   );
 
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => canonicalToReactFlow(initialDocument, { onToggleFold: handleToggleFold }),
-    [initialDocument, handleToggleFold]
-  );
-  const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(initialEdges);
-  const rfInstanceRef = useRef<ReactFlowInstance<Node<CustomNodeData>, Edge> | null>(null);
-
-  // Track currently selected node
-  const selectedNodeId = useMemo(() => {
-    const found = nodes.find((n) => n.selected);
-    return found ? found.id : null;
-  }, [nodes]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const selectedCanonicalNode = useMemo(() => {
     if (!selectedNodeId) return null;
     return doc.nodes.find((n) => n.id === selectedNodeId) || null;
   }, [doc.nodes, selectedNodeId]);
+
+  const handleUpdateNodeRef = useRef<((nodeId: string, updates: Partial<CanonicalNode>) => void) | null>(null);
+  const handleUpdateNodeLabel = useCallback((nodeId: string, label: string) => {
+    if (handleUpdateNodeRef.current) {
+      handleUpdateNodeRef.current(nodeId, { text: label });
+    }
+  }, []);
+
+  const { nodes: initialNodes, edges: initialEdges } = useMemo(
+    () =>
+      canonicalToReactFlow(initialDocument, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: null,
+        onUpdateLabel: handleUpdateNodeLabel,
+      }),
+    [initialDocument, handleToggleFold, handleUpdateNodeLabel]
+  );
+  const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
+  const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const rfInstanceRef = useRef<ReactFlowInstance<Node<CustomNodeData>, Edge> | null>(null);
 
   const updateHistoryStatus = useCallback(() => {
     setCanUndo(historyRef.current.canUndo());
@@ -200,6 +208,22 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         }
         return next;
       });
+
+      const selectChanges = changes.filter((c) => c.type === 'select');
+      if (selectChanges.length > 0) {
+        const selected = selectChanges.find((c) => (c as any).selected);
+        if (selected) {
+          setSelectedNodeId(selected.id);
+        } else {
+          const hasAnySelected = selectChanges.some((c) => (c as any).selected);
+          if (!hasAnySelected) {
+            setSelectedNodeId((currentId) => {
+              const deselected = selectChanges.find((c) => c.id === currentId && !(c as any).selected);
+              return deselected ? null : currentId;
+            });
+          }
+        }
+      }
     },
     [edges, syncToCanonical]
   );
@@ -249,6 +273,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   // Focus node on canvas (used by OutlinePanel)
   const handleSelectAndFocusNode = useCallback(
     (nodeId: string) => {
+      setSelectedNodeId(nodeId);
       setNodes((nds) =>
         nds.map((n) => ({
           ...n,
@@ -266,7 +291,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       setLayoutPreset(preset);
       const currentDoc = reactFlowToCanonical(nodes, edges, doc);
       const layoutedDoc = autoLayoutDocument(currentDoc, { preset });
-      const projected = canonicalToReactFlow(layoutedDoc, { onToggleFold: handleToggleFold });
+      const projected = canonicalToReactFlow(layoutedDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
 
       setNodes(projected.nodes);
       setEdges(projected.edges);
@@ -275,7 +304,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updateHistoryStatus();
       setStatusMessage(`Layout: ${preset || 'Balanced'}`);
     },
-    [nodes, edges, doc, updateHistoryStatus, handleToggleFold]
+    [nodes, edges, doc, selectedNodeId, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
   // Keyboard Contract: Add Sibling Node (Enter / Shift+Enter for Mind Map)
@@ -320,13 +349,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       };
 
       const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
-      const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+      const projected = canonicalToReactFlow(layouted, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: newId,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
 
       const updatedRfNodes = projected.nodes.map((n) => ({
         ...n,
         selected: n.id === newId,
       }));
 
+      setSelectedNodeId(newId);
       setDoc(layouted);
       setNodes(updatedRfNodes);
       setEdges(projected.edges);
@@ -335,7 +369,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       focusNodeOnCanvas(newId, updatedRfNodes);
       setStatusMessage(`Created sibling (${direction})`);
     },
-    [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]
+    [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]
   );
 
   // Keyboard Contract: Add Child Node (Tab for Mind Map)
@@ -373,13 +407,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     };
 
     const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
-    const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+    const projected = canonicalToReactFlow(layouted, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: newId,
+      onUpdateLabel: handleUpdateNodeLabel,
+    });
 
     const updatedRfNodes = projected.nodes.map((n) => ({
       ...n,
       selected: n.id === newId,
     }));
 
+    setSelectedNodeId(newId);
     setDoc(layouted);
     setNodes(updatedRfNodes);
     setEdges(projected.edges);
@@ -387,7 +426,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     focusNodeOnCanvas(newId, updatedRfNodes);
     setStatusMessage('Created child node (Tab)');
-  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]);
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]);
 
   // Flowchart Keyboard Action: Add Downstream Connected Step (Enter)
   const handleAddFlowchartStep = useCallback(
@@ -426,12 +465,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+      const projected = canonicalToReactFlow(nextDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: newId,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
       const updatedRfNodes = projected.nodes.map((n) => ({
         ...n,
         selected: n.id === newId,
       }));
 
+      setSelectedNodeId(newId);
       setDoc(nextDoc);
       setNodes(updatedRfNodes);
       setEdges(projected.edges);
@@ -440,7 +484,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       focusNodeOnCanvas(newId, updatedRfNodes);
       setStatusMessage(`Added connected step (${direction})`);
     },
-    [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]
+    [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]
   );
 
   // Flowchart Keyboard Action: Add Decision Branch (Tab)
@@ -477,12 +521,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+    const projected = canonicalToReactFlow(nextDoc, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: newId,
+      onUpdateLabel: handleUpdateNodeLabel,
+    });
     const updatedRfNodes = projected.nodes.map((n) => ({
       ...n,
       selected: n.id === newId,
     }));
 
+    setSelectedNodeId(newId);
     setDoc(nextDoc);
     setNodes(updatedRfNodes);
     setEdges(projected.edges);
@@ -490,7 +539,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     focusNodeOnCanvas(newId, updatedRfNodes);
     setStatusMessage('Added decision branch (Tab)');
-  }, [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold]);
+  }, [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]);
 
   // Group Container Management
   const handleCreateGroup = useCallback(
@@ -528,7 +577,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       setDoc(nextDoc);
-      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+      setSelectedNodeId(targetNode.id);
+      const projected = canonicalToReactFlow(nextDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: targetNode.id,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       historyRef.current.pushState(nextDoc);
@@ -546,6 +600,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     );
 
     const parentToSelect = targetNode.parentId || (nextNodes[0] ? nextNodes[0].id : null);
+    setSelectedNodeId(parentToSelect);
 
     const nextDoc: CanonicalDocument = {
       ...doc,
@@ -555,7 +610,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     };
 
     const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
-    const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+    const projected = canonicalToReactFlow(layouted, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: parentToSelect,
+      onUpdateLabel: handleUpdateNodeLabel,
+    });
 
     const updatedRfNodes = projected.nodes.map((n) => ({
       ...n,
@@ -569,7 +628,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     setStatusMessage(`Deleted (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
     setPendingDeletion(null);
-  }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
+  }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
 
   // Spatial / Hierarchical Arrow Navigation
   const handleArrowNavigation = useCallback(
@@ -644,6 +703,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       }
 
       if (targetId && targetId !== currentNode.id) {
+        setSelectedNodeId(targetId);
         setNodes((nds) =>
           nds.map((n) => ({
             ...n,
@@ -724,7 +784,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           updatedAt: new Date().toISOString(),
         };
         const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
-        const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+        const firstParsedId = parsed.nodes[0]?.id || selectedNodeId;
+        setSelectedNodeId(firstParsedId);
+        const projected = canonicalToReactFlow(layouted, {
+          onToggleFold: handleToggleFold,
+          selectedNodeId: firstParsedId,
+          onUpdateLabel: handleUpdateNodeLabel,
+        });
 
         setDoc(layouted);
         setNodes(projected.nodes);
@@ -775,7 +841,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       };
 
       const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
-      const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+      const firstClonedId = clonedNodes[0]?.id || selectedNodeId;
+      setSelectedNodeId(firstClonedId);
+      const projected = canonicalToReactFlow(layouted, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: firstClonedId,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
 
       setDoc(layouted);
       setNodes(projected.nodes);
@@ -784,31 +856,47 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updateHistoryStatus();
       setStatusMessage(`Pasted branch subtree (${clonedNodes.length} nodes)`);
     }
-  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold]);
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
 
   const handleUndo = useCallback(() => {
     const prev = historyRef.current.undo();
     if (prev) {
       setDoc(prev);
-      const projected = canonicalToReactFlow(prev, { onToggleFold: handleToggleFold });
+      const nextSelected = prev.nodes.some((n) => n.id === selectedNodeId)
+        ? selectedNodeId
+        : prev.nodes[0]?.id || null;
+      setSelectedNodeId(nextSelected);
+      const projected = canonicalToReactFlow(prev, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: nextSelected,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       updateHistoryStatus();
       setStatusMessage('Undo');
     }
-  }, [updateHistoryStatus, handleToggleFold]);
+  }, [updateHistoryStatus, handleToggleFold, selectedNodeId, handleUpdateNodeLabel]);
 
   const handleRedo = useCallback(() => {
     const next = historyRef.current.redo();
     if (next) {
       setDoc(next);
-      const projected = canonicalToReactFlow(next, { onToggleFold: handleToggleFold });
+      const nextSelected = next.nodes.some((n) => n.id === selectedNodeId)
+        ? selectedNodeId
+        : next.nodes[0]?.id || null;
+      setSelectedNodeId(nextSelected);
+      const projected = canonicalToReactFlow(next, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId: nextSelected,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       updateHistoryStatus();
       setStatusMessage('Redo');
     }
-  }, [updateHistoryStatus, handleToggleFold]);
+  }, [updateHistoryStatus, handleToggleFold, selectedNodeId, handleUpdateNodeLabel]);
 
   // Update theme from Inspector
   const handleUpdateTheme = useCallback(
@@ -819,33 +907,45 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       setDoc(nextDoc);
-      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
+      const projected = canonicalToReactFlow(nextDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+      });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       historyRef.current.pushState(nextDoc);
       updateHistoryStatus();
       setStatusMessage(`Theme applied: ${theme.name}`);
     },
-    [doc, updateHistoryStatus, handleToggleFold]
+    [doc, selectedNodeId, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
   // Update node style or shape from Inspector
   const handleUpdateNode = useCallback(
     (nodeId: string, updates: Partial<CanonicalNode>) => {
-      const nextDoc: CanonicalDocument = {
-        ...doc,
-        nodes: doc.nodes.map((n) => (n.id === nodeId ? { ...n, ...updates } : n)),
-        updatedAt: new Date().toISOString(),
-      };
-      setDoc(nextDoc);
-      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold });
-      setNodes(projected.nodes);
-      setEdges(projected.edges);
-      historyRef.current.pushState(nextDoc);
-      updateHistoryStatus();
+      setSelectedNodeId(nodeId);
+      setDoc((prevDoc) => {
+        const nextDoc: CanonicalDocument = {
+          ...prevDoc,
+          nodes: prevDoc.nodes.map((n) => (n.id === nodeId ? { ...n, ...updates } : n)),
+          updatedAt: new Date().toISOString(),
+        };
+        const projected = canonicalToReactFlow(nextDoc, {
+          onToggleFold: handleToggleFold,
+          selectedNodeId: nodeId,
+          onUpdateLabel: handleUpdateNodeLabel,
+        });
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        historyRef.current.pushState(nextDoc);
+        updateHistoryStatus();
+        return nextDoc;
+      });
     },
-    [doc, updateHistoryStatus, handleToggleFold]
+    [handleToggleFold, handleUpdateNodeLabel, updateHistoryStatus]
   );
+  handleUpdateNodeRef.current = handleUpdateNode;
 
   // Reset node to theme defaults
   const handleResetNodeStyle = useCallback(
@@ -911,7 +1011,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             const container = parseMflowFromBytes(bytes);
             setDoc(container.document);
             assetStoreRef.current = AssetStore.fromBytesMap(container.assets);
-            const projected = canonicalToReactFlow(container.document, { onToggleFold: handleToggleFold });
+            const rootId = container.document.nodes.find((n) => n.type === 'root')?.id || container.document.nodes[0]?.id || null;
+            setSelectedNodeId(rootId);
+            const projected = canonicalToReactFlow(container.document, {
+              onToggleFold: handleToggleFold,
+              selectedNodeId: rootId,
+              onUpdateLabel: handleUpdateNodeLabel,
+            });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(container.document);
@@ -929,7 +1035,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             const content = event.target?.result as string;
             const imported = importFromMarkdown(content, file.name.replace(/\.(md|markdown)$/i, ''));
             setDoc(imported);
-            const projected = canonicalToReactFlow(imported, { onToggleFold: handleToggleFold });
+            const rootId = imported.nodes.find((n) => n.type === 'root')?.id || imported.nodes[0]?.id || null;
+            setSelectedNodeId(rootId);
+            const projected = canonicalToReactFlow(imported, {
+              onToggleFold: handleToggleFold,
+              selectedNodeId: rootId,
+              onUpdateLabel: handleUpdateNodeLabel,
+            });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(imported);
@@ -947,7 +1059,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             const content = event.target?.result as string;
             const imported = importFromOPML(content, file.name.replace(/\.opml$/i, ''));
             setDoc(imported);
-            const projected = canonicalToReactFlow(imported, { onToggleFold: handleToggleFold });
+            const rootId = imported.nodes.find((n) => n.type === 'root')?.id || imported.nodes[0]?.id || null;
+            setSelectedNodeId(rootId);
+            const projected = canonicalToReactFlow(imported, {
+              onToggleFold: handleToggleFold,
+              selectedNodeId: rootId,
+              onUpdateLabel: handleUpdateNodeLabel,
+            });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(imported);
@@ -968,7 +1086,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               throw new Error('Invalid document schema');
             }
             setDoc(parsed);
-            const projected = canonicalToReactFlow(parsed, { onToggleFold: handleToggleFold });
+            const rootId = parsed.nodes.find((n) => n.type === 'root')?.id || parsed.nodes[0]?.id || null;
+            setSelectedNodeId(rootId);
+            const projected = canonicalToReactFlow(parsed, {
+              onToggleFold: handleToggleFold,
+              selectedNodeId: rootId,
+              onUpdateLabel: handleUpdateNodeLabel,
+            });
             setNodes(projected.nodes);
             setEdges(projected.edges);
             historyRef.current = new HistoryManager(parsed);
@@ -981,17 +1105,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         reader.readAsText(file);
       }
     },
-    [updateHistoryStatus, handleToggleFold]
+    [updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
   // Global Keyboard Shortcuts (Production-wired via dispatchCanvasKeyDown)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       dispatchCanvasKeyDown(e, doc.mode, {
-        onSave: () => {
-          onSaveDocument(doc);
-          setStatusMessage('Document saved');
-        },
+        onSave: handleSaveDocument,
         onSearch: () => setIsOutlineOpen(true),
         onToggleOutline: () => setIsOutlineOpen((prev) => !prev),
         onToggleInspector: () => setIsInspectorOpen((prev) => !prev),
@@ -1014,15 +1135,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onAddFlowchartBranch: handleAddFlowchartBranch,
         onDeleteSelected: handleDeleteSelectedSubtree,
         onArrowNavigation: handleArrowNavigation,
-        onDeselect: () => setNodes((nds) => nds.map((n) => ({ ...n, selected: false }))),
+        onDeselect: () => {
+          setSelectedNodeId(null);
+          setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+        },
       });
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    doc,
-    onSaveDocument,
+    doc.mode,
+    handleSaveDocument,
     handleUndo,
     handleRedo,
     handleCopyBranch,
@@ -1351,6 +1475,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+            onPaneClick={() => {
+              setSelectedNodeId(null);
+              setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
+            }}
             nodeTypes={nodeTypes}
             onInit={(instance) => {
               rfInstanceRef.current = instance;

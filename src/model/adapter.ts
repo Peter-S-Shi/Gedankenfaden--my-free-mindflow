@@ -19,6 +19,7 @@ export interface CustomNodeData extends Record<string, unknown> {
   hasChildren?: boolean;
   childCount?: number;
   onToggleFold?: (nodeId: string) => void;
+  onUpdateLabel?: (nodeId: string, label: string) => void;
 }
 
 const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
@@ -37,6 +38,7 @@ const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
   'hasChildren',
   'childCount',
   'onToggleFold',
+  'onUpdateLabel',
 ]);
 
 function preserveDomainNodeData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -47,9 +49,15 @@ function preserveDomainNodeData(data: Record<string, unknown> | undefined): Reco
   return Object.keys(preserved).length > 0 ? preserved : undefined;
 }
 
+export interface CanonicalToReactFlowCallbacks {
+  onToggleFold?: (nodeId: string) => void;
+  onUpdateLabel?: (nodeId: string, label: string) => void;
+  selectedNodeId?: string | null;
+}
+
 export function canonicalToReactFlow(
   doc: CanonicalDocument,
-  callbacks?: { onToggleFold?: (nodeId: string) => void }
+  callbacks?: CanonicalToReactFlowCallbacks
 ): {
   nodes: Node<CustomNodeData>[];
   edges: Edge[];
@@ -91,11 +99,13 @@ export function canonicalToReactFlow(
     const directChildren = childrenMap.get(n.id) || [];
     const hasChildren = directChildren.length > 0;
     const isHidden = hiddenNodeIds.has(n.id);
+    const isSelected = Boolean(callbacks?.selectedNodeId && n.id === callbacks.selectedNodeId);
 
     return {
       id: n.id,
       type: 'customNode',
       position: { x: n.geometry.x, y: n.geometry.y },
+      selected: isSelected,
       hidden: isHidden,
       data: {
         ...preserveDomainNodeData(n.data),
@@ -112,6 +122,7 @@ export function canonicalToReactFlow(
         hasChildren,
         childCount: directChildren.length,
         onToggleFold: callbacks?.onToggleFold,
+        onUpdateLabel: callbacks?.onUpdateLabel,
       },
       style: {
         width: n.geometry.width,

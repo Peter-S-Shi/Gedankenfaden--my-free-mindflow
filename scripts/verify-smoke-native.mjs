@@ -20,9 +20,11 @@ let isolatedAppDataDir = null;
 
 function cleanupSmokeState() {
   if (smokeProcess) {
-    // Emergency fallback only. A passing smoke must close through Tauri and clear this handle first.
-    try { smokeProcess.kill('SIGKILL'); } catch {}
+    const lingeringProcess = smokeProcess;
+    console.error(`[WARN] Native PID ${lingeringProcess.pid} is still running; refusing forced termination or live-profile deletion.`);
     smokeProcess = null;
+    lingeringProcess.once('exit', () => cleanupSmokeState());
+    return;
   }
   if (smokeMflowPath && fs.existsSync(smokeMflowPath)) {
     fs.unlinkSync(smokeMflowPath);
@@ -87,7 +89,7 @@ async function runSmokeTest() {
   console.log(`       Container Size: ${zipped.length} bytes\n`);
 
   // Step 3: Empirical Launch of Native Binary with File Association Argument & Live DOM Probe
-  const cdpPort = 9222;
+  const cdpPort = 19222;
   console.log(`[INFO] 3. Launching gedankenfaden.exe with argument: "${smokeMflowPath}"...`);
   console.log(`       Enabling WebView2 remote debugging on port ${cdpPort}...`);
 
@@ -97,8 +99,7 @@ async function runSmokeTest() {
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
-      WEBVIEW2_USER_DATA_FOLDER: path.join(isolatedAppDataDir, 'webview2'),
-      APPDATA: isolatedAppDataDir,
+      GEDANKENFADEN_TEST_APP_DATA_DIR: isolatedAppDataDir,
     },
   });
   smokeProcess = child;
@@ -211,11 +212,97 @@ async function runSmokeTest() {
             try { ws.close(); } catch {}
             reject(new Error('CanvasEditor or sentinel node was not rendered in the live WebView2 DOM'));
           } else {
+            // Step 3b: Focused Empirical Native Retest: Selection UX Persistence
+            console.log('       Running empirical native Selection UX persistence check...');
+            const selectionUxResponse = await sendCdp('Runtime.evaluate', {
+              expression: `(async function() {
+                // Ensure Inspector is open
+                let inspector = document.querySelector('aside[aria-label="Inspector Panel"]');
+                if (!inspector) {
+                  const toggleBtn = document.querySelector('button[title*="Inspector"]');
+                  if (toggleBtn) toggleBtn.click();
+                  await new Promise(r => setTimeout(r, 100));
+                  inspector = document.querySelector('aside[aria-label="Inspector Panel"]');
+                }
+
+                // 1. Click node n2 to select it
+                const node2 = document.querySelector('[data-testid="custom-node-n2"]') || document.querySelectorAll('.react-flow__node')[1];
+                if (!node2) return { success: false, reason: 'Target node n2 not found' };
+                node2.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                await new Promise(r => setTimeout(r, 150));
+
+                const nodeParent = node2.closest('.react-flow__node');
+                const isSelectedInitial = nodeParent ? nodeParent.classList.contains('selected') : false;
+                const inspectorShowsNodeInitial = inspector ? inspector.innerText.includes('Node Style') : false;
+
+                if (!isSelectedInitial || !inspectorShowsNodeInitial) {
+                  return { success: false, reason: 'Initial selection failed', isSelectedInitial, inspectorShowsNodeInitial };
+                }
+
+                // 2. Modify Attribute 1: Click "Pill" shape button in Inspector
+                const buttons = Array.from(inspector.querySelectorAll('button'));
+                const pillButton = buttons.find(b => b.innerText.trim() === 'Pill');
+                if (!pillButton) return { success: false, reason: 'Pill shape button not found in Inspector' };
+                pillButton.click();
+                await new Promise(r => setTimeout(r, 150));
+
+                const isSelectedAfterAttr1 = nodeParent ? nodeParent.classList.contains('selected') : false;
+                const inspectorShowsNodeAfterAttr1 = inspector.innerText.includes('Node Style');
+                if (!isSelectedAfterAttr1 || !inspectorShowsNodeAfterAttr1) {
+                  return { success: false, reason: 'Selection lost after Attribute 1 (shape change)', isSelectedAfterAttr1, inspectorShowsNodeAfterAttr1 };
+                }
+
+                // 3. Modify Attribute 2: Click a Fill Color preset button in Inspector
+                const colorButtons = inspector.querySelectorAll('div.flex.flex-wrap.gap-1 button');
+                if (colorButtons.length < 5) return { success: false, reason: 'Color preset buttons not found' };
+                colorButtons[4].click();
+                await new Promise(r => setTimeout(r, 150));
+
+                const isSelectedAfterAttr2 = nodeParent ? nodeParent.classList.contains('selected') : false;
+                const inspectorShowsNodeAfterAttr2 = inspector.innerText.includes('Node Style');
+                if (!isSelectedAfterAttr2 || !inspectorShowsNodeAfterAttr2) {
+                  return { success: false, reason: 'Selection lost after Attribute 2 (color change)', isSelectedAfterAttr2, inspectorShowsNodeAfterAttr2 };
+                }
+
+                // 4. Click canvas blank pane to clear selection
+                const pane = document.querySelector('.react-flow__pane');
+                if (!pane) return { success: false, reason: 'React Flow pane not found' };
+                pane.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                await new Promise(r => setTimeout(r, 150));
+
+                const anySelectedAfterPaneClick = document.querySelectorAll('.react-flow__node.selected').length > 0;
+                const inspectorShowsNodeAfterDeselect = inspector.innerText.includes('Node Style');
+
+                if (anySelectedAfterPaneClick || inspectorShowsNodeAfterDeselect) {
+                  return { success: false, reason: 'Deselection failed on pane click', anySelectedAfterPaneClick, inspectorShowsNodeAfterDeselect };
+                }
+
+                return {
+                  success: true,
+                  isSelectedInitial,
+                  isSelectedAfterAttr1,
+                  isSelectedAfterAttr2,
+                  deselectedOnPaneClick: !anySelectedAfterPaneClick,
+                };
+              })()`,
+              awaitPromise: true,
+              returnByValue: true,
+            });
+
+            const selectionUxResult = selectionUxResponse?.result?.value;
+            if (!selectionUxResult || !selectionUxResult.success) {
+              throw new Error(`Focused Selection UX smoke test failed: ${JSON.stringify(selectionUxResult)}`);
+            }
+            domEvidence.selectionUxVerified = selectionUxResult;
+
             const closeResponse = await sendCdp('Runtime.evaluate', {
               expression: `(() => {
                 setTimeout(() => {
-                  window.__TAURI_INTERNALS__.invoke('plugin:window|close', { label: 'main' })
-                    .catch((error) => console.error('Graceful close failed', error));
+                  window.__TAURI_INTERNALS__.invoke('close_app_window')
+                    .catch(() => {
+                      window.__TAURI_INTERNALS__.invoke('plugin:window|close', { label: 'main' })
+                        .catch((error) => console.error('Graceful close failed', error));
+                    });
                 }, 250);
                 return 'close-scheduled';
               })()`,

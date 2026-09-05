@@ -18,6 +18,9 @@ pub struct FileEntryDto {
 
 #[tauri::command]
 fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    if let Some(test_dir) = std::env::var_os("GEDANKENFADEN_TEST_APP_DATA_DIR") {
+        return Ok(Path::new(&test_dir).to_string_lossy().replace('\\', "/"));
+    }
     app.path()
         .app_data_dir()
         .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -154,6 +157,11 @@ fn get_cli_open_file() -> Option<String> {
     None
 }
 
+#[tauri::command]
+fn close_app_window(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
@@ -173,6 +181,7 @@ fn main() {
             trash_document_file,
             read_dir_entries,
             get_cli_open_file,
+            close_app_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running gedankenfaden application");

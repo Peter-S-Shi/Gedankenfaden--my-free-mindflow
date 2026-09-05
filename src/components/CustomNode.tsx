@@ -22,14 +22,24 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   const handleBlur = () => {
     setIsEditing(false);
-    nodeData.label = text;
+    const newText = text.trim() || 'Node';
+    if (newText !== nodeData.label) {
+      nodeData.label = newText;
+      if (nodeData.onUpdateLabel) {
+        nodeData.onUpdateLabel(id, newText);
+      }
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      e.stopPropagation();
+      e.preventDefault();
       handleBlur();
     }
     if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.preventDefault();
       setText(nodeData.label || 'Node');
       setIsEditing(false);
     }

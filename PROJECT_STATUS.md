@@ -1,8 +1,8 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 7-A (Release Candidate & Native Integration Preparation) Complete — All 18 Test Suites & 95 Tests Passing — Real Tauri Native Bridge & File System Library Wired — Windows Win32 Recycle Bin Non-Destructive Delete Verified — `.mflow` File Association & Cold-Start CLI Handling Verified — Release Binary & Standalone Portable Distribution Packaged & Empirically Verified (Gate H PASS) — Ready for User Manual Acceptance Testing (M7-B)  
-**Current Milestone**: M7-A Complete / Next: M7-B User Manual Acceptance & Release Sign-Off (NOT started)  
-**Active Branch**: `rc/m7-release-candidate-prep`  
+**Current State**: Milestone 7-B Human Manual Acceptance PASS (Installer installation/uninstallation path explicitly deferred by user instruction, not a blocker) — M7-B Corrective Complete (Selection UX persistence across Inspector property edits, text editing, and canvas interactions repaired and verified) — All 20 Test Suites & 116 Tests Passing (100% Green) — Release Binary & Standalone Portable Package Empirically Verified with Live WebView2 CDP Probe — Ready for Release Closure  
+**Current Milestone**: M7-B Corrective Complete / Next: Release Closure  
+**Active Branch**: `rc/m7b-corrective-round1`  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-04  
 
@@ -25,11 +25,11 @@
 | **V1 Feature Freeze** | **FROZEN (Feature Complete)** | All M1–M5 Features Implemented & Verified |
 | **M6 Product Hardening & Polish** | **Completed (PASS)** | Empirical browser DOM benchmarks, 20-cycle memory slope verification, 1,000-node stress, resource disposal, production keyboard dispatcher & motion wiring |
 | **M7-A RC Native Integration Prep** | **Completed (PASS)** | Gates A–H verified: Tauri native bridge, real filesystem library, Recycle Bin delete, `.mflow` OS association, release binary build, portable package, and empirical smoke test |
-| **M7-B User Manual Acceptance** | **Planned (NOT started)** | Final user smoke, packaging QA, release sign-off |
+| **M7-B User Manual Acceptance** | **Completed (PASS)** | Human acceptance passed; installer install/uninstall path deferred by user; Selection UX corrective verified |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
 | **Architecture Freeze** | **FROZEN** | `ARCHITECTURE.md` |
 | **Milestone Roadmap** | **Frozen (M0–M7)** | `ROADMAP.md` |
-| **Remote Repository** | **Synchronized & Active** | `origin/main` |
+| **Remote Repository** | **Synchronized & Active** | `origin/rc/m7b-corrective-round1` |
 
 
 ---
@@ -81,14 +81,14 @@
 | **M4 Native Gate** | M4 Native Verification Corrective Gate (Rust/Cargo toolchain, native Windows build, CI gate) | **COMPLETED (PASS)** | Complete |
 | **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | **COMPLETED (PASS)** | Feature Freeze Reached |
 | **M6** | Product Hardening, Performance & Edge-Case Polish | **COMPLETED (PASS)** | Complete |
-| **M7-A** | Release Candidate & Native Integration Preparation | **COMPLETED (PASS)** | Ready for M7-B Acceptance |
-| **M7-B** | User Manual Acceptance Testing & Release Sign-Off | Planned (NOT started) | M7-A Handoff |
+| **M7-A** | Release Candidate & Native Integration Preparation | **COMPLETED (PASS)** | Complete |
+| **M7-B** | User Manual Acceptance Testing & Selection UX Corrective | **COMPLETED (PASS)** | Ready for Release Closure |
 
 ---
 
 ## 4. Git & Privacy Status
 
-- **Current Active Branch**: `rc/m7-release-candidate-prep`.
+- **Current Active Branch**: `rc/m7b-corrective-round1`.
 - **Privacy Exclusions**:
   - `grill/`, `prompt-drafts/`, `dist-portable/`, and `*.mflow` are strictly protected in `.gitignore` and `.git/info/exclude`.
   - Zero sensitive research notes, discovery files, machine-specific absolute paths, or credentials are tracked.
@@ -99,20 +99,25 @@
 ## 5. Current State & Handoff
  
 1. **Repository & Remote Synchronization**:
-   - Branch `rc/m7-release-candidate-prep` committed and pushed to `origin/rc/m7-release-candidate-prep`.
-   - Remote GitHub Actions CI run #33928169470 passed 100% green across all matrix targets (Ubuntu in 25s, Windows in 11m23s).
-   - Windows RC release artifacts verified and uploaded to GitHub Actions (`gedankenfaden-windows-rc`, 10.74 MB total blob):
-     * Portable ZIP: `Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip` (3.80 MB)
-     * NSIS Installer: `Gedankenfaden_0.1.0_x64-setup.exe` (2.73 MB)
-     * MSI Installer: `Gedankenfaden_0.1.0_x64_en-US.msi` (4.02 MB)
-2. **Local Verification**:
-   - All 18 automated test files passed (99/99 tests, 100% green).
-   - TypeScript compilation (`npx tsc --noEmit`): 0 errors.
-   - Empirical native smoke test (`verify-smoke-native.mjs`): 100% PASS via Chrome DevTools Protocol attached to live Windows WebView2 runtime.
-   - Release binary (`gedankenfaden.exe`, 23.55 MB) and standalone portable package (`Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip`, 6.51 MB) generated and verified.
-3. **Strict Boundaries Preserved**:
+   - Branch `rc/m7b-corrective-round1` committed and pushed to `origin/rc/m7b-corrective-round1`.
+   - Previous M7-A Remote CI run passed 100% green with all Windows installer & portable packaging artifacts verified.
+2. **M7-B Corrective Fix (Selection UX Persistence)**:
+   - Root Cause: React Flow node projection reconstructed nodes without selection state, resetting `selectedNodeId` on document mutations (Inspector updates, layout, text edit blur).
+   - Solution: Promoted `selectedNodeId` to first-class interactive state in `CanvasEditor.tsx`, passed `selectedNodeId` through `canonicalToReactFlow`, preserved `node.selected` across all attribute updates, added input blur/Enter label synchronization via `onUpdateLabel` callback, and wired pane click deselect.
+   - Preserved Codex uncommitted baseline: test app data isolation and clean native shutdown.
+3. **Verification Summary**:
+   - Automated Unit & Integration Tests: All 20 test files passed (116/116 tests, 100% green).
+   - TypeScript Compilation (`tsc --noEmit`): 0 errors.
+   - Vite Production Build (`npm run build`): 0 errors.
+   - Tauri Native Release Build: `src-tauri/target/release/gedankenfaden.exe` (23.61 MB) compiled with embedded production bundle.
+   - Standalone Portable Package: `dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip` (6.52 MB).
+   - Empirical Native Smoke Test (`verify-smoke-native.mjs`): 100% PASS via Chrome DevTools Protocol attached to real Windows WebView2 runtime (file association cold-start, multi-attribute Inspector edits with persistent selection, and pane click deselect).
+4. **Next Milestone / Next Step**:
+   - Release Closure (final merge to main, tagging, and formal GitHub release).
+5. **Strict Boundaries Preserved**:
    - Feature Freeze respected (zero new functional features).
-   - No license declared or added.
-   - Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT begin M7-B without explicit user instruction.
+   - No force push under any circumstances.
+   - Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT create GitHub release without explicit user instruction.
+
 
 

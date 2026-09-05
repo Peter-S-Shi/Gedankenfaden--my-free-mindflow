@@ -121,8 +121,8 @@ describe('M7-B Corrective Round 1', () => {
 
   it('isolates native smoke AppData and guarantees cleanup on failure', () => {
     const smokeSource = readFileSync(new URL('../../scripts/verify-smoke-native.mjs', import.meta.url), 'utf8');
-    expect(smokeSource).toContain('WEBVIEW2_USER_DATA_FOLDER');
-    expect(smokeSource).toContain('APPDATA: isolatedAppDataDir');
+    expect(smokeSource).not.toContain('WEBVIEW2_USER_DATA_FOLDER');
+    expect(smokeSource).toContain('GEDANKENFADEN_TEST_APP_DATA_DIR: isolatedAppDataDir');
     expect(smokeSource).toContain('cleanupSmokeState();');
     expect(smokeSource).toContain("invoke('plugin:window|close'");
     expect(smokeSource.indexOf("invoke('plugin:window|close'")).toBeLessThan(
@@ -130,6 +130,8 @@ describe('M7-B Corrective Round 1', () => {
     );
     expect(smokeSource).toContain("return 'close-scheduled'");
     expect(smokeSource).not.toContain("child.kill('SIGTERM')");
+    expect(smokeSource).not.toContain("kill('SIGKILL')");
+    expect(smokeSource).toContain('refusing forced termination or live-profile deletion');
     expect(smokeSource).not.toContain("special-cases the string");
   });
 });
