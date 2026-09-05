@@ -11,7 +11,7 @@ Gedankenfaden is built for developers, researchers, technical writers, and syste
 - **Durable Local Ownership**: Your thoughts belong on your local drive. No mandatory accounts, no cloud sync, no tracking, and no proprietary vendor lock-in.
 - **Single Canonical Graph**: Mind maps (hierarchical trees) and flowcharts (directed cyclic graphs) share the exact same underlying graph data model. Each document operates with a designated primary mode.
 - **Soft Minimalism & Restrained Motion**: An aesthetic that breathes. The interface recedes to let your thoughts flow, using purposeful physical motion cues (grow, extend, elevate, recede) that reinforce structural changes without distracting.
-- **Portfolio-Grade Engineering**: Crafted with rigorous architectural separation between canonical document state and canvas rendering projection.
+- **Rigorous Architectural Decoupling**: Clean unidirectional projection boundary between pure canonical document state (TypeScript domain model, history transactions, auto-layout) and canvas rendering projection (React Flow, DOM/SVG custom nodes).
 
 ---
 
@@ -22,7 +22,7 @@ Gedankenfaden is built for developers, researchers, technical writers, and syste
   - **Flowchart**: General directed graphs with cycles, orthogonal / smooth-step edge routing (with Bezier option), common flowchart shapes (terminal, process, decision, data), and structural node groups.
 - **Canvas-First Workspace**:
   - Distraction-free canvas with collapsible left Outline/Structure panel, collapsible right Inspector, and a floating Minimap.
-  - Full keyboard-first interaction model with established desktop shortcut conventions (Mind Map: Enter for sibling, Tab for child; universal: Space/direct typing for edit, Delete to remove, multiline paste-to-structure; Flowchart graph-specific shortcuts to be finalized in M3).
+  - Full keyboard-first interaction model with established desktop shortcut conventions (Mind Map: Enter for sibling, Tab for child; Flowchart: Enter for downstream, Shift+Enter for upstream, Tab for branch; universal: Space/F2/direct typing for edit, Delete/Backspace to remove, multiline paste-to-structure, Escape to clear selection).
 - **Embedded Visual Assets**:
   - Nodes support embedded images bundled directly into a portable single-file container (`.mflow`).
 - **Hybrid Library & Home**:
@@ -54,8 +54,7 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
 ```text
 ┌────────────────────────────────────────────────────────┐
 │             Native .mflow Container                    │
-│      (Logical: document.json + embedded assets/        │
-│       ZIP package candidate to be verified in M1)      │
+│   (Single-file ZIP package: document.json + assets/)   │
 └──────────────────────────┬─────────────────────────────┘
                            │ Deserialization / Serialization
 ┌──────────────────────────▼─────────────────────────────┐
@@ -86,7 +85,7 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
 - **Current Lifecycle State**: **V1 Released (v1.0.0)** — Milestones M0–M7 Complete with PASS verdicts; V1 Product Development Closed; Maintenance Mode Active.
 - **Authoritative Project Documentation**:
   - [PRODUCT_SPEC.md](PRODUCT_SPEC.md): Complete V1 product behavior contract, user interactions, keyboard shortcuts, and visual specification.
-  - [ARCHITECTURE.md](ARCHITECTURE.md): Authoritative technical architecture, data models, Tauri 2 integration, and verified vs unverified items.
+  - [ARCHITECTURE.md](ARCHITECTURE.md): Authoritative technical architecture, canonical data models, and Tauri 2 integration contracts.
   - [ROADMAP.md](ROADMAP.md): Complete milestone roadmap (M0 to M7), dependency sequence, and acceptance criteria.
   - [PROJECT_STATUS.md](PROJECT_STATUS.md): Real-time repository status, validation evidence, and next immediate actions.
 
@@ -94,15 +93,16 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
 
 ## 6. Quick Start
 
-### Running the Native Application
-- Download the latest Windows release from GitHub Releases (MSI, NSIS setup, or standalone portable ZIP).
-- Or run the local native release binary:
-  ```cmd
-  start-gedankenfaden-rc.cmd
-  ```
+### Download & Run (Windows Desktop)
 
-### Development & Source Build
-- **Prerequisites**: Node.js >= 20.19, npm >= 10.x, Rust (stable with Windows GNU/MSVC toolchain)
+Download the latest stable release from [GitHub Releases](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases/latest):
+- **NSIS Setup** (`Gedankenfaden_1.0.0_x64-setup.exe`): Standard Windows installer with desktop and Start Menu shortcuts.
+- **MSI Package** (`Gedankenfaden_1.0.0_x64_en-US.msi`): Windows Installer package with native `.mflow` document association.
+- **Portable Distribution** (`Gedankenfaden-v1.0.0-windows-x64-portable.zip`): Zero-install standalone archive. Extract anywhere and launch `gedankenfaden.exe` directly.
+
+### Developer Path (Run from Source)
+
+- **Prerequisites**: Node.js >= 20.19, npm >= 10.x, Rust (stable with Windows MSVC/GNU toolchain)
 - **Install & Test**:
   ```cmd
   npm install
@@ -113,7 +113,11 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
   npm run build
   npx tauri build --no-bundle
   ```
-- **Web Preview**:
+- **Launch Local Native Binary**:
+  ```cmd
+  start-gedankenfaden-rc.cmd
+  ```
+- **Web Preview (Browser only)**:
   ```cmd
   start-gedankenfaden.cmd
   ```
