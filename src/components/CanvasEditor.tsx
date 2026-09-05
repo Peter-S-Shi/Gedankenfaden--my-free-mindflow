@@ -1381,6 +1381,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 return (
                   <div
                     key={group.id}
+                    data-testid={`group-container-${group.id}`}
                     className="absolute pointer-events-none rounded-xl border-2 border-dashed transition-all"
                     style={{
                       transform: `translate(${bounds.x}px, ${bounds.y}px)`,

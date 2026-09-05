@@ -206,16 +206,26 @@ async function runSmokeTest() {
             await new Promise((r) => setTimeout(r, 400));
           }
 
-          clearTimeout(failTimeout);
-          try { ws.close(); } catch {}
-
           if (!domEvidence) {
+            clearTimeout(failTimeout);
+            try { ws.close(); } catch {}
             reject(new Error('CanvasEditor or sentinel node was not rendered in the live WebView2 DOM'));
           } else {
-            await sendCdp('Runtime.evaluate', {
-              expression: `setTimeout(() => window.__TAURI_INTERNALS__.invoke('plugin:window|close', { label: 'main' }), 100); 'close-scheduled'`,
+            const closeResponse = await sendCdp('Runtime.evaluate', {
+              expression: `(() => {
+                setTimeout(() => {
+                  window.__TAURI_INTERNALS__.invoke('plugin:window|close', { label: 'main' })
+                    .catch((error) => console.error('Graceful close failed', error));
+                }, 250);
+                return 'close-scheduled';
+              })()`,
               returnByValue: true,
             });
+            if (closeResponse?.result?.value !== 'close-scheduled') {
+              throw new Error('Tauri window close command was not scheduled');
+            }
+            clearTimeout(failTimeout);
+            try { ws.close(); } catch {}
             resolve(domEvidence);
           }
         } catch (err) {
@@ -236,8 +246,6 @@ async function runSmokeTest() {
   try {
     domProof = await inspectLiveDomViaCDP(cdpPort, testDoc.title, 'File Association Passed');
   } catch (err) {
-    // Kill child before rethrowing
-    try { child.kill('SIGKILL'); } catch {}
     throw err;
   }
 

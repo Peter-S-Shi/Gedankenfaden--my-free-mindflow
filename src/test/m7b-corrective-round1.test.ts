@@ -112,6 +112,7 @@ describe('M7-B Corrective Round 1', () => {
     const canvasSource = readFileSync(new URL('../components/CanvasEditor.tsx', import.meta.url), 'utf8');
     const librarySource = readFileSync(new URL('../components/LibraryHome.tsx', import.meta.url), 'utf8');
     expect(canvasSource).toContain('<ViewportPortal>');
+    expect(canvasSource).toContain('data-testid={`group-container-${group.id}`}');
     expect(canvasSource).toContain('pointer-events-none');
     expect(canvasSource).toContain('flex flex-wrap items-center justify-end');
     expect(librarySource).toContain('grid-cols-1 md:grid-cols-2 xl:grid-cols-3');
@@ -124,6 +125,10 @@ describe('M7-B Corrective Round 1', () => {
     expect(smokeSource).toContain('APPDATA: isolatedAppDataDir');
     expect(smokeSource).toContain('cleanupSmokeState();');
     expect(smokeSource).toContain("invoke('plugin:window|close'");
+    expect(smokeSource.indexOf("invoke('plugin:window|close'")).toBeLessThan(
+      smokeSource.indexOf('try { ws.close(); } catch {}', smokeSource.indexOf("invoke('plugin:window|close'")),
+    );
+    expect(smokeSource).toContain("return 'close-scheduled'");
     expect(smokeSource).not.toContain("child.kill('SIGTERM')");
     expect(smokeSource).not.toContain("special-cases the string");
   });
