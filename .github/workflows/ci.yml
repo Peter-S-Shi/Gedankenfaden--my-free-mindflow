@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'milestone/**'
+      - 'hardening/**'
+      - 'rc/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (TypeScript)
+        run: npx tsc --noEmit
+
+      - name: Run unit & integration tests
+        run: npm test
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Setup Rust toolchain (Windows native)
+        if: matrix.os == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Windows Native Tauri Build
+        if: matrix.os == 'windows-latest'
+        run: cargo build --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Windows Native Release Binary
+        if: matrix.os == 'windows-latest'
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Windows Tauri Bundle (Installers)
+        if: matrix.os == 'windows-latest'
+        run: npx tauri build
+
+      - name: Package Windows Portable Distribution
+        if: matrix.os == 'windows-latest'
+        run: node scripts/package-portable.mjs
+
+      - name: Verify Release Artifacts Exist
+        if: matrix.os == 'windows-latest'
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const portableZip = 'dist-portable/Gedankenfaden-v1.0.0-windows-x64-portable.zip';
+            if (!fs.existsSync(portableZip) || fs.statSync(portableZip).size < 100000) {
+              console.error('Missing or invalid portable zip:', portableZip);
+              process.exit(1);
+            }
+            console.log('Portable zip verified:', portableZip, (fs.statSync(portableZip).size / 1024 / 1024).toFixed(2), 'MB');
+
+            const nsisDir = 'src-tauri/target/release/bundle/nsis';
+            const nsisFiles = fs.existsSync(nsisDir) ? fs.readdirSync(nsisDir).filter(f => f.endsWith('.exe')) : [];
+            if (nsisFiles.length === 0) {
+              console.error('No NSIS .exe installer found in', nsisDir);
+              process.exit(1);
+            }
+            const nsisPath = path.join(nsisDir, nsisFiles[0]);
+            console.log('NSIS installer verified:', nsisPath, (fs.statSync(nsisPath).size / 1024 / 1024).toFixed(2), 'MB');
+
+            const msiDir = 'src-tauri/target/release/bundle/msi';
+            const msiFiles = fs.existsSync(msiDir) ? fs.readdirSync(msiDir).filter(f => f.endsWith('.msi')) : [];
+            if (msiFiles.length === 0) {
+              console.error('No MSI installer found in', msiDir);
+              process.exit(1);
+            }
+            const msiPath = path.join(msiDir, msiFiles[0]);
+            console.log('MSI installer verified:', msiPath, (fs.statSync(msiPath).size / 1024 / 1024).toFixed(2), 'MB');
+          "
+
+      - name: Upload Windows Release Artifacts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gedankenfaden-windows-v1.0.0
+          if-no-files-found: error
+          path: |
+            dist-portable/*.zip
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 14
+

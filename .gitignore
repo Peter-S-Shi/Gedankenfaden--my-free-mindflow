@@ -5,11 +5,25 @@ prompt-drafts/
 *.local.*
 
 # Dependencies & Build artifacts
+.venv/
+.env
+.env.*
 node_modules/
 dist/
 dist-electron/
+dist-portable/
 .turbo/
 coverage/
+target/
+src-tauri/target/
+src-tauri/gen/
+*.mflow
+__pycache__/
+*.pyc
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
 
 # OS & Logs
 *.log

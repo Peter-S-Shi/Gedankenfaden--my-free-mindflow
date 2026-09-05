@@ -1,4 +1,6 @@
 import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentMode } from './types';
+import { getDefaultTheme } from './theme';
+import { validateCanonicalDocument } from './validator';
 
 export function createEmptyDocument(title = 'Untitled Document', mode: DocumentMode = 'mindmap'): CanonicalDocument {
   const now = new Date().toISOString();
@@ -8,11 +10,12 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
     ? [
         {
           id: rootId,
-          text: 'Central Idea',
+          text: 'Central Topic',
           type: 'root',
           geometry: { x: 400, y: 300, width: 160, height: 48 },
           style: {
-            backgroundColor: '#3b82f6',
+            backgroundColor: '#2563eb',
+            borderColor: '#1d4ed8',
             textColor: '#ffffff',
             borderRadius: 8,
           },
@@ -26,6 +29,7 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
           geometry: { x: 350, y: 150, width: 140, height: 44 },
           style: {
             backgroundColor: '#10b981',
+            borderColor: '#059669',
             textColor: '#ffffff',
             borderRadius: 22,
           },
@@ -36,10 +40,10 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
           type: 'process',
           geometry: { x: 350, y: 260, width: 140, height: 44 },
           style: {
-            backgroundColor: '#f1f5f9',
+            backgroundColor: '#ffffff',
             borderColor: '#94a3b8',
             textColor: '#0f172a',
-            borderRadius: 6,
+            borderRadius: 8,
           },
         },
       ];
@@ -50,7 +54,7 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
           id: 'edge_start_to_p1',
           source: 'node_start',
           target: 'node_process_1',
-          type: 'smoothstep',
+          type: 'orthogonal',
         },
       ]
     : [];
@@ -63,6 +67,7 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
     createdAt: now,
     updatedAt: now,
     viewport: { x: 0, y: 0, zoom: 1 },
+    theme: getDefaultTheme(mode),
     nodes: initialNodes,
     edges: initialEdges,
     groups: [],
@@ -70,15 +75,20 @@ export function createEmptyDocument(title = 'Untitled Document', mode: DocumentM
 }
 
 export function serializeDocument(doc: CanonicalDocument): string {
+  const validation = validateCanonicalDocument(doc);
+  if (!validation.valid) {
+    throw new Error(`Cannot serialize invalid canonical document: ${validation.errors.join('; ')}`);
+  }
   return JSON.stringify(doc, null, 2);
 }
 
 export function deserializeDocument(jsonStr: string): CanonicalDocument {
-  const parsed = JSON.parse(jsonStr);
-  if (!parsed || parsed.schemaVersion !== '1.0' || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-    throw new Error('Invalid canonical document schema');
+  const parsed = JSON.parse(jsonStr) as CanonicalDocument;
+  const validation = validateCanonicalDocument(parsed);
+  if (!validation.valid) {
+    throw new Error(`Invalid canonical document JSON: ${validation.errors.join('; ')}`);
   }
-  return parsed as CanonicalDocument;
+  return parsed;
 }
 
 export function cloneDocument(doc: CanonicalDocument): CanonicalDocument {

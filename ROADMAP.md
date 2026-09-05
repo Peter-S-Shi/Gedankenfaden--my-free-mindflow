@@ -109,6 +109,7 @@
   - Standalone Windows executable launches cleanly from desktop and opens `.mflow` files via double-click.
   - Files created or renamed in Windows Explorer reflect synchronously in the Library.
   - Simulated process kill during editing successfully prompts recovery and restores dirty state upon relaunch.
+  - Native Windows desktop build verified via Cargo (`gedankenfaden.exe`) locally and on GitHub Actions `windows-latest` CI.
 
 ---
 
@@ -132,6 +133,7 @@
 ---
 
 ### Milestone 6: Product Hardening, Performance & Edge-Case Polish (M6)
+- **Status**: **COMPLETED (PASS)**
 - **Objective**: Execute a strict Feature Freeze. Undertake intensive performance optimization, memory leak audits, and accessibility validation. Strictly zero new features.
 - **Scope**:
   - Performance benchmarking: define and meet representative large-document interaction budgets during Product Hardening on documented reference Windows hardware.
@@ -147,10 +149,12 @@
 ---
 
 ### Milestone 7: Release Candidate, Packaging QA & Maintenance Transition (M7)
+- **Status**: **COMPLETED (PASS)**
 - **Objective**: Package the final V1 Release Candidate, execute full manual acceptance QA on clean Windows environments, and transition the project to maintenance mode.
 - **Scope**:
-  - Build Windows installer and portable executable distributions via Tauri 2.
-  - Execute full manual acceptance matrix covering clean install, file associations, offline usage, and uninstallation.
+  - Build Windows installer (NSIS, MSI) and portable executable distributions via Tauri 2.
+  - Execute full manual acceptance matrix covering clean install, file associations, offline usage, and uninstallation (installer manual install/uninstall path explicitly user-deferred, not a blocker).
+  - Resolve final UX corrective findings (Selection UX persistence across Inspector edits and canvas interactions).
   - Freeze all user documentation, keyboard shortcut cheat sheets, and architecture references.
   - Establish release baseline tag (`v1.0.0`) in Git.
   - Transition repository status to Current Version Complete / Maintenance Mode.
@@ -158,3 +162,4 @@
   - Verified installation and execution on clean Windows 10 and Windows 11 environments.
   - Clean packaging lifecycle leaving zero unintended residual files upon uninstall.
   - All authoritative documentation perfectly matches the final released binary.
+  - V1 Product Development successfully concluded; Maintenance Mode active.
