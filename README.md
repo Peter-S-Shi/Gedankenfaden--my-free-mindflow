@@ -83,7 +83,7 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
 
 ## 5. Repository Lifecycle & Document Directory
 
-- **Current Lifecycle State**: **Product & Architecture Frozen** (M0 Feasibility Spike complete with PASS verdict; V1 feature intake closed; Initial remote baseline established).
+- **Current Lifecycle State**: **V1 Released (v1.0.0)** — Milestones M0–M7 Complete with PASS verdicts; V1 Product Development Closed; Maintenance Mode Active.
 - **Authoritative Project Documentation**:
   - [PRODUCT_SPEC.md](PRODUCT_SPEC.md): Complete V1 product behavior contract, user interactions, keyboard shortcuts, and visual specification.
   - [ARCHITECTURE.md](ARCHITECTURE.md): Authoritative technical architecture, data models, Tauri 2 integration, and verified vs unverified items.
@@ -92,26 +92,31 @@ Gedankenfaden enforces a strict unidirectional projection architecture:
 
 ---
 
-## 6. Quick Start (Development Spike)
+## 6. Quick Start
 
-### Prerequisites
-- Node.js >= 20.19 (tested with Node.js v24.18.0)
-- npm >= 10.x
+### Running the Native Application
+- Download the latest Windows release from GitHub Releases (MSI, NSIS setup, or standalone portable ZIP).
+- Or run the local native release binary:
+  ```cmd
+  start-gedankenfaden-rc.cmd
+  ```
 
-### Run Local Spike
-```bash
-# Install dependencies
-npm.cmd install
-
-# Run automated tests
-npm.cmd test
-
-# Build production assets
-npm.cmd run build
-
-# Launch Windows desktop preview
-start-gedankenfaden.cmd
-```
+### Development & Source Build
+- **Prerequisites**: Node.js >= 20.19, npm >= 10.x, Rust (stable with Windows GNU/MSVC toolchain)
+- **Install & Test**:
+  ```cmd
+  npm install
+  npm test
+  ```
+- **Build Web Assets & Native Binary**:
+  ```cmd
+  npm run build
+  npx tauri build --no-bundle
+  ```
+- **Web Preview**:
+  ```cmd
+  start-gedankenfaden.cmd
+  ```
 
 ---
 

@@ -1,6 +1,6 @@
 [package]
 name = "gedankenfaden"
-version = "0.1.0"
+version = "1.0.0"
 description = "A free, local-first Windows visual thinking workspace for mind maps and flowcharts"
 authors = ["Gedankenfaden Contributors"]
 repository = "https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow"

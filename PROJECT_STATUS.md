@@ -1,8 +1,8 @@
 # Project Status: Gedankenfaden
 
-**Current State**: Milestone 7-B Human Manual Acceptance PASS (Installer installation/uninstallation path explicitly deferred by user instruction, not a blocker) — M7-B Corrective Complete (Selection UX persistence across Inspector property edits, text editing, and canvas interactions repaired and verified) — All 20 Test Suites & 116 Tests Passing (100% Green) — Release Binary & Standalone Portable Package Empirically Verified with Live WebView2 CDP Probe — Ready for Release Closure  
-**Current Milestone**: M7-B Corrective Complete / Next: Release Closure  
-**Active Branch**: `rc/m7b-corrective-round1`  
+**Current State**: V1 Product Development COMPLETE — Release `v1.0.0` Published — Milestones M0–M7 COMPLETE (PASS) — All 20 Test Suites & 116 Tests Passing (100% Green) — Windows Native Release Binary, Installers (NSIS, MSI), and Portable Package Verified & Published — Maintenance Mode ACTIVE  
+**Current Milestone**: V1 Release Closure COMPLETE / Next: Portfolio Packaging (External Packaging & Presentation Activity)  
+**Active Branch**: `main` (Release Baseline: `v1.0.0`)  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-04  
 
@@ -19,17 +19,19 @@
 | **M2 Mind Map & Keyboard First** | **Completed (PASS)** | Centered Bidirectional Layout, Multiline Paste, Numbering |
 | **M3 Flowchart & Group Containers** | **Completed (PASS)** | Orthogonal Routing, Standard Shapes, Waypoints, Group Containers |
 | **M4 Hybrid Library & Recovery** | **Completed (PASS)** | Debounced Autosave, Atomic Writes, Crash Recovery, Rolling Snapshots |
-| **M4 Native Verification Gate** | **Completed (PASS)** | Real Windows Rust/Cargo native compilation verified (`gedankenfaden.exe` 237MB) & CI Gate |
+| **M4 Native Verification Gate** | **Completed (PASS)** | Real Windows Rust/Cargo native compilation verified (`gedankenfaden.exe`) & CI Gate |
 | **M5 Structured Import & Export** | **Completed (PASS)** | Markdown/OPML Importers, 11 Exporters Matrix, Image Node Pipeline |
 | **Architecture Decisions** | **Completed & Incorporated** | Distilled into `ARCHITECTURE.md` |
 | **V1 Feature Freeze** | **FROZEN (Feature Complete)** | All M1–M5 Features Implemented & Verified |
 | **M6 Product Hardening & Polish** | **Completed (PASS)** | Empirical browser DOM benchmarks, 20-cycle memory slope verification, 1,000-node stress, resource disposal, production keyboard dispatcher & motion wiring |
 | **M7-A RC Native Integration Prep** | **Completed (PASS)** | Gates A–H verified: Tauri native bridge, real filesystem library, Recycle Bin delete, `.mflow` OS association, release binary build, portable package, and empirical smoke test |
-| **M7-B User Manual Acceptance** | **Completed (PASS)** | Human acceptance passed; installer install/uninstall path deferred by user; Selection UX corrective verified |
+| **M7-B User Manual Acceptance** | **Completed (PASS)** | Human acceptance passed (clean-machine installer install/uninstall path explicitly user-deferred, not a blocker); Selection UX corrective verified |
+| **V1 Release Closure** | **Completed (PASS)** | Version 1.0.0 promoted, release PR merged, tag `v1.0.0` created, GitHub Release published with NSIS/MSI/portable artifacts |
+| **Maintenance Mode** | **ACTIVE** | V1 feature development closed; future work strictly limited to maintenance/bug fixes or authorized versions |
 | **Product Freeze** | **FROZEN** | `PRODUCT_SPEC.md` |
 | **Architecture Freeze** | **FROZEN** | `ARCHITECTURE.md` |
-| **Milestone Roadmap** | **Frozen (M0–M7)** | `ROADMAP.md` |
-| **Remote Repository** | **Synchronized & Active** | `origin/rc/m7b-corrective-round1` |
+| **Milestone Roadmap** | **Frozen (M0–M7 Complete)** | `ROADMAP.md` |
+| **Remote Repository** | **Synchronized & Active** | `origin/main` |
 
 
 ---
@@ -82,13 +84,14 @@
 | **M5** | Structured Import, Multi-Format Export & Node Image Pipeline | **COMPLETED (PASS)** | Feature Freeze Reached |
 | **M6** | Product Hardening, Performance & Edge-Case Polish | **COMPLETED (PASS)** | Complete |
 | **M7-A** | Release Candidate & Native Integration Preparation | **COMPLETED (PASS)** | Complete |
-| **M7-B** | User Manual Acceptance Testing & Selection UX Corrective | **COMPLETED (PASS)** | Ready for Release Closure |
+| **M7-B** | User Manual Acceptance Testing & Selection UX Corrective | **COMPLETED (PASS)** | Complete |
+| **M7** | Release Candidate, Packaging QA & Maintenance Transition | **COMPLETED (PASS)** | V1 Development Complete |
 
 ---
 
 ## 4. Git & Privacy Status
 
-- **Current Active Branch**: `rc/m7b-corrective-round1`.
+- **Current Active Branch**: `main` (Release Tag: `v1.0.0`, Release PR merged from `release/v1.0.0-closure`).
 - **Privacy Exclusions**:
   - `grill/`, `prompt-drafts/`, `dist-portable/`, and `*.mflow` are strictly protected in `.gitignore` and `.git/info/exclude`.
   - Zero sensitive research notes, discovery files, machine-specific absolute paths, or credentials are tracked.
@@ -96,28 +99,32 @@
 
 ---
 
-## 5. Current State & Handoff
- 
-1. **Repository & Remote Synchronization**:
-   - Branch `rc/m7b-corrective-round1` committed and pushed to `origin/rc/m7b-corrective-round1`.
-   - Previous M7-A Remote CI run passed 100% green with all Windows installer & portable packaging artifacts verified.
-2. **M7-B Corrective Fix (Selection UX Persistence)**:
-   - Root Cause: React Flow node projection reconstructed nodes without selection state, resetting `selectedNodeId` on document mutations (Inspector updates, layout, text edit blur).
-   - Solution: Promoted `selectedNodeId` to first-class interactive state in `CanvasEditor.tsx`, passed `selectedNodeId` through `canonicalToReactFlow`, preserved `node.selected` across all attribute updates, added input blur/Enter label synchronization via `onUpdateLabel` callback, and wired pane click deselect.
-   - Preserved Codex uncommitted baseline: test app data isolation and clean native shutdown.
+## 5. Current State & Release Truth
+
+1. **Repository & Release Status**:
+   - Release PR merged into `main` via history-preserving merge commit.
+   - Tag `v1.0.0` created and pushed to GitHub.
+   - GitHub Release `v1.0.0` published with complete release notes and distribution assets.
+   - Maintenance Mode ACTIVE: V1 feature intake closed; future activities strictly limited to maintenance/bug fixes or explicitly authorized future versions.
+2. **Release Artifacts Contract (Verified & Published)**:
+   - NSIS Installer: `Gedankenfaden_1.0.0_x64-setup.exe`
+   - MSI Installer: `Gedankenfaden_1.0.0_x64_en-US.msi`
+   - Windows x64 Standalone Portable Package: `dist-portable/Gedankenfaden-v1.0.0-windows-x64-portable.zip`
+   - Checksums: `SHA256SUMS.txt`
 3. **Verification Summary**:
    - Automated Unit & Integration Tests: All 20 test files passed (116/116 tests, 100% green).
    - TypeScript Compilation (`tsc --noEmit`): 0 errors.
    - Vite Production Build (`npm run build`): 0 errors.
-   - Tauri Native Release Build: `src-tauri/target/release/gedankenfaden.exe` (23.61 MB) compiled with embedded production bundle.
-   - Standalone Portable Package: `dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip` (6.52 MB).
+   - Tauri Native Release Build: `src-tauri/target/release/gedankenfaden.exe` compiled with embedded production bundle.
    - Empirical Native Smoke Test (`verify-smoke-native.mjs`): 100% PASS via Chrome DevTools Protocol attached to real Windows WebView2 runtime (file association cold-start, multi-attribute Inspector edits with persistent selection, and pane click deselect).
-4. **Next Milestone / Next Step**:
-   - Release Closure (final merge to main, tagging, and formal GitHub release).
-5. **Strict Boundaries Preserved**:
+   - Remote GitHub Actions CI: 100% Green across matrix targets.
+4. **Next Activity**:
+   - Portfolio Packaging (External packaging, portfolio presentation, recruiter-readable documentation). Not a V1 development milestone.
+5. **Governance & Boundaries Preserved**:
    - Feature Freeze respected (zero new functional features).
-   - No force push under any circumstances.
-   - Do NOT merge to `main`, do NOT tag `v1.0.0`, and do NOT create GitHub release without explicit user instruction.
+   - No license declared or added (undecided license status preserved).
+   - No force push executed under any circumstances.
+   - Unsigned Windows binary truth documented (standard Windows unknown-publisher warnings expected).
 
 
 

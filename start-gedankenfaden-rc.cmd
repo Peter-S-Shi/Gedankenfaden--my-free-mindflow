@@ -5,21 +5,21 @@ cd /d "%~dp0"
 set "EXE_PATH=%~dp0src-tauri\target\release\gedankenfaden.exe"
 
 echo ===================================================
-echo   Gedankenfaden Native Release Candidate Launcher
+echo   Gedankenfaden Windows Native Release Launcher
 echo ===================================================
 
 if not exist "%EXE_PATH%" (
   echo Error: Windows Native Release binary was not found at:
   echo   %EXE_PATH%
   echo.
-  echo Please compile the release candidate or download the
-  echo gedankenfaden-windows-rc distribution package before running.
+  echo Please compile the release binary or download the
+  echo gedankenfaden-windows-v1.0.0 distribution package before running.
   echo.
   pause
   exit /b 1
 )
 
-echo Starting Windows Native Release Candidate:
+echo Starting Windows Native Release:
 echo   %EXE_PATH%
 echo.
 

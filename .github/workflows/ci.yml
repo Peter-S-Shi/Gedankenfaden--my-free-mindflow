@@ -8,6 +8,7 @@ on:
       - 'milestone/**'
       - 'hardening/**'
       - 'rc/**'
+      - 'release/**'
   pull_request:
     branches:
       - main
@@ -58,7 +59,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: npx tauri build
 
-      - name: Package Windows Portable RC Distribution
+      - name: Package Windows Portable Distribution
         if: matrix.os == 'windows-latest'
         run: node scripts/package-portable.mjs
 
@@ -68,7 +69,7 @@ jobs:
           node -e "
             const fs = require('fs');
             const path = require('path');
-            const portableZip = 'dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip';
+            const portableZip = 'dist-portable/Gedankenfaden-v1.0.0-windows-x64-portable.zip';
             if (!fs.existsSync(portableZip) || fs.statSync(portableZip).size < 100000) {
               console.error('Missing or invalid portable zip:', portableZip);
               process.exit(1);
@@ -94,11 +95,11 @@ jobs:
             console.log('MSI installer verified:', msiPath, (fs.statSync(msiPath).size / 1024 / 1024).toFixed(2), 'MB');
           "
 
-      - name: Upload Windows RC Release Artifacts
+      - name: Upload Windows Release Artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: gedankenfaden-windows-rc
+          name: gedankenfaden-windows-v1.0.0
           if-no-files-found: error
           path: |
             dist-portable/*.zip

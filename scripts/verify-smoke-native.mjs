@@ -358,7 +358,7 @@ async function runSmokeTest() {
   console.log(`       Native process PID ${child.pid} closed through Tauri with exit code 0.\n`);
 
   // Step 4: Verify Portable Distribution Package
-  const zipPath = path.resolve(rootDir, 'dist-portable/Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip');
+  const zipPath = path.resolve(rootDir, 'dist-portable/Gedankenfaden-v1.0.0-windows-x64-portable.zip');
   if (!fs.existsSync(zipPath)) {
     throw new Error(`Portable zip not found at ${zipPath}`);
   }
@@ -375,9 +375,9 @@ async function runSmokeTest() {
   }
 
   const expectedEntries = [
-    'Gedankenfaden-v0.1.0-windows-x64/gedankenfaden.exe',
-    'Gedankenfaden-v0.1.0-windows-x64/README.txt',
-    'Gedankenfaden-v0.1.0-windows-x64/manifest.json',
+    'Gedankenfaden-v1.0.0-windows-x64/gedankenfaden.exe',
+    'Gedankenfaden-v1.0.0-windows-x64/README.txt',
+    'Gedankenfaden-v1.0.0-windows-x64/manifest.json',
   ];
   for (const exp of expectedEntries) {
     if (!zipFileNames.includes(exp)) {

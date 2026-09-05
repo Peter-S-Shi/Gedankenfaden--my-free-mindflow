@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
 async function main() {
-  console.log('--- Gedankenfaden Windows Portable RC Packager ---');
+  console.log('--- Gedankenfaden Windows Portable Packager ---');
 
   // Candidate executable paths
   const candidateExePaths = [
@@ -41,7 +41,7 @@ async function main() {
   }
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const stagingDir = path.resolve(outputDir, 'Gedankenfaden-v0.1.0-windows-x64');
+  const stagingDir = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64');
   fs.mkdirSync(stagingDir, { recursive: true });
 
   // 1. Copy executable
@@ -50,10 +50,10 @@ async function main() {
 
   // 2. Write README
   const readmeText = `======================================================================
-Gedankenfaden - Local-First Visual Thinking Desktop Release Candidate
+Gedankenfaden - Local-First Visual Thinking Desktop
 ======================================================================
 
-Version: 0.1.0-rc
+Version: 1.0.0
 Architecture: Windows x86_64
 Mode: Standalone Portable (No installation required)
 
@@ -70,7 +70,7 @@ FEATURES:
 - Non-destructive deletion via Windows Recycle Bin integration.
 - Instant crash recovery and debounced rolling auto-saves.
 
-Support & Project Source: https://github.com/
+Support & Project Source: https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow
 ======================================================================
 `;
   fs.writeFileSync(path.resolve(stagingDir, 'README.txt'), readmeText, 'utf-8');
@@ -78,7 +78,7 @@ Support & Project Source: https://github.com/
   // 3. Write Manifest
   const manifest = {
     name: 'Gedankenfaden',
-    version: '0.1.0-rc',
+    version: '1.0.0',
     platform: 'windows-x64',
     distributionType: 'portable',
     buildTimestamp: new Date().toISOString(),
@@ -98,14 +98,14 @@ Support & Project Source: https://github.com/
   console.log('Compressing standalone portable zip archive...');
   const zipData = {};
   const exeBuffer = fs.readFileSync(destExe);
-  zipData['Gedankenfaden-v0.1.0-windows-x64/gedankenfaden.exe'] = new Uint8Array(exeBuffer);
-  zipData['Gedankenfaden-v0.1.0-windows-x64/README.txt'] = fflate.strToU8(readmeText);
-  zipData['Gedankenfaden-v0.1.0-windows-x64/manifest.json'] = fflate.strToU8(
+  zipData['Gedankenfaden-v1.0.0-windows-x64/gedankenfaden.exe'] = new Uint8Array(exeBuffer);
+  zipData['Gedankenfaden-v1.0.0-windows-x64/README.txt'] = fflate.strToU8(readmeText);
+  zipData['Gedankenfaden-v1.0.0-windows-x64/manifest.json'] = fflate.strToU8(
     JSON.stringify(manifest, null, 2)
   );
 
   const zipped = fflate.zipSync(zipData, { level: 6 });
-  const zipPath = path.resolve(outputDir, 'Gedankenfaden-v0.1.0-rc-windows-x64-portable.zip');
+  const zipPath = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64-portable.zip');
   fs.writeFileSync(zipPath, zipped);
 
   const zipStats = fs.statSync(zipPath);
