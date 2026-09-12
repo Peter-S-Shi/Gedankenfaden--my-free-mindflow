@@ -17,7 +17,7 @@
 | F09 | Library synchronization | **Library folder does not update live after external file additions** | Real use requires manual import/rescan; implementation has no active filesystem watcher despite V1 watcher contract. | Confirmed by manual test + code audit |
 | F10 | Persistence / recovery | **Normal native window close is recorded as unclean** | No Tauri close-event or unload bridge; `heartbeatSession()` has no production caller. Direct close can leave `isCleanShutdown: false`, causing a false recovery banner next launch. | Confirmed by call-graph audit; native close/relaunch reproduction pending |
 | F11 | Persistence / data integrity | **Save failures are swallowed and Library metadata can remain stale** | Save catch logs only; UI status is not error. Active LibraryEntry metadata is not updated after edit until rescan. | Confirmed by code audit; failure-injection/native reproduction pending |
-| F12 | Persistence / filesystem | **Directory scan is shallow despite folder-based Library contract** | `scanDirectoryForDocuments()` reads one directory and skips child directories; mock creates a subfolder without asserting recursive discovery. | Confirmed by code audit; nested real-folder reproduction pending |
+| F12 | Persistence / filesystem | **Recursive discovery depth is an unresolved product decision** | `scanDirectoryForDocuments()` reads one directory and skips child directories. The V1 contract requires a selected real directory and live watching, but does not explicitly require recursive discovery through arbitrary nested subdirectories. | Product Decision / Candidate; non-ticketable pending explicit product decision |
 | F13 | Native boundary / security | **Tauri filesystem commands accept arbitrary renderer-supplied paths** | Read/write/remove/rename/read-dir commands take unrestricted strings and do not enforce app-owned, Library, or dialog-authorized roots. Under the V2 policy this is a confirmed security/hardening finding, not merely an architectural risk. | Confirmed by code audit; native policy tests pending |
 | F14 | Automated verification | **Verification relies on mocks, headers, and happy paths** | 20 files/116 tests pass, but bridge tests use `MemoryMockNativeBridge`; exports check headers/substrings; no real consumer, OS close/relaunch, external watcher, or Windows boundary test. | Confirmed verification-system finding; bounded acceptance basis for repair tickets |
 
@@ -30,7 +30,7 @@
 
 ## Ticketing judgment
 
-F01–F08 and F09–F12 are ready for focused repair tickets. F13 is ready for a deliberately scoped native-boundary/security ticket under the V2 policy, with native policy tests as its acceptance seam. F14 remains the bounded verification-system basis for those tickets—not a mandate for an unbounded test-suite rewrite.
+F01–F08, F09–F11, and F13 are ready for focused repair tickets. F12 is non-ticketable until the product explicitly decides whether recursive discovery is part of the Library contract. F13 is ready for a deliberately scoped native-boundary/security ticket under the V2 policy, with native policy tests as its acceptance seam. F14 remains the bounded verification-system basis for those tickets—not a mandate for an unbounded test-suite rewrite.
 
 ## Queue rule
 
