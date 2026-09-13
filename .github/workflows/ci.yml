@@ -99,6 +99,21 @@ jobs:
             console.log('MSI installer verified:', msiPath, (fs.statSync(msiPath).size / 1024 / 1024).toFixed(2), 'MB');
           "
 
+      # Acceptance-environment shim for Ledger F10 / #14 only: the native lifecycle
+      # gate needs the global WebSocket client (stable since Node 22) to attach to
+      # WebView2's CDP debugging port. This does not change the product's Node 20
+      # build/test/package pipeline above — it is a separate toolchain swap scoped
+      # to this one verification step, on the already-built release binary.
+      - name: Setup Node.js 22 (native lifecycle gate only)
+        if: matrix.os == 'windows-latest'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify native close vs. crash-recovery lifecycle (Ledger F10 / #14)
+        if: matrix.os == 'windows-latest'
+        run: node scripts/verify-clean-close-native.mjs
+
       - name: Upload Windows Release Artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
