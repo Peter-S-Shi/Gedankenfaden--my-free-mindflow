@@ -41,10 +41,20 @@ function cleanup() {
   }
 }
 
-async function waitForCdpTarget(port, timeoutMs = 15000) {
+// CI runners are doing a cold WebView2 start on a fresh VM (no warm Evergreen
+// Runtime cache) as opposed to a developer machine that has launched Edge/
+// WebView2 before, so give it materially longer before concluding it's stuck.
+const CDP_WAIT_TIMEOUT_MS = process.env.CI ? 60000 : 15000;
+
+async function waitForCdpTarget(port, child, timeoutMs = CDP_WAIT_TIMEOUT_MS) {
   const endpoint = `http://127.0.0.1:${port}/json/list`;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `gedankenfaden.exe exited before binding the CDP port (code=${child.exitCode}, signal=${child.signalCode})`
+      );
+    }
     try {
       const res = await fetch(endpoint);
       if (res.ok) {
@@ -57,7 +67,10 @@ async function waitForCdpTarget(port, timeoutMs = 15000) {
     }
     await new Promise((r) => setTimeout(r, 400));
   }
-  throw new Error(`Timed out waiting for WebView2 CDP endpoint on port ${port}`);
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for WebView2 CDP endpoint on port ${port} ` +
+      `(process still running: pid=${child.pid}, exitCode=${child.exitCode})`
+  );
 }
 
 function evalOnPage(wsUrl, expression, { awaitPromise = false } = {}) {
@@ -117,7 +130,7 @@ async function pollUntil(fn, predicate, timeoutMs = 12000, intervalMs = 400) {
 function launch(cdpPort) {
   const child = spawn(exePath, [], {
     detached: false,
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
@@ -127,6 +140,8 @@ function launch(cdpPort) {
   if (!child.pid) {
     throw new Error('Failed to spawn gedankenfaden.exe process');
   }
+  child.stdout.on('data', (buf) => process.stdout.write(`[gedankenfaden.exe stdout] ${buf}`));
+  child.stderr.on('data', (buf) => process.stderr.write(`[gedankenfaden.exe stderr] ${buf}`));
   return child;
 }
 
@@ -204,7 +219,7 @@ async function run() {
   console.log('[INFO] Phase A: launching, starting a session, then closing normally...');
   const cdpPortA1 = 19322;
   liveProcess = launch(cdpPortA1);
-  const targetA1 = await waitForCdpTarget(cdpPortA1);
+  const targetA1 = await waitForCdpTarget(cdpPortA1, liveProcess);
   await startSessionAndReachCanvas(targetA1.webSocketDebuggerUrl);
   console.log('[INFO] Session active; requesting a normal window close (plugin:window|close)...');
 
@@ -223,7 +238,7 @@ async function run() {
   console.log('[INFO] Phase A: relaunching with the same profile to check for a false recovery banner...');
   const cdpPortA2 = 19323;
   liveProcess = launch(cdpPortA2);
-  const targetA2 = await waitForCdpTarget(cdpPortA2);
+  const targetA2 = await waitForCdpTarget(cdpPortA2, liveProcess);
   const resultA = await checkForRecoveryBanner(targetA2.webSocketDebuggerUrl);
   if (!resultA || !resultA.libraryReady) {
     throw new Error('Library did not become ready on relaunch after a normal close');
@@ -241,7 +256,7 @@ async function run() {
   console.log('[INFO] Phase B: launching, starting a session, then killing the process abruptly...');
   const cdpPortB1 = 19324;
   liveProcess = launch(cdpPortB1);
-  const targetB1 = await waitForCdpTarget(cdpPortB1);
+  const targetB1 = await waitForCdpTarget(cdpPortB1, liveProcess);
   await startSessionAndReachCanvas(targetB1.webSocketDebuggerUrl);
 
   liveProcess.kill('SIGKILL');
@@ -252,7 +267,7 @@ async function run() {
   console.log('[INFO] Phase B: relaunching with the same profile to confirm recovery is preserved...');
   const cdpPortB2 = 19325;
   liveProcess = launch(cdpPortB2);
-  const targetB2 = await waitForCdpTarget(cdpPortB2);
+  const targetB2 = await waitForCdpTarget(cdpPortB2, liveProcess);
   const resultB = await checkForRecoveryBanner(targetB2.webSocketDebuggerUrl);
   if (!resultB || !resultB.libraryReady) {
     throw new Error('Library did not become ready on relaunch after a forced kill');
