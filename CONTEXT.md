@@ -43,12 +43,47 @@ new concepts get named rather than letting them stay implicit in code.
   keeps its children in the *same* band rather than manufacturing fake
   extra hierarchy depth — this is the "same-depth band" invariant holding
   even for wide branches, at the cost of a taller canvas.
-- **Fan-out strategy seam**: a decision point (not yet load-bearing in
-  production) for what to do when one parent's fan-out is high enough that
-  a plain single-column band starts producing badly overlapping edges. Two
-  candidate strategies (compact grid packing, radial packing) were
-  prototyped in M0 but are not production-ready; see
-  `src/model/mindMapLayoutEngine.ts`'s `decideFanoutStrategy`.
+- **Fan-out strategy seam**: the decision point for what to do when one
+  parent's same-side fan-out is high enough that a plain single-column
+  band starts producing badly overlapping edges. M0 prototyped two
+  candidates (compact grid packing, radial packing); M1-D promotes a
+  corrected reimplementation of grid packing to real production behavior
+  above `FANOUT_GRID_ACTIVATION_THRESHOLD` (16, M0's own measured knee) --
+  radial was not promoted (worse overlap/canvas-area tradeoff at scale).
+  See `src/model/mindMapLayoutEngine.ts`'s `decideFanoutStrategy` and
+  "Fan-out grid packing" below.
+- **Fan-out grid packing**: the M1-D production strategy for a
+  pathologically-fanned parent's direct children: `ceil(sqrt(n))` columns,
+  assigned via LPT footprint-balance (fixing M0's round-robin bug) and
+  each centered independently on the parent's Y (fixing M0's centering-
+  formula overlap bug). A fanned child's own further descendants become
+  the root of their own parent-local band rather than falling back to the
+  global per-depth band (which could overshoot/undershoot an individual
+  column and collide with a neighbor) -- but this does not fully
+  guarantee collision-freedom when a fanned child itself has further
+  descendants, a case M0's own real-world evidence never exercises (every
+  fanned child there is a leaf). See `placeChildrenGrid`'s "KNOWN RESIDUAL
+  LIMITATION" doc comment.
+- **Fan-out/stabilization interaction**: a deliberate M1-D scope boundary,
+  not a bug -- a parent whose children are in the fan-out grid regime is
+  *not* anchored by incremental-edit stabilization (below); its children
+  are repacked as a group on every relayout regardless of
+  `stabilizeAgainst`. Combining per-child anchoring with group-balanced
+  grid column assignment is a materially larger feature; every non-fanned
+  parent gets full stabilization.
+- **Incremental-edit stabilization** (M0/M1 open item #10c, closed in
+  M1-D): `layoutMindMapEngineV2`'s optional `options.stabilizeAgainst` --
+  the caller's own prior layout output. A node whose own size/collapse
+  state and *entire descendant subtree* are unchanged from that prior
+  document keeps its exact previous position, verbatim, regardless of
+  what changed elsewhere in the tree. Changed or brand-new nodes are
+  slotted in next to their nearest still-anchored sibling instead of
+  recentering the whole sibling list. This is a bounded, opt-in extension
+  of an otherwise pure function (no new persistent state; omitting the
+  option reproduces the exact M1-A/B/C behavior) -- the real product path
+  (`src/components/CanvasEditor.tsx`) already carries the previous
+  layout's own geometry forward into every edit's relayout call, so this
+  uses data the caller already has, not a new kind of state.
 - **Text-aware geometry**: a node's width/height computed from its actual
   text (via wrapping) *before* layout positions it, rather than a fixed
   box regardless of text length. The canonical sizing source lives in
@@ -61,8 +96,9 @@ new concepts get named rather than letting them stay implicit in code.
 - **Mental-map stability**: the general goal that relayout preserves what
   the user already understands about the diagram's shape — concretely
   tested as (a) collapse-then-expand round-trips to identical geometry,
-  (b) manual offsets survive relayout, and (c, open/unresolved as of
-  M1-A) editing one branch shouldn't displace unrelated branches.
+  (b) manual offsets survive relayout, and (c, closed in M1-D via
+  incremental-edit stabilization above, for non-fanned parents) editing
+  one branch shouldn't displace unrelated branches.
 
 ## Geometry Convergence
 

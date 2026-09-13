@@ -11,6 +11,15 @@ export interface LayoutOptions {
   horizontalGap?: number;
   verticalGap?: number;
   centerCoordinates?: { x: number; y: number };
+  /**
+   * M1-D (#10c incremental-edit stability): the document's own prior
+   * layout output, when the caller has one and this relayout is for a
+   * single incremental edit (add/remove/edit a node) rather than a full
+   * reset. Passed straight through to `layoutMindMapEngineV2` -- see its
+   * `stabilizeAgainst` doc comment. Ignored on the flowchart and legacy
+   * (LR/RL/TB) paths, which don't implement this contract.
+   */
+  stabilizeAgainst?: CanonicalDocument;
 }
 
 export function autoLayoutDocument(
@@ -26,6 +35,7 @@ export function autoLayoutDocument(
       horizontalGap: options.horizontalGap,
       verticalGap: options.verticalGap,
       centerCoordinates: options.centerCoordinates,
+      stabilizeAgainst: options.stabilizeAgainst,
     });
   }
   return layoutMindMapDocument(doc, options);

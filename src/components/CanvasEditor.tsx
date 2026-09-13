@@ -370,7 +370,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
       const projected = canonicalToReactFlow(layouted, {
         onToggleFold: handleToggleFold,
         selectedNodeId: newId,
@@ -428,7 +428,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: newId,
@@ -671,7 +671,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc }) : nextDoc;
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: parentToSelect,
@@ -701,7 +701,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     const nextDoc = deleteNodePreservingChildren(doc, selectedNodeId);
     if (nextDoc === doc) return;
 
-    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc }) : nextDoc;
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: null,
@@ -871,7 +871,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           edges: [...doc.edges, ...parsed.edges],
           updatedAt: new Date().toISOString(),
         };
-        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
         const firstParsedId = parsed.nodes[0]?.id || selectedNodeId;
         setSelectedNodeId(firstParsedId);
         const projected = canonicalToReactFlow(layouted, {
@@ -928,7 +928,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
       const firstClonedId = clonedNodes[0]?.id || selectedNodeId;
       setSelectedNodeId(firstClonedId);
       const projected = canonicalToReactFlow(layouted, {

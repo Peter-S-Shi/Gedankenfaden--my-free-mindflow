@@ -335,12 +335,17 @@ describe('M1-A mind map engine -- collapsed-state and manual-offset semantics pr
   });
 });
 
-describe('M1-A mind map engine -- fan-out decision seam (M0 open item #1, not yet load-bearing)', () => {
-  it('01_extreme_star_60.md: the seam is consulted but always resolves to "none" in production today', () => {
-    expect(decideFanoutStrategy(60)).toEqual({ strategy: 'none' });
+describe('M1-A mind map engine -- fan-out decision seam (M0 open item #1, closed in M1-D)', () => {
+  it('resolves to "none" at or below the measured activation threshold, "grid" above it', () => {
+    // M1-D promoted this seam to real production behavior -- see
+    // `FANOUT_GRID_ACTIVATION_THRESHOLD`'s doc comment in
+    // mindMapLayoutEngine.ts for the M0 evidence behind 16, and
+    // `src/test/v2-m1d-fanout-and-stability.test.ts` for the full grid
+    // fan-out and quantitative-evidence regression suite.
+    expect(decideFanoutStrategy(PROVISIONAL_FANOUT_THRESHOLD)).toEqual({ strategy: 'none' });
+    expect(decideFanoutStrategy(PROVISIONAL_FANOUT_THRESHOLD + 1)).toEqual({ strategy: 'grid' });
     expect(decideFanoutStrategy(5)).toEqual({ strategy: 'none' });
-    // The provisional threshold exists for a future strategy to consult --
-    // it must not silently change today's behavior.
+    expect(decideFanoutStrategy(60)).toEqual({ strategy: 'grid' });
     expect(PROVISIONAL_FANOUT_THRESHOLD).toBeGreaterThan(0);
     const doc = loadCorpusDoc('01_extreme_star_60.md');
     expect(doc.nodes.length).toBeGreaterThan(0);
@@ -352,32 +357,13 @@ describe('M1-A mind map engine -- fan-out decision seam (M0 open item #1, not ye
   });
 });
 
-describe('M1-A mind map engine -- open item #2, incremental-edit displacement (production contract, not a fake pass)', () => {
-  // Carried forward from M0 exactly as the corrective brief asked: this is
-  // a genuine, documented open tradeoff against contract #5 (parent
-  // centered on children), not resolved in M1-A. it.fails() keeps it
-  // visible in the production suite rather than silently passing.
-  it.fails('adding a sibling should not move earlier, unrelated siblings', () => {
-    const doc = importFromMarkdown(fs.readFileSync(path.join(fixturesDir, '04_wide_shallow.md'), 'utf-8'));
-    const before = layoutMindMapEngineV2(doc, { preset: 'balanced' });
-    const beforeById = byId(before);
-
-    const root = rootOf(doc);
-    const firstBranch = doc.nodes.find((n) => n.parentId === root.id)!;
-    const withNewSibling: CanonicalDocument = {
-      ...doc,
-      nodes: [...doc.nodes, { id: 'new-sibling', parentId: firstBranch.id, text: 'New Child', geometry: { x: 0, y: 0 } }],
-      edges: [...doc.edges, { id: `${firstBranch.id}->new-sibling`, source: firstBranch.id, target: 'new-sibling' }],
-    };
-    const after = layoutMindMapEngineV2(withNewSibling, { preset: 'balanced' });
-    const afterById = byId(after);
-
-    const otherTopLevelBranches = doc.nodes.filter((n) => n.parentId === root.id && n.id !== firstBranch.id);
-    for (const branch of otherTopLevelBranches) {
-      expect(afterById.get(branch.id)?.geometry).toEqual(beforeById.get(branch.id)?.geometry);
-    }
-  });
-});
+// M0 open item #2 (incremental-edit displacement, #10c) was carried
+// forward as a documented `it.fails()` through M1-A/B/C. M1-D closes it
+// via `options.stabilizeAgainst` -- the real passing production contract
+// now lives in `src/test/v2-m1d-fanout-and-stability.test.ts`, which also
+// documents the resulting definition of "unrelated" and the accepted
+// scope boundary against fan-out grid packing. Nothing here asserts the
+// old (now-solved) expected-failure any more.
 
 describe('M1-A mind map engine -- flowchart/Dagre isolation', () => {
   it('flowchart documents still dispatch to Dagre, unaffected by this module existing', () => {
