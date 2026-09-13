@@ -36,6 +36,7 @@ import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
 import { ConfirmationDialog } from './ConfirmationDialog';
+import { buildChildrenIdsByParent, carryDescendantsWithDraggedParents } from '../model/dragSubtree';
 import {
   ArrowLeft,
   Plus,
@@ -204,10 +205,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc, updateHistoryStatus]
   );
 
+  // Direct-children lookup from the canonical hierarchy, used to carry a
+  // dragged parent's descendant subtree along with it (Ledger F-new / #17):
+  // React Flow only reports a position change for the node actually
+  // dragged, so without this its children would visibly detach and stay
+  // behind while the parent moves.
+  const childrenIdsByParent = useMemo(() => buildChildrenIdsByParent(doc.nodes), [doc.nodes]);
+
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<CustomNodeData>>[]) => {
       setNodes((nds) => {
-        const next = applyNodeChanges(changes, nds);
+        const next = carryDescendantsWithDraggedParents(
+          nds,
+          applyNodeChanges(changes, nds),
+          changes.filter((c) => c.type === 'position'),
+          childrenIdsByParent
+        );
+
         const isDragEnd = changes.some((c) => c.type === 'position' && !c.dragging);
         if (isDragEnd) {
           syncToCanonical(next, edges, true);
@@ -233,7 +247,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         }
       }
     },
-    [edges, syncToCanonical]
+    [edges, syncToCanonical, childrenIdsByParent]
   );
 
   const onEdgesChange = useCallback(
