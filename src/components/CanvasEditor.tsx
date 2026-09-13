@@ -147,7 +147,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           nodes: nextNodes,
           updatedAt: new Date().toISOString(),
         };
-        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset });
+        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset, stabilizeAgainst: prevDoc });
         const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
         setNodes(projected.nodes);
         setEdges(projected.edges);
@@ -312,6 +312,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     (preset: LayoutOptions['preset']) => {
       setLayoutPreset(preset);
       const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+      // Deliberately NOT stabilized (M1-D #10c): this is the user explicitly
+      // asking for a full auto-layout reset, not an incremental edit -- it
+      // should also be able to fix positions a stabilized incremental edit
+      // left untouched (e.g. after a manual drag), so it must recompute
+      // everyone from scratch.
       const layoutedDoc = autoLayoutDocument(currentDoc, { preset });
       const projected = canonicalToReactFlow(layoutedDoc, {
         onToggleFold: handleToggleFold,

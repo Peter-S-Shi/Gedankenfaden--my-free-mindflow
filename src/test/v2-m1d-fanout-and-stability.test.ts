@@ -408,6 +408,39 @@ describe('M1-D incremental-edit stability (#10c) -- a real passing production co
     expect(afterById.get('a2-child')!.geometry.height || 0).toBeGreaterThan(beforeById.get('a2-child')!.geometry.height || 0);
   });
 
+  it('collapsing a branch (a real live-app edit, per CanvasEditor.tsx handleToggleFold) does not move an unrelated branch', () => {
+    const doc = importFromMarkdown(fs.readFileSync(path.join(fixturesDir, '04_wide_shallow.md'), 'utf-8'));
+    const before = layoutMindMapEngineV2(doc, { preset: 'balanced' });
+    const beforeById = byId(before);
+
+    const root = rootOf(before);
+    const branches = before.nodes.filter((n) => n.parentId === root.id);
+    const targetBranch = branches[0];
+
+    const collapsedInput: CanonicalDocument = {
+      ...before,
+      nodes: before.nodes.map((n) => (n.id === targetBranch.id ? { ...n, collapsed: true } : n)),
+    };
+    const afterCollapse = layoutMindMapEngineV2(collapsedInput, { preset: 'balanced', stabilizeAgainst: before });
+    const afterCollapseById = byId(afterCollapse);
+    for (const branch of branches.slice(1)) {
+      expect(afterCollapseById.get(branch.id)?.geometry).toEqual(beforeById.get(branch.id)?.geometry);
+    }
+
+    // Expanding back also does not disturb unrelated branches, and round-
+    // trips the collapsed branch itself back to its pre-collapse geometry.
+    const expandedInput: CanonicalDocument = {
+      ...afterCollapse,
+      nodes: afterCollapse.nodes.map((n) => (n.id === targetBranch.id ? { ...n, collapsed: false } : n)),
+    };
+    const afterExpand = layoutMindMapEngineV2(expandedInput, { preset: 'balanced', stabilizeAgainst: afterCollapse });
+    const afterExpandById = byId(afterExpand);
+    for (const branch of branches.slice(1)) {
+      expect(afterExpandById.get(branch.id)?.geometry).toEqual(beforeById.get(branch.id)?.geometry);
+    }
+    expect(afterExpandById.get(targetBranch.id)?.geometry).toEqual(beforeById.get(targetBranch.id)?.geometry);
+  });
+
   it('an existing top-level branch never flips side because of an unrelated edit', () => {
     const doc = importFromMarkdown(fs.readFileSync(path.join(fixturesDir, '08_bilateral_footprint_balance.md'), 'utf-8'));
     const before = layoutMindMapEngineV2(doc, { preset: 'balanced' });

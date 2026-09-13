@@ -83,7 +83,11 @@ new concepts get named rather than letting them stay implicit in code.
   option reproduces the exact M1-A/B/C behavior) -- the real product path
   (`src/components/CanvasEditor.tsx`) already carries the previous
   layout's own geometry forward into every edit's relayout call, so this
-  uses data the caller already has, not a new kind of state.
+  uses data the caller already has, not a new kind of state. Wired into
+  every add/delete/paste/fold-toggle edit handler; deliberately NOT wired
+  into the manual "auto layout" preset-reset button, which is meant to
+  recompute everyone from scratch (including fixing positions an
+  incremental edit or manual drag left untouched).
 - **Text-aware geometry**: a node's width/height computed from its actual
   text (via wrapping) *before* layout positions it, rather than a fixed
   box regardless of text length. The canonical sizing source lives in
