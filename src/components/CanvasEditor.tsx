@@ -29,7 +29,7 @@ import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, computeGroupBounds, translateGroup } from '../model/groups';
-import { DeletionPlan, planCanvasDeletion } from '../model/deletion';
+import { DeletionPlan, planCanvasDeletion, deleteNodePreservingChildren } from '../model/deletion';
 import { getNativeBridge } from '../platform/tauriBridge';
 import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
 import { CustomNode } from './CustomNode';
@@ -675,6 +675,32 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     historyRef.current.pushState(layouted);
     updateHistoryStatus();
     setStatusMessage(`Deleted (${deletedIds.size} node${deletedIds.size > 1 ? 's' : ''})`);
+    setPendingDeletion(null);
+  }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
+
+  // Delete only the selected node, reparenting its direct children onto its
+  // own parent instead of destroying the whole subtree (Ledger F-new / #16).
+  const confirmDeleteOnlyKeepChildren = useCallback(() => {
+    if (!pendingDeletion || !selectedNodeId) return;
+    if (pendingDeletion.kind !== 'delete-subtree') return;
+
+    const nextDoc = deleteNodePreservingChildren(doc, selectedNodeId);
+    if (nextDoc === doc) return;
+
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
+    const projected = canonicalToReactFlow(layouted, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: null,
+      onUpdateLabel: handleUpdateNodeLabel,
+    });
+
+    setDoc(layouted);
+    setSelectedNodeId(null);
+    setNodes(projected.nodes);
+    setEdges(projected.edges);
+    historyRef.current.pushState(layouted);
+    updateHistoryStatus();
+    setStatusMessage('Deleted node, kept its children');
     setPendingDeletion(null);
   }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
 
@@ -1624,9 +1650,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         <ConfirmationDialog
           title={pendingDeletion.title}
           message={pendingDeletion.message}
-          confirmLabel={pendingDeletion.kind === 'clear-root-branches' ? 'Clear branches' : 'Delete'}
+          confirmLabel={
+            pendingDeletion.kind === 'clear-root-branches'
+              ? 'Clear branches'
+              : pendingDeletion.kind === 'delete-subtree'
+                ? 'Delete subtree'
+                : 'Delete'
+          }
           onConfirm={confirmPendingDeletion}
           onCancel={() => setPendingDeletion(null)}
+          secondaryLabel={pendingDeletion.kind === 'delete-subtree' ? 'Delete only (keep children)' : undefined}
+          onSecondary={pendingDeletion.kind === 'delete-subtree' ? confirmDeleteOnlyKeepChildren : undefined}
         />
       )}
     </div>
