@@ -202,11 +202,12 @@ No other production file was modified. Neither prototype is wired into
   separate offset-history model). Not fuzz-tested across arbitrary
   multi-step collapse/expand/edit *sequences* — a single collapse→expand
   round-trip per prototype.
-- The real acceptance sample this pass's brief referenced
-  (`2023-2026_Sample Outline Topic_Gedankenfaden导入大纲.md`) was located
-  this time (in the linked sponge-knowledge corpus, alongside 5 other real
-  outlines) and included in the real-sample comparison in §3/§4, by
-  aggregate metrics only, consistent with this repo's privacy rule.
+- The specific real acceptance sample referenced by an earlier pass's
+  brief was located this time, alongside 5 other real outlines in the
+  user's own local knowledge base, and included in the real-sample
+  comparison in §3/§4 by aggregate metrics only — its filename and
+  content are intentionally omitted from this report, consistent with
+  this repo's privacy rule.
 
 ## 8. Exit code review (`/code-review` against `dcc480a`)
 
