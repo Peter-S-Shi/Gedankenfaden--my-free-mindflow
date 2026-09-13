@@ -17,6 +17,9 @@
 import { CanonicalDocument, CanonicalNode } from '../model/types';
 import { serializeDocument } from '../model/document';
 import { calculateOrthogonalPath } from '../model/routing';
+import { wrapNodeText } from '../model/textMeasurement';
+export { estimatedCharWidth, wrapNodeText } from '../model/textMeasurement';
+export type { WrappedNodeText } from '../model/textMeasurement';
 import { PDFDocument, PDFFont, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import notoSansScUnicode from '@fontsource-variable/noto-sans-sc/unicode.json';
@@ -719,77 +722,6 @@ function buildPdf(objects: string[]): Uint8Array {
   pdf += offsets.slice(1).map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`).join('');
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new TextEncoder().encode(pdf);
-}
-
-/**
- * Estimated glyph width as a fraction of font-size: CJK/full-width characters
- * render roughly square (~1em), Latin/half-width characters roughly half that
- * in common sans-serif fonts. This is a rendering-time estimate (no DOM
- * measurement dependency, so it behaves identically in tests and in the app),
- * good enough to size an export box realistically rather than the prior
- * always-one-line, never-measured text.
- */
-export function estimatedCharWidth(char: string, fontSize: number): number {
-  const code = char.codePointAt(0) || 0;
-  const isFullWidth =
-    (code >= 0x1100 && code <= 0x11ff) || // Hangul Jamo
-    (code >= 0x2e80 && code <= 0xa4cf) || // CJK radicals, Kangxi, Hiragana/Katakana, CJK Unified
-    (code >= 0xac00 && code <= 0xd7a3) || // Hangul Syllables
-    (code >= 0xf900 && code <= 0xfaff) || // CJK Compatibility Ideographs
-    (code >= 0xff00 && code <= 0xffef); // Fullwidth forms
-  return fontSize * (isFullWidth ? 1 : 0.56);
-}
-
-export interface WrappedNodeText {
-  lines: string[];
-  lineHeight: number;
-}
-
-/**
- * Word/character-wraps node text to fit within maxWidth (minus horizontal
- * padding), matching how the live canvas naturally wraps text in a
- * fixed-width, auto-height node -- unlike the single unwrapped <text> line
- * previously used for export, which let long text overflow or forced callers
- * to squeeze everything into one crowded line (Ledger F07, #8 reopened).
- */
-export function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
-  const usableWidth = Math.max(maxWidth - 16, fontSize * 2);
-  const lineHeight = Math.round(fontSize * 1.35);
-  const words = text.split(/(\s+)/).filter((w) => w.length > 0);
-  const lines: string[] = [];
-  let current = '';
-  let currentWidth = 0;
-
-  const pushCurrent = () => {
-    if (current.trim().length > 0) lines.push(current.trim());
-    current = '';
-    currentWidth = 0;
-  };
-
-  for (const word of words) {
-    const wordWidth = [...word].reduce((sum, ch) => sum + estimatedCharWidth(ch, fontSize), 0);
-    if (wordWidth > usableWidth) {
-      // A single "word" (e.g. an unbroken run of CJK characters) longer than
-      // one line's width: break it character-by-character.
-      for (const ch of word) {
-        const chWidth = estimatedCharWidth(ch, fontSize);
-        if (currentWidth + chWidth > usableWidth && current.length > 0) {
-          pushCurrent();
-        }
-        current += ch;
-        currentWidth += chWidth;
-      }
-      continue;
-    }
-    if (currentWidth + wordWidth > usableWidth && current.length > 0) {
-      pushCurrent();
-    }
-    current += word;
-    currentWidth += wordWidth;
-  }
-  pushCurrent();
-
-  return { lines: lines.length > 0 ? lines : [''], lineHeight };
 }
 
 interface EffectiveNodeBox {

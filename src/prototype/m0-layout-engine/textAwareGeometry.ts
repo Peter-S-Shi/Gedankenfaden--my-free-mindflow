@@ -5,11 +5,11 @@
  * runs, not the current production behaviour of a fixed 150x44 (or
  * importer's 140x40) box regardless of text length, with wrapping only
  * discovered later at export time (Ledger #8/F07). Reuses the exact same
- * CJK/Latin char-width heuristic and wrapping algorithm export already
- * uses (`src/export/exporter.ts`) so a node's in-canvas footprint and its
- * exported footprint agree.
+ * CJK/Latin char-width heuristic and wrapping algorithm export uses, now
+ * consolidated at `src/model/textMeasurement.ts` (M1-A), so a node's
+ * in-canvas footprint and its exported footprint agree.
  */
-import { estimatedCharWidth, wrapNodeText } from '../../export/exporter';
+import { estimatedCharWidth, wrapNodeText } from '../../model/textMeasurement';
 
 export interface TextAwareSizeInput {
   id: string;
