@@ -35,7 +35,7 @@ import {
   ProtoNodeInput,
   buildChildrenMap,
   computeDepths,
-  computeSubtreeWeights,
+  computeSubtreeFootprintWeights,
   findRoot,
   makeSizeOf,
   partitionBySide,
@@ -67,14 +67,19 @@ export function layoutPrototypeB(
   const root = findRoot(nodes);
   const childrenMap = buildChildrenMap(nodes);
   const depths = computeDepths(root, childrenMap);
-  const weights = computeSubtreeWeights(nodes, childrenMap);
   const sizes = new Map(nodes.map((n) => [n.id, computeTextAwareSize({ id: n.id, text: n.text })]));
   const sizeOf = makeSizeOf(sizes);
   const collapsedIds = new Set(nodes.filter((n) => n.collapsed).map((n) => n.id));
+  // Same text-aware footprint estimate prototype A uses for partitioning
+  // (see treeUtils.ts) -- B's own bottom-up pack still decides *actual*
+  // positions independently; this only decides *which side* a branch goes
+  // on, so both prototypes are compared on an equal bilateral-balance
+  // footing (contract #6 applies identically to both).
+  const footprintWeights = computeSubtreeFootprintWeights(nodes, childrenMap, sizeOf, vGap);
 
   const nodeSide = new Map<string, 'left' | 'right'>();
   const level1 = childrenMap.get(root.id) || [];
-  const { left, right } = partitionBySide(level1, weights);
+  const { left, right } = partitionBySide(level1, footprintWeights);
   function assignSideRecursive(node: ProtoNodeInput, side: 'left' | 'right') {
     nodeSide.set(node.id, side);
     for (const child of childrenMap.get(node.id) || []) assignSideRecursive(child, side);
@@ -177,7 +182,16 @@ export function layoutPrototypeB(
 
   finalize(root, combinedRootPacked, 0, 'right', 0);
 
-  const resultNodes: PositionedNode[] = nodes.map((n) => positioned.get(n.id)).filter((n): n is PositionedNode => !!n);
+  // See prototypeA.ts's identical handling -- manual offsets must survive
+  // relayout unchanged.
+  const resultNodes: PositionedNode[] = nodes
+    .map((n) => {
+      const base = positioned.get(n.id);
+      if (!base) return undefined;
+      if (!n.manualOffset) return base;
+      return { ...base, x: base.x + n.manualOffset.dx, y: base.y + n.manualOffset.dy };
+    })
+    .filter((n): n is PositionedNode => !!n);
   const resultEdges: PositionedEdge[] = edges.map((e) => ({ source: e.source, target: e.target }));
 
   return { nodes: resultNodes, edges: resultEdges };

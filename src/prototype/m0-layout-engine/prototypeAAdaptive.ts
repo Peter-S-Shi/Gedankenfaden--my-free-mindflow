@@ -1,31 +1,26 @@
 /**
- * PROTOTYPE A (M0 gate) -- throwaway. Not wired into production import/layout.
+ * PROTOTYPE (M0 Corrective Gate) -- throwaway. Not wired into production.
  *
- * "Parent-local recursive packing": the low-risk evolution of the current
- * production `layoutHorizontalChildren`. Keeps the same top-down,
- * parent-anchors-its-children shape the production engine already has, but
- * fixes its three structural bugs:
+ * Prototype A with one explicit, bounded exception: when a single parent's
+ * DIRECT children exceed `fanoutThreshold`, that parent's children are
+ * packed locally with `packChildrenGrid`/`packChildrenRadial`
+ * (highFanoutStrategies.ts) instead of the ordinary single-column band.
+ * Every other parent in the document still gets ordinary prototype-A
+ * placement -- this cannot leak into unrelated siblings or consume their
+ * column budget, unlike the old production sqrt-rows patch, because the
+ * exception is entirely local to the one pathological parent's own
+ * children and doesn't touch `nearEdgeX`/depth bookkeeping for anyone else.
  *
- *  - Column is assigned strictly by hierarchy depth (a shared per-band x),
- *    not by a global mutable column cursor threaded across siblings -- so a
- *    sibling's deep subtree can no longer push a later sibling's own
- *    (shallower) subtree into extra fake columns (contract #1/#2/#4).
- *  - Each child's vertical slot is reserved bottom-up as the sum of its own
- *    subtree's footprint (recursive, per-child), not a fixed-row grid, so
- *    the old sqrt(children.length) row-count patch for high fan-out is
- *    gone entirely -- fan-out stays in one band and simply grows taller
- *    (contract #7).
- *  - Bilateral split is by subtree weight (`partitionBySide`), not
- *    `index % 2` (contract #6).
- *
- * What stays "parent-local" (the low-risk part): each level's children are
- * still centered on their PARENT's already-fixed Y (top-down cascade), not
- * recomputed bottom-up from the children's own natural centers the way a
- * true tidy-tree (prototype B) does. That's the main behavioural axis this
- * prototype is deliberately not changing.
+ * Known limitation (acceptable for "smallest viable" per the corrective
+ * brief): does not solve further descendants *under* a fanned-out child
+ * (the corpus's `01_extreme_star_60.md` fan-out parent's children are all
+ * leaves, so this isn't exercised here). A production implementation would
+ * need to decide how a grid/radial child's own children re-enter normal
+ * banding -- flagged as follow-up, not solved in this prototype.
  */
 import { LayoutResult, PositionedEdge, PositionedNode } from './contract';
 import { computeTextAwareSize } from './textAwareGeometry';
+import { packChildrenGrid, packChildrenRadial } from './highFanoutStrategies';
 import {
   ProtoEdgeInput,
   ProtoNodeInput,
@@ -37,35 +32,33 @@ import {
   partitionBySide,
 } from './treeUtils';
 
-export interface PrototypeALayoutOptions {
+export type FanoutStrategy = 'none' | 'grid' | 'radial';
+
+export interface PrototypeAAdaptiveOptions {
   hGap?: number;
   vGap?: number;
+  fanoutThreshold?: number;
+  fanoutStrategy?: FanoutStrategy;
 }
 
-export function layoutPrototypeA(
+export function layoutPrototypeAAdaptive(
   nodes: ProtoNodeInput[],
   edges: ProtoEdgeInput[],
-  options: PrototypeALayoutOptions = {}
+  options: PrototypeAAdaptiveOptions = {}
 ): LayoutResult {
   const hGap = options.hGap ?? 60;
   const vGap = options.vGap ?? 24;
+  const fanoutThreshold = options.fanoutThreshold ?? 12;
+  const fanoutStrategy = options.fanoutStrategy ?? 'none';
 
   const root = findRoot(nodes);
   const childrenMap = buildChildrenMap(nodes);
   const depths = computeDepths(root, childrenMap);
   const sizes = new Map(nodes.map((n) => [n.id, computeTextAwareSize({ id: n.id, text: n.text })]));
   const sizeOf = makeSizeOf(sizes);
-  // Same formula used for both "which side" (partitionBySide) and "how much
-  // vertical space to reserve" (placeChildren below) -- a subtree's footprint
-  // can't drift between the two, unlike the earlier version, which balanced
-  // sides by raw descendant count but reserved space by rendered height.
   const reserved = computeSubtreeFootprintWeights(nodes, childrenMap, sizeOf, vGap);
 
-  // Per (side, depth) band shares one x line: the max node width seen at
-  // that band decides how far the NEXT band starts, so every node at that
-  // depth/side aligns on the edge facing the root regardless of its own
-  // (now text-aware, so variable) width.
-  const bandMaxWidth = new Map<string, number>(); // key `${side}:${depth}`
+  const bandMaxWidth = new Map<string, number>();
   const nodeSide = new Map<string, 'left' | 'right'>();
   nodeSide.set(root.id, 'right');
 
@@ -83,17 +76,9 @@ export function layoutPrototypeA(
     const side = nodeSide.get(n.id) || 'right';
     const depth = depths.get(n.id)!;
     const key = `${side}:${depth}`;
-    const w = sizeOf(n.id).width;
-    bandMaxWidth.set(key, Math.max(bandMaxWidth.get(key) || 0, w));
+    bandMaxWidth.set(key, Math.max(bandMaxWidth.get(key) || 0, sizeOf(n.id).width));
   }
 
-  // Returns the "near edge" x for this band -- the edge facing the root
-  // that edges actually connect to. For right-growing bands that's the
-  // node's own left edge; for left-growing bands it's the node's own right
-  // edge, so a node's stored (left-edge) x is derived by subtracting its
-  // OWN width from this, not the band's max width -- otherwise narrower
-  // nodes in a variable-width (text-aware) band would drift off the shared
-  // line instead of lining up on the edge that faces the parent.
   function nearEdgeX(side: 'left' | 'right', depth: number, rootSize: { width: number }): number {
     let x = side === 'right' ? rootSize.width / 2 + hGap : -rootSize.width / 2 - hGap;
     for (let d = 1; d < depth; d++) {
@@ -122,11 +107,33 @@ export function layoutPrototypeA(
 
   function placeChildren(parentId: string, parentCenterY: number, side: 'left' | 'right', depth: number) {
     if (isCollapsed(parentId)) return;
-    // Filtering by assigned side is a no-op below the root (a node's whole
-    // subtree shares one side), but is what actually splits root's own
-    // direct children into their two wings here.
     const children = (childrenMap.get(parentId) || []).filter((c) => nodeSide.get(c.id) === side);
     if (children.length === 0) return;
+
+    if (fanoutStrategy !== 'none' && children.length > fanoutThreshold) {
+      const packed =
+        fanoutStrategy === 'grid'
+          ? packChildrenGrid(children, sizeOf, hGap, vGap, side)
+          : packChildrenRadial(children, sizeOf, hGap, vGap);
+      const parent = [...positioned.values()].find((p) => p.id === parentId)!;
+      const parentCenterX = parent.x + parent.width / 2;
+      for (const child of children) {
+        const rel = packed.get(child.id)!;
+        positioned.set(child.id, {
+          id: child.id,
+          parentId,
+          depth,
+          x: parentCenterX + rel.x,
+          y: parentCenterY + rel.y,
+          width: rel.width,
+          height: rel.height,
+        });
+        // Known limitation: grandchildren of a grid/radial-packed node are
+        // not addressed by this prototype (see file header) -- not
+        // exercised by the corpus's leaf-only fan-out fixture.
+      }
+      return;
+    }
 
     const totalHeight =
       children.reduce((sum, c) => sum + (reserved.get(c.id) ?? sizeOf(c.id).height), 0) + vGap * (children.length - 1);
@@ -157,17 +164,7 @@ export function layoutPrototypeA(
   placeChildren(root.id, positioned.get(root.id)!.y + rootSize.height / 2, 'right', 1);
   placeChildren(root.id, positioned.get(root.id)!.y + rootSize.height / 2, 'left', 1);
 
-  // Manual offsets apply on top of the computed position, same as
-  // production (`layout.ts`'s own `manualOffset` handling) -- a relayout
-  // must not silently discard a user's fine-tuning nudge.
-  const resultNodes: PositionedNode[] = nodes
-    .map((n) => {
-      const base = positioned.get(n.id);
-      if (!base) return undefined;
-      if (!n.manualOffset) return base;
-      return { ...base, x: base.x + n.manualOffset.dx, y: base.y + n.manualOffset.dy };
-    })
-    .filter((n): n is PositionedNode => !!n);
+  const resultNodes: PositionedNode[] = nodes.map((n) => positioned.get(n.id)!).filter(Boolean);
   const resultEdges: PositionedEdge[] = edges.map((e) => ({ source: e.source, target: e.target }));
 
   return { nodes: resultNodes, edges: resultEdges };

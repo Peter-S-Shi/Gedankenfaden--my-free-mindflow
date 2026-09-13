@@ -151,6 +151,117 @@ describe('M0 layout contract -- #10 collapse/expand mental-map stability', () =>
   }
 });
 
+describe('M0 Corrective Gate -- #6 bilateral balance is by rendered footprint, not descendant count', () => {
+  // Constructs the case that distinguishes the two weighting schemes: one
+  // branch is a SINGLE node with very long wrapped text (many descendant
+  // "count" = 1, but tall rendered footprint); the other branch is many
+  // short-text leaf nodes (high descendant count, but each individually
+  // short). A count-based partition would pile both onto the side with
+  // fewer "nodes" without noticing the long-text branch is actually taller
+  // rendered; a footprint-based partition balances by actual height.
+  for (const [engineName, layout] of [
+    ['prototype A', layoutPrototypeA],
+    ['prototype B', layoutPrototypeB],
+  ] as const) {
+    it(`${engineName}: a single long-text branch balances against many short-text leaves`, () => {
+      const nodes = [
+        { id: 'root', text: 'Root' },
+        {
+          id: 'tall',
+          parentId: 'root',
+          text: '这是一段刻意写得很长很长很长很长很长很长很长很长很长很长的中文文本用来撑高这一个分支的渲染高度',
+        },
+        ...Array.from({ length: 8 }, (_, i) => ({ id: `short${i}`, parentId: 'root', text: 'OK' })),
+      ];
+      const edges = [
+        { source: 'root', target: 'tall' },
+        ...Array.from({ length: 8 }, (_, i) => ({ source: 'root', target: `short${i}` })),
+      ];
+
+      const m = computeLayoutMetrics(layout(nodes, edges));
+      // With footprint-based balancing, the one long-text branch should
+      // land alone on one side (its rendered height rivals the 8 short
+      // leaves combined), not grouped in with the short ones by raw count.
+      expect(m.leftRightFootprintImbalance).toBeLessThan(0.5);
+    });
+  }
+});
+
+describe('M0 Corrective Gate -- #10b manual-offset compatibility', () => {
+  // Contract extension per the corrective brief: "existing manual offsets
+  // must not be silently destroyed by future relayout." A manual offset is
+  // a pure post-layout nudge (mirrors production's CanonicalNode.manualOffset),
+  // so relayout must (a) still apply it, and (b) not let it perturb anyone
+  // else's computed base position.
+  for (const [engineName, layout] of [
+    ['prototype A', layoutPrototypeA],
+    ['prototype B', layoutPrototypeB],
+  ] as const) {
+    it(`${engineName}: a manual offset survives relayout and doesn't affect unrelated nodes`, () => {
+      const { nodes, edges } = loadFixture('04_wide_shallow.md');
+      const baseline = layout(nodes, edges);
+      const baselineById = new Map(baseline.nodes.map((n) => [n.id, n]));
+
+      const target = nodes.find((n) => n.parentId)!; // any non-root node
+      const offset = { dx: 37, dy: -19 };
+      const withOffset = nodes.map((n) => (n.id === target.id ? { ...n, manualOffset: offset } : n));
+      const result = layout(withOffset, edges);
+      const resultById = new Map(result.nodes.map((n) => [n.id, n]));
+
+      const base = baselineById.get(target.id)!;
+      const offsetPos = resultById.get(target.id)!;
+      expect(offsetPos.x).toBeCloseTo(base.x + offset.dx, 5);
+      expect(offsetPos.y).toBeCloseTo(base.y + offset.dy, 5);
+
+      for (const n of nodes) {
+        if (n.id === target.id) continue;
+        expect(resultById.get(n.id)).toEqual(baselineById.get(n.id));
+      }
+    });
+  }
+});
+
+describe('M0 Corrective Gate -- #10c incremental edit displacement (documents a known gap)', () => {
+  // Contract extension: "adding/removing a sibling should minimize
+  // unrelated branch displacement." Both prototypes center a parent's
+  // children as one symmetric group around the parent's Y -- inserting a
+  // new sibling anywhere in that group changes the group's total reserved
+  // height, which re-centers (and therefore moves) EVERY sibling in that
+  // group, not just the ones after the insertion point. This is a real,
+  // known tension with contract #5 ("parent centered on children"): a
+  // top-anchored layout would keep earlier siblings stable but would no
+  // longer center the parent. Not resolved in this pass -- see
+  // M0_REPORT.md's "open decision" on this tradeoff. This test documents
+  // the CURRENT behavior (full-group reflow) with `it.fails()` against the
+  // *goal* stated in the brief, so the gap is visible, not silently assumed
+  // away.
+  for (const [engineName, layout] of [
+    ['prototype A', layoutPrototypeA],
+    ['prototype B', layoutPrototypeB],
+  ] as const) {
+    it.fails(`${engineName}: adding a sibling should not move earlier, unrelated siblings`, () => {
+      const { nodes, edges } = loadFixture('04_wide_shallow.md');
+      const before = layout(nodes, edges);
+      const beforeById = new Map(before.nodes.map((n) => [n.id, n]));
+
+      const root = nodes.find((n) => !n.parentId)!;
+      const firstBranch = nodes.find((n) => n.parentId === root.id)!;
+      const newSiblingId = 'new-sibling-under-first-branch';
+      const withNewSibling = [...nodes, { id: newSiblingId, parentId: firstBranch.id, text: 'New Child' }];
+      const newEdges = [...edges, { source: firstBranch.id, target: newSiblingId }];
+      const after = layout(withNewSibling, newEdges);
+      const afterById = new Map(after.nodes.map((n) => [n.id, n]));
+
+      // Every other top-level branch (not firstBranch's own subtree) should
+      // be untouched by an edit deep inside firstBranch.
+      const otherTopLevelBranches = nodes.filter((n) => n.parentId === root.id && n.id !== firstBranch.id);
+      for (const branch of otherTopLevelBranches) {
+        expect(afterById.get(branch.id)).toEqual(beforeById.get(branch.id));
+      }
+    });
+  }
+});
+
 describe('M0 layout contract -- current production engine (red regressions, expected to fail)', () => {
   it.fails('baseline: a shallow sibling should not be pushed into extra columns by a preceding deep sibling', () => {
     const { nodes, edges } = loadFixture('03_severe_imbalance.md');

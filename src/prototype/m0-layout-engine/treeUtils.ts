@@ -13,6 +13,10 @@ export interface ProtoNodeInput {
   parentId?: string;
   text: string;
   collapsed?: boolean;
+  /** Fine-tuning nudge applied on top of the computed position, mirroring
+   * production's `CanonicalNode.manualOffset` -- must survive relayout
+   * unchanged (M0 Corrective Gate contract extension, #10b). */
+  manualOffset?: { dx: number; dy: number };
 }
 
 export interface ProtoEdgeInput {
@@ -50,19 +54,42 @@ export function computeDepths(root: ProtoNodeInput, childrenMap: Map<string, Pro
   return depths;
 }
 
-/** Subtree "weight" (descendant count incl. self) used purely to decide
- * bilateral side membership -- a structural proxy for pixel footprint that
- * doesn't require having laid anything out yet. */
-export function computeSubtreeWeights(
+/**
+ * M0 Corrective Gate (per user draft "V2 M0 corrective patch"): the
+ * original prototype gate balanced left/right by raw descendant COUNT --
+ * a 1-node subtree of one long-wrapped-text node and a 30-node subtree of
+ * short one-line notes counted as wildly different weight even if they'd
+ * render at similar heights, and vice versa. Bilateral balance
+ * (contract #6, "by subtree footprint") means *rendered* footprint, so
+ * this now estimates each subtree's actual vertical footprint the same
+ * way the layout itself will reserve space for it: a node's own
+ * text-aware height, or -- if it has children and isn't collapsed -- the
+ * larger of its own height and the stacked total of its children's own
+ * footprints (bottom-up, with `vGap` between siblings). Both prototypes
+ * partition sides using this SAME function, so the number that decides
+ * "which side" and the number that decides "how tall this subtree
+ * actually reserves" can't drift apart from each other.
+ */
+export function computeSubtreeFootprintWeights(
   nodes: ProtoNodeInput[],
-  childrenMap: Map<string, ProtoNodeInput[]>
+  childrenMap: Map<string, ProtoNodeInput[]>,
+  sizeOf: SizeOf,
+  vGap: number
 ): Map<string, number> {
+  const collapsedIds = new Set(nodes.filter((n) => n.collapsed).map((n) => n.id));
   const weights = new Map<string, number>();
   function weightOf(id: string): number {
     const cached = weights.get(id);
     if (cached !== undefined) return cached;
+    const own = sizeOf(id).height;
     const children = childrenMap.get(id) || [];
-    const w = 1 + children.reduce((sum, c) => sum + weightOf(c.id), 0);
+    let w: number;
+    if (children.length === 0 || collapsedIds.has(id)) {
+      w = own;
+    } else {
+      const childrenTotal = children.reduce((sum, c) => sum + weightOf(c.id), 0) + vGap * (children.length - 1);
+      w = Math.max(own, childrenTotal);
+    }
     weights.set(id, w);
     return w;
   }
