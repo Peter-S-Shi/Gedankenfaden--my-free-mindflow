@@ -63,3 +63,34 @@ new concepts get named rather than letting them stay implicit in code.
   tested as (a) collapse-then-expand round-trips to identical geometry,
   (b) manual offsets survive relayout, and (c, open/unresolved as of
   M1-A) editing one branch shouldn't displace unrelated branches.
+
+## Geometry Convergence
+
+Terms introduced in M1-C to describe the sizing contract between layout,
+canvas, and export.
+
+- **Geometry convergence**: the property that `node.geometry.height` (as
+  written by the V2 layout engine via `computeTextAwareNodeSize`) equals
+  the height that `computeEffectiveNodeBoxes` in the exporter would derive
+  for the same text and width — so no layer silently re-measures and gets
+  a different answer. Formally captured by the `nodeGeometryConverges()`
+  predicate in `src/model/textMeasurement.ts`.
+- **Effective box**: the per-node `{x, y, width, height, lines, lineHeight}`
+  structure that `computeEffectiveNodeBoxes` (private to `exporter.ts`)
+  computes for SVG/PNG/PDF rendering. For V2 balanced mindmap documents
+  the effective box equals the canonical geometry (grownBy = 0); for
+  V1-era documents with stale fixed heights, the exporter may grow height
+  and re-center the y coordinate (`y - grownBy/2`) to keep edge anchors
+  at the vertical midpoint.
+- **Canvas-DOM divergence (Divergence A)**: the residual gap between the
+  testable geometry convergence contract (layout height = export effective
+  height) and live Canvas rendering. The Canvas layer passes
+  `node.geometry.{width, height}` to React Flow as CSS `style.{width, height}`
+  and renders text as a `break-words` span inside that container. In a
+  live browser, if real rendered font metrics differ from the
+  `estimatedCharWidth` model (Latin: 0.56em, CJK: 1em), the DOM may
+  overflow the container. This divergence cannot be tested in a
+  Vitest/Node environment and is documented in
+  `src/test/v2-m1c-geometry-convergence.test.ts`; a full proof requires a
+  CDP/Puppeteer browser-in-the-loop smoke test (deferred).
+

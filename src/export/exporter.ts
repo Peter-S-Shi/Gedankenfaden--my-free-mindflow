@@ -18,13 +18,8 @@ import { CanonicalDocument, CanonicalNode } from '../model/types';
 import { serializeDocument } from '../model/document';
 import { calculateOrthogonalPath } from '../model/routing';
 import { wrapNodeText } from '../model/textMeasurement';
-// TODO: transitional shim (M1-A) -- estimatedCharWidth/wrapNodeText moved
-// to model/textMeasurement.ts so layout could share them; re-exported here
-// only so existing test files that import them from exporter.ts keep
-// working. Remove this re-export once those tests import from
-// model/textMeasurement.ts directly instead.
-export { estimatedCharWidth, wrapNodeText } from '../model/textMeasurement';
-export type { WrappedNodeText } from '../model/textMeasurement';
+
+
 import { PDFDocument, PDFFont, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import notoSansScUnicode from '@fontsource-variable/noto-sans-sc/unicode.json';

@@ -106,3 +106,44 @@ export function computeTextAwareNodeSize(
   const height = Math.max(44, lines.length * lineHeight + 16);
   return { width, height };
 }
+
+/**
+ * M1-C Geometry Convergence predicate.
+ *
+ * Returns `true` when a node's canonical `geometry.height` agrees with
+ * what `computeTextAwareNodeSize` (and therefore `computeEffectiveNodeBoxes`
+ * in the exporter) would derive for the same text, width, and font size —
+ * i.e. the layout engine and the exporter are looking at the same size.
+ *
+ * Tolerance: 1 pixel (integer rounding in `Math.round(fontSize * 1.35)` can
+ * cause ±1px differences on certain font sizes; anything larger than that
+ * indicates a real divergence).
+ *
+ * This is a pure predicate — no side effects, no imports from layout or
+ * adapter modules — so acceptance tests can import it without touching any
+ * rendering layer.
+ *
+ * Note on Divergence A (Canvas DOM): the Canvas layer passes
+ * `node.geometry.width`/`height` as React Flow `style.width`/`height` and
+ * renders text as `break-words` inside that container. In a live browser
+ * the DOM may overflow the container if the real rendered font metrics
+ * differ from the `estimatedCharWidth` model (Latin: 0.56em, CJK: 1em).
+ * This divergence cannot be tested in a Vitest/Node environment (no DOM
+ * text layout); it is documented here as the known residual gap between the
+ * canonical geometry contract and live Canvas rendering.
+ *
+ * @param node - A CanonicalNode as written by the V2 layout engine (after
+ *   `autoLayoutDocument` has run with preset:'balanced').
+ */
+export function nodeGeometryConverges(node: {
+  text: string;
+  geometry: { width?: number; height?: number };
+  style?: { fontSize?: number };
+}): boolean {
+  const declaredHeight = node.geometry.height ?? 44;
+  const expected = computeTextAwareNodeSize(node.text || '', {
+    width: node.geometry.width,
+    fontSize: node.style?.fontSize,
+  });
+  return Math.abs(declaredHeight - expected.height) <= 1;
+}
