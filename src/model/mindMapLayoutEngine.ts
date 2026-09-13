@@ -10,11 +10,15 @@
  *
  * Interface (the seam): `layoutMindMapEngineV2(doc, options) ->
  * CanonicalDocument`, the same shape as the legacy
- * `layoutMindMapDocument()` in `layout.ts`, so the two can be swapped or
- * run side-by-side for comparison (`compareLayoutEngines` below) without
- * either the importer or the canvas changing. Neither is wired into
- * `autoLayoutDocument()` as the new default yet — that's M1-B's job,
- * after integration acceptance.
+ * `layoutMindMapDocument()` in `layout.ts`, so the two can be swapped
+ * without either the importer or the canvas changing. This module does
+ * NOT import `layout.ts` — that would create the exact cycle M1-B needs
+ * to avoid when it makes `layout.ts -> mindMapLayoutEngine.ts` a one-way
+ * dependency. Side-by-side comparison between the two engines belongs in
+ * a test/acceptance helper (see `v2-m1a-mind-map-engine.test.ts`), which
+ * is free to import both; this module only exports its own engine.
+ * Neither is wired into `autoLayoutDocument()` as the new default yet —
+ * that's M1-B's job, after integration acceptance.
  *
  * Scope: this engine only handles the "balanced" bidirectional mind-map
  * case (children fan out left and right from a central root) — the case
@@ -33,7 +37,6 @@
 import { CanonicalDocument, CanonicalNode } from './types';
 import { cloneDocument } from './document';
 import { computeTextAwareNodeSize } from './textMeasurement';
-import { layoutMindMapDocument, LayoutOptions } from './layout';
 
 type Side = 'left' | 'right';
 
@@ -68,7 +71,10 @@ export function decideFanoutStrategy(_directChildCount: number): FanoutDecision 
   return { strategy: 'none' };
 }
 
-export interface MindMapEngineOptions extends Pick<LayoutOptions, 'horizontalGap' | 'verticalGap' | 'centerCoordinates'> {
+export interface MindMapEngineOptions {
+  horizontalGap?: number;
+  verticalGap?: number;
+  centerCoordinates?: { x: number; y: number };
   preset?: 'balanced';
 }
 
@@ -110,8 +116,11 @@ export function layoutMindMapEngineV2(
   // can't drift between the two, unlike descendant-count weighting would.
   const footprint = computeSubtreeFootprint(nextDoc.nodes, childrenMap, sizeOf, vGap, collapsedIds);
 
-  const rootWidth = rootNode.geometry.width || 160;
-  const rootHeight = rootNode.geometry.height || 48;
+  // The root follows the same text-aware geometry contract as every other
+  // node (contract invariant #8) -- no fixed/declared-box exception.
+  const rootSize = sizeOf(rootNode.id);
+  const rootWidth = rootSize.width;
+  const rootHeight = rootSize.height;
   const rootX = options.centerCoordinates?.x ?? 400;
   const rootY = options.centerCoordinates?.y ?? 300;
 
@@ -121,7 +130,13 @@ export function layoutMindMapEngineV2(
   for (const c of left) assignSideRecursive(c, 'left', childrenMap, nodeSide);
   for (const c of right) assignSideRecursive(c, 'right', childrenMap, nodeSide);
 
-  const bandMaxWidth = computeBandMaxWidth(nextDoc.nodes, rootNode.id, depths, nodeSide, sizeOf);
+  // Collapsed descendants stay in doc.nodes with stale geometry, but must
+  // not participate in any *visible* layout calculation -- a hidden node's
+  // (possibly very wide) text must not inflate the band its ancestor's
+  // visible siblings render in. computeBandMaxWidth is restricted to nodes
+  // actually reachable without crossing a collapsed ancestor.
+  const visibleIds = computeVisibleIds(rootNode.id, childrenMap, collapsedIds);
+  const bandMaxWidth = computeBandMaxWidth(nextDoc.nodes, rootNode.id, depths, nodeSide, sizeOf, visibleIds);
 
   const positioned = new Map<string, { x: number; y: number; width: number; height: number }>();
   positioned.set(rootNode.id, { x: rootX, y: rootY, width: rootWidth, height: rootHeight });
@@ -299,6 +314,31 @@ function partitionBySide(
   return { left, right };
 }
 
+/**
+ * Nodes reachable from the root without crossing a collapsed ancestor's
+ * boundary -- i.e. what `placeChildren` actually positions. A collapsed
+ * node itself is visible (its own box still renders); its descendants are
+ * not, matching `placeChildren`'s own `collapsedIds.has(parentId)` early
+ * return.
+ */
+function computeVisibleIds(
+  rootId: string,
+  childrenMap: Map<string, CanonicalNode[]>,
+  collapsedIds: Set<string>
+): Set<string> {
+  const visible = new Set<string>([rootId]);
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (collapsedIds.has(id)) continue;
+    for (const child of childrenMap.get(id) || []) {
+      visible.add(child.id);
+      stack.push(child.id);
+    }
+  }
+  return visible;
+}
+
 function assignSideRecursive(
   node: CanonicalNode,
   side: Side,
@@ -320,11 +360,13 @@ function computeBandMaxWidth(
   rootId: string,
   depths: Map<string, number>,
   nodeSide: Map<string, Side>,
-  sizeOf: (id: string) => { width: number; height: number }
+  sizeOf: (id: string) => { width: number; height: number },
+  visibleIds: Set<string>
 ): Map<string, number> {
   const bandMaxWidth = new Map<string, number>();
   for (const n of nodes) {
     if (n.id === rootId) continue;
+    if (!visibleIds.has(n.id)) continue;
     const side = nodeSide.get(n.id) || 'right';
     const depth = depths.get(n.id);
     if (depth === undefined) continue;
@@ -334,25 +376,3 @@ function computeBandMaxWidth(
   return bandMaxWidth;
 }
 
-export interface EngineComparisonResult {
-  legacy: CanonicalDocument;
-  v2: CanonicalDocument;
-}
-
-/**
- * Runs both engines on the same input document for side-by-side
- * comparison during M1-A/M1-B, without either being the "real" default
- * yet. `layout.ts` does not import this module, so this direction is not
- * a cycle.
- */
-export function compareLayoutEngines(doc: CanonicalDocument, options: MindMapEngineOptions = {}): EngineComparisonResult {
-  return {
-    legacy: layoutMindMapDocument(doc, {
-      preset: 'balanced',
-      horizontalGap: options.horizontalGap,
-      verticalGap: options.verticalGap,
-      centerCoordinates: options.centerCoordinates,
-    }),
-    v2: layoutMindMapEngineV2(doc, options),
-  };
-}

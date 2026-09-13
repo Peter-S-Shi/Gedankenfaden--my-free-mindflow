@@ -123,6 +123,27 @@ describe('M1-A mind map engine -- normal LR corpus keeps depth semantics without
   });
 });
 
+describe('M1-A mind map engine -- root obeys the same text-aware geometry contract as every other node', () => {
+  it('a long root title grows the root box instead of staying fixed at a declared 160x48', () => {
+    const doc = createEmptyDocument('Long root title test', 'mindmap');
+    doc.nodes = [
+      {
+        id: 'root',
+        type: 'root',
+        text: 'This is a deliberately long root title meant to force multiple wrapped lines and grow well past the default fixed root box',
+        geometry: { x: 0, y: 0 },
+      },
+      { id: 'child', parentId: 'root', text: 'Child', geometry: { x: 0, y: 0 } },
+    ];
+    doc.edges = [{ id: 'root->child', source: 'root', target: 'child' }];
+
+    const laidOut = layoutMindMapEngineV2(doc, { preset: 'balanced' });
+    const root = rootOf(laidOut);
+    // A fixed 160x48 root would never exceed this; text-aware wrapping must.
+    expect(root.geometry.height).toBeGreaterThan(48);
+  });
+});
+
 describe('M1-A mind map engine -- text-aware footprint balancing is real', () => {
   it('06_long_chinese_text.md: node height grows to fit wrapped text before layout runs', () => {
     const doc = loadCorpusDoc('06_long_chinese_text.md');
@@ -229,6 +250,63 @@ describe('M1-A mind map engine -- collapsed-state and manual-offset semantics pr
     for (const n of doc.nodes) {
       expect(expandedById.get(n.id)?.geometry).toEqual(originalById.get(n.id)?.geometry);
     }
+  });
+
+  it('an extremely wide hidden descendant does not inflate the band its visible siblings render in', () => {
+    const hugeText = 'W'.repeat(200);
+    const doc = createEmptyDocument('Hidden width test', 'mindmap');
+    doc.nodes = [
+      { id: 'root', type: 'root', text: 'Root', geometry: { x: 0, y: 0 } },
+      // A large dominant branch: pushes the two smaller branches below onto
+      // the opposite side together (bilateral balance), so they share a
+      // band on that side.
+      { id: 'big', parentId: 'root', text: 'Big Branch', geometry: { x: 0, y: 0 } },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        id: `big-child-${i}`,
+        parentId: 'big',
+        text: `Big Child ${i}`,
+        geometry: { x: 0, y: 0 },
+      })),
+      // collapsedParent hides hiddenWide's extreme-width text entirely.
+      { id: 'collapsedParent', parentId: 'root', text: 'Collapsed Parent', collapsed: true, geometry: { x: 0, y: 0 } },
+      { id: 'hiddenWide', parentId: 'collapsedParent', text: hugeText, geometry: { x: 0, y: 0 } },
+      // visibleParent's chain stays fully visible and shares a (side,
+      // depth) band with hiddenWide -- the band this bug would pollute.
+      { id: 'visibleParent', parentId: 'root', text: 'Visible Parent', geometry: { x: 0, y: 0 } },
+      { id: 'visibleChild', parentId: 'visibleParent', text: 'Normal', geometry: { x: 0, y: 0 } },
+      { id: 'visibleGrandchild', parentId: 'visibleChild', text: 'Normal Grandchild', geometry: { x: 0, y: 0 } },
+    ];
+    doc.edges = [
+      { id: 'root->big', source: 'root', target: 'big' },
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `big->big-child-${i}`, source: 'big', target: `big-child-${i}` })),
+      { id: 'root->collapsedParent', source: 'root', target: 'collapsedParent' },
+      { id: 'collapsedParent->hiddenWide', source: 'collapsedParent', target: 'hiddenWide' },
+      { id: 'root->visibleParent', source: 'root', target: 'visibleParent' },
+      { id: 'visibleParent->visibleChild', source: 'visibleParent', target: 'visibleChild' },
+      { id: 'visibleChild->visibleGrandchild', source: 'visibleChild', target: 'visibleGrandchild' },
+    ];
+
+    const laidOut = layoutMindMapEngineV2(doc, { preset: 'balanced' });
+    const nodes = byId(laidOut);
+    const root = rootOf(laidOut);
+
+    const collapsedParent = nodes.get('collapsedParent')!;
+    const visibleParent = nodes.get('visibleParent')!;
+    const sideOf = (n: CanonicalNode) => (n.geometry.x >= root.geometry.x ? 'right' : 'left');
+    // Sanity check on the fixture itself: this test only exercises the bug
+    // if collapsedParent and visibleParent actually share a side/band.
+    expect(sideOf(collapsedParent)).toBe(sideOf(visibleParent));
+
+    const visibleChild = nodes.get('visibleChild')!;
+    const visibleGrandchild = nodes.get('visibleGrandchild')!;
+    const side = sideOf(visibleParent);
+    const nearEdge = (n: CanonicalNode) =>
+      side === 'right' ? n.geometry.x : n.geometry.x + (n.geometry.width || 150);
+    const gap = Math.abs(nearEdge(visibleGrandchild) - nearEdge(visibleChild));
+    // hiddenWide's 200-char width would blow this gap past ~1500px if it
+    // leaked into the shared (side, depth) band; bounded here proves the
+    // hidden node was excluded.
+    expect(gap).toBeLessThan(400);
   });
 
   it('a manual offset survives relayout and does not perturb any other node', () => {
