@@ -18,8 +18,6 @@ import { CanonicalDocument, CanonicalNode } from '../model/types';
 import { serializeDocument } from '../model/document';
 import { calculateOrthogonalPath } from '../model/routing';
 import { wrapNodeText } from '../model/textMeasurement';
-
-
 import { PDFDocument, PDFFont, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import notoSansScUnicode from '@fontsource-variable/noto-sans-sc/unicode.json';
