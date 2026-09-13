@@ -185,7 +185,16 @@ export function layoutMindMapDocument(
     const largestChildHeight = Math.max(...children.map(nodeHeight));
     const siblingPitch = largestChildHeight + vGap;
     const localityBudget = Math.max(nodeHeight(parentNode), largestChildHeight) + siblingPitch;
-    const rowsPerColumn = Math.max(2, Math.floor(localityBudget / siblingPitch));
+    const heightBasedRows = Math.floor(localityBudget / siblingPitch);
+    // For an extreme fan-out (many direct children under one node), rows based
+    // purely on height stay ~constant, forcing children.length / rowsPerColumn
+    // columns -- a linearly widening strip that pushes far children thousands
+    // of pixels from the parent. Scale rows with sqrt(children.length) so the
+    // group grows into a roughly square block instead, bounding the distance
+    // from parent to its farthest child. floor(sqrt(n)) stays <=2 for n<9, so
+    // ordinary/modest fan-outs keep their existing compact behavior unchanged.
+    const fanoutRows = Math.floor(Math.sqrt(children.length));
+    const rowsPerColumn = Math.max(2, heightBasedRows, fanoutRows);
     const parentCenterY = parentNode.geometry.y + nodeHeight(parentNode) / 2;
     let nextColumn = firstColumn;
 
