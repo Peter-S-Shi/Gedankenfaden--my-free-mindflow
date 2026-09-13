@@ -7,7 +7,7 @@ describe('F07 exported diagram fidelity', () => {
     const doc = createEmptyDocument('Export fidelity', 'flowchart');
     doc.nodes = [
       { id: 'start', text: 'Start', shape: 'pill', geometry: { x: 0, y: 0, width: 120, height: 48 } },
-      { id: 'decision', text: 'Decide', shape: 'diamond', geometry: { x: 260, y: 120, width: 140, height: 80 } },
+      { id: 'decision', text: 'Decide', shape: 'diamond', style: { borderWidth: 5 }, geometry: { x: 260, y: 120, width: 140, height: 80 } },
       { id: 'data', text: 'Data', shape: 'parallelogram', geometry: { x: 500, y: 120, width: 150, height: 60 } },
       { id: 'circle', text: 'Circle', shape: 'circle', geometry: { x: 700, y: 120, width: 80, height: 80 } },
     ];
@@ -22,6 +22,14 @@ describe('F07 exported diagram fidelity', () => {
     expect(svg).toContain('<polygon');
     expect(svg).toContain('<ellipse');
     expect(svg).toContain('marker-end="url(#arrowhead)"');
+    expect(svg).toContain('M 60 48 L 60 76 Q 60 84 68 84');
+    expect(svg).toContain('stroke-width="5"');
     expect(exportToHTML(doc)).toContain(svg);
+  });
+
+  it('escapes imported group styles before embedding SVG in standalone HTML', () => {
+    const doc = createEmptyDocument('Safe export', 'flowchart');
+    doc.groups = [{ id: 'safe', title: 'Safe', nodeIds: [], bounds: { x: 0, y: 0, width: 50, height: 50 }, style: { backgroundColor: 'red" onload="alert(1)', borderColor: 'blue' } }];
+    expect(exportToHTML(doc)).toContain('red&quot; onload=&quot;alert(1)');
   });
 });

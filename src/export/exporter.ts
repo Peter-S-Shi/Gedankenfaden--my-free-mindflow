@@ -16,6 +16,7 @@
 
 import { CanonicalDocument, CanonicalNode } from '../model/types';
 import { serializeDocument } from '../model/document';
+import { calculateOrthogonalPath } from '../model/routing';
 
 /**
  * 1. Native Lossless JSON Exporter (.json)
@@ -59,7 +60,7 @@ export function exportToSVG(doc: CanonicalDocument): string {
     doc.groups.forEach((group) => {
       const bounds = group.bounds;
       if (!bounds) return;
-      svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${group.style?.backgroundColor || 'rgba(241,245,249,0.65)'}" stroke="${group.style?.borderColor || '#cbd5e1'}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="sans-serif" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
+      svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${escapeXml(group.style?.backgroundColor || 'rgba(241,245,249,0.65)')}" stroke="${escapeXml(group.style?.borderColor || '#cbd5e1')}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="sans-serif" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
     });
 
     // Render edges
@@ -76,7 +77,7 @@ export function exportToSVG(doc: CanonicalDocument): string {
         return { x: node.geometry.x + width, y: node.geometry.y + height / 2 };
       };
       const start = anchor(src, edge.sourceHandle); const end = anchor(tgt, edge.targetHandle);
-      const pathD = edge.type === 'straight' ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edge.type === 'orthogonal' || edge.type === 'smoothstep' ? `M ${start.x} ${start.y} L ${start.x} ${end.y} L ${end.x} ${end.y}` : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`;
+      const pathD = edge.type === 'straight' ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edge.type === 'orthogonal' ? calculateOrthogonalPath(start, end, edge.sourceHandle as 'left' | 'right' | 'top' | 'bottom', edge.targetHandle as 'left' | 'right' | 'top' | 'bottom').path : edge.type === 'smoothstep' ? `M ${start.x} ${start.y} Q ${start.x} ${(start.y + end.y) / 2} ${(start.x + end.x) / 2} ${(start.y + end.y) / 2} Q ${end.x} ${(start.y + end.y) / 2} ${end.x} ${end.y}` : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`;
       svgContent += `  <path data-edge-id="${escapeXml(edge.id)}" data-source-handle="${edge.sourceHandle || 'right'}" data-target-handle="${edge.targetHandle || 'left'}" d="${pathD}" fill="none" stroke="${edge.style?.stroke || doc.theme.edgeColor || '#94a3b8'}" stroke-width="${edge.style?.strokeWidth || 2}"${edge.style?.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.style?.arrowEnd ? ' marker-end="url(#arrowhead)"' : ''} />\n`;
       if (edge.label) {
         const midX = (start.x + end.x) / 2;
@@ -96,9 +97,9 @@ export function exportToSVG(doc: CanonicalDocument): string {
 
       const shape = n.shape || n.style?.shape || (n.type === 'decision' ? 'diamond' : n.type === 'terminal' ? 'pill' : 'rounded');
       svgContent += `  <g id="${escapeXml(n.id)}" data-node-shape="${shape}">\n`;
-      if (shape === 'diamond') svgContent += `    <polygon points="${n.geometry.x + w / 2},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y + h / 2} ${n.geometry.x + w / 2},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h / 2}" fill="${bg}" stroke="${border}" stroke-width="1.5" />\n`;
-      else if (shape === 'parallelogram') svgContent += `    <polygon points="${n.geometry.x + 16},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y} ${n.geometry.x + w - 16},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h}" fill="${bg}" stroke="${border}" stroke-width="1.5" />\n`;
-      else if (shape === 'circle') svgContent += `    <ellipse cx="${n.geometry.x + w / 2}" cy="${n.geometry.y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="1.5" />\n`;
+      if (shape === 'diamond') svgContent += `    <polygon points="${n.geometry.x + w / 2},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y + h / 2} ${n.geometry.x + w / 2},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+      else if (shape === 'parallelogram') svgContent += `    <polygon points="${n.geometry.x + 16},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y} ${n.geometry.x + w - 16},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+      else if (shape === 'circle') svgContent += `    <ellipse cx="${n.geometry.x + w / 2}" cy="${n.geometry.y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
       else svgContent += `    <rect x="${n.geometry.x}" y="${n.geometry.y}" width="${w}" height="${h}" rx="${shape === 'rectangle' ? 0 : shape === 'pill' ? h / 2 : rx}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
       svgContent += `    <text x="${n.geometry.x + w / 2}" y="${n.geometry.y + h / 2 + 4}" fill="${textColor}" font-family="sans-serif" font-size="14" font-weight="500" text-anchor="middle">${escapeXml(n.text)}</text>\n`;
       svgContent += `  </g>\n`;
