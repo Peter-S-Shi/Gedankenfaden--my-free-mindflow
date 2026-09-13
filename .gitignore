@@ -1,7 +1,5 @@
 # Privacy & Local drafts (Strictly untracked)
 grill/
-prompt-drafts/
-.prompt-drafts/
 *.local.*
 
 # Dependencies & Build artifacts

@@ -382,8 +382,8 @@ describe('M1-A mind map engine -- open item #2, incremental-edit displacement (p
 describe('M1-A mind map engine -- flowchart/Dagre isolation', () => {
   it('flowchart documents still dispatch to Dagre, unaffected by this module existing', () => {
     // layoutMindMapEngineV2 has no knowledge of flowchart mode at all, and
-    // autoLayoutDocument (layout.ts) was not modified to know about it
-    // either -- this confirms the dispatch is still exactly what it was.
+    // M1-B only wires it into the balanced mind-map path -- this confirms
+    // the flowchart dispatch is still exactly what it was.
     const doc = createEmptyDocument('Flowchart isolation check', 'flowchart');
     doc.nodes = [
       { id: 'a', text: 'A', geometry: { x: 0, y: 0, width: 160, height: 48 } },

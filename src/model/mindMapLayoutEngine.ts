@@ -17,8 +17,9 @@
  * dependency. Side-by-side comparison between the two engines belongs in
  * a test/acceptance helper (see `v2-m1a-mind-map-engine.test.ts`), which
  * is free to import both; this module only exports its own engine.
- * Neither is wired into `autoLayoutDocument()` as the new default yet —
- * that's M1-B's job, after integration acceptance.
+ * M1-B wires this engine into `autoLayoutDocument()` for balanced mind-map
+ * dispatch only; flowcharts and single-direction mind-map presets still
+ * stay on their existing layout paths.
  *
  * Scope: this engine only handles the "balanced" bidirectional mind-map
  * case (children fan out left and right from a central root) — the case
@@ -375,4 +376,3 @@ function computeBandMaxWidth(
   }
   return bandMaxWidth;
 }
-

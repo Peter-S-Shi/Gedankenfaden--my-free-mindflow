@@ -1,6 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import { CanonicalDocument, CanonicalNode } from './types';
 import { cloneDocument } from './document';
+import { layoutMindMapEngineV2 } from './mindMapLayoutEngine';
 
 export interface LayoutOptions {
   preset?: 'balanced' | 'LR' | 'RL' | 'TB';
@@ -19,7 +20,28 @@ export function autoLayoutDocument(
   if (doc.mode === 'flowchart') {
     return layoutFlowchartDocument(doc, options);
   }
+  if (shouldUseMindMapEngineV2(options)) {
+    return layoutMindMapEngineV2(doc, {
+      preset: 'balanced',
+      horizontalGap: options.horizontalGap,
+      verticalGap: options.verticalGap,
+      centerCoordinates: options.centerCoordinates,
+    });
+  }
   return layoutMindMapDocument(doc, options);
+}
+
+function resolveMindMapPreset(options: LayoutOptions): NonNullable<LayoutOptions['preset']> {
+  return (
+    options.preset ||
+    (options.direction === 'LR' || options.direction === 'RL' || options.direction === 'TB'
+      ? options.direction
+      : 'balanced')
+  );
+}
+
+function shouldUseMindMapEngineV2(options: LayoutOptions): boolean {
+  return resolveMindMapPreset(options) === 'balanced';
 }
 
 /**
