@@ -1,5 +1,21 @@
 # M0 — Mind Map Layout Contract & Prototype Gate
 
+> **HISTORICAL / NON-PRODUCTION (as of M1-D closure).** This report and the
+> throwaway prototype code it describes (`prototypeA.ts`, `prototypeB.ts`,
+> `prototypeAAdaptive.ts`, `contract.ts`, `treeUtils.ts`, `baselineAdapter.ts`,
+> `loadFixture.ts`, `highFanoutStrategies.ts`, `textAwareGeometry.ts`, and
+> their own tests) answered the M0 architecture question and were never a
+> production dependency -- no production code or production test ever
+> imported them; production tests only ever read the neutral fixture data
+> below. That prototype implementation has been deleted as genuinely
+> throwaway, its job done. This file and `fixtures/` are kept as the
+> historical evidence record the production engine's own doc comments and
+> `CONTEXT.md` still cite -- read it as a record of a design decision, not
+> as a description of current code. The production engine that resulted
+> from this gate is `src/model/mindMapLayoutEngine.ts` (M1-A, extended in
+> M1-D); its own tests live in `src/test/v2-m1a-mind-map-engine.test.ts`
+> and `src/test/v2-m1d-fanout-and-stability.test.ts`.
+
 Branch: `v2-layout-engine-reconstruction` · PR #18 (draft, child of the V2 umbrella PR #4)
 
 Status: **Corrective Gate passed, with two explicit, bounded open items.**
