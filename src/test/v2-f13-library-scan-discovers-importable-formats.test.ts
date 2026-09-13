@@ -21,7 +21,7 @@ describe('F13/F09 Library scan discovers importable outline formats already supp
   });
 
   it('discovers a .md outline dropped directly in the Library folder without manual Import File', async () => {
-    const mdContent = `# Sample Outline Topic\n## 焦点议题\n### 子议题一\n### 子议题二`;
+    const mdContent = `# Sample Outline Topic\n## Focus Area\n### Sub Topic One\n### Sub Topic Two`;
     await bridge.writeTextFile(`${docsFolder}/policy-outline.md`, mdContent);
 
     const synced = await syncLibraryWithDisk([docsFolder], bridge);
