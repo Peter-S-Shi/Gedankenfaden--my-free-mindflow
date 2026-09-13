@@ -8,45 +8,6 @@
 
 ---
 
-## 0a. V2 Layout Engine Reconstruction — M1-C Complete (2026-09-13)
-
-**Branch**: `v2-layout-engine-reconstruction` | **PR #18**: Draft (unmerged)  
-**Commit**: `46a3e65` | **CI**: GitHub Actions does NOT trigger on Draft PRs in this topology — no CI claimed
-
-### M1-C: Live Geometry Convergence & Acceptance
-
-**Geometry Ownership Map (traced):**
-- **Layout** (`mindMapLayoutEngine.ts` → `textMeasurement.ts`): V2 engine calls `computeTextAwareNodeSize(text, {width, fontSize})` → sets `node.geometry.{width, height}` in `CanonicalDocument`
-- **Canvas** (`adapter.ts` → `CustomNode.tsx`): `canonicalToReactFlow` passes `geometry.{x,y}` as React Flow `position` and `geometry.{width,height}` as CSS `style.{width,height}` — direct passthrough
-- **Export** (`exporter.ts` → `computeEffectiveNodeBoxes`): private function re-derives `{lines, lineHeight}` from `wrapNodeText` and grows height if `declaredHeight < textBlockHeight + 16`
-
-**5 Divergences Identified:**
-| ID | Layer | Divergence | Severity for V2 |
-|---|---|---|---|
-| A | Canvas DOM | CSS `break-words` may overflow canonical `style.height` in live browser | Low in practice; cannot test in Vitest — **documented explicitly** |
-| B | Import→Layout | Non-root import width 140, root 160; fallback 150 elsewhere | Low: consistent chain; now acceptance-tested |
-| C | Exporter re-wrap | Exporter re-derives height independently rather than trusting canonical `geometry.height` | Low for V2 (same formula, same defaults); architectural debt documented |
-| D | Architecture | No shared effective-box abstraction | Addressed: `nodeGeometryConverges()` predicate added |
-| E | Exporter y-shift | `y - grownBy/2` in exporter vs. raw `y` in canvas | Low for V2 (grownBy≈0); documented |
-
-**Files Changed (M1-C):**
-- `src/model/textMeasurement.ts`: +`nodeGeometryConverges()` predicate (acceptance contract)
-- `src/export/exporter.ts`: removed M1-A transitional shim (no callers; verified by grep)
-- `src/test/v2-m1c-geometry-convergence.test.ts`: 19 new acceptance tests
-- `CONTEXT.md`: added Geometry Convergence, Effective Box, Canvas-DOM Divergence A terms
-
-**Test Results:**
-- M1-C suite: **19/19 ✓** (import width chain, Markdown convergence, OPML convergence, CJK corpus, mixed-script, uneven tree, collapse/expand, manual offset, SVG rect height, SVG edge anchor y, predicate contract)
-- M1-A suite: all ✓ (no regression)  
-- M1-B suite: all ✓ (no regression)
-- Full suite: 390 passed, 3 failed (same 3 pre-existing flakes: f06/f09 Puppeteer timeout, f02 dev-source React SSR)
-- `tsc --noEmit`: 0 errors
-- `npm run build`: clean
-
-**Next Milestone**: M1-D — High fan-out strategy + #10c incremental-edit stability / final layout acceptance
-
----
-
 ## 0. Maintenance Update — 2026-09-13
 
 - **Issue #10** (`Export printable PDF diagrams rather than summary pages`) implemented on `v2.0.0-upgrade`.
