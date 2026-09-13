@@ -17,6 +17,17 @@
 import { CanonicalDocument, CanonicalNode } from '../model/types';
 import { serializeDocument } from '../model/document';
 import { calculateOrthogonalPath } from '../model/routing';
+import { PDFDocument, PDFFont, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import notoSansScUnicode from '@fontsource-variable/noto-sans-sc/unicode.json';
+
+const notoSansScFiles = import.meta.glob('../../node_modules/@fontsource-variable/noto-sans-sc/files/*.woff2', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>;
+
+interface PdfTextPlacement { text: string; x: number; y: number; size: number; centered: boolean; color: string }
 
 /**
  * 1. Native Lossless JSON Exporter (.json)
@@ -435,54 +446,268 @@ export async function exportToJPEG(doc: CanonicalDocument): Promise<Uint8Array> 
 
 /**
  * 11. PDF Document Exporter (.pdf)
- * Generates valid standard PDF 1.4 vector document embedding canonical metadata and visual outline
+ * Generates a printable PDF 1.4 vector diagram.
  */
 export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
-  const title = doc.title || 'Gedankenfaden Document';
-  const nodeCount = doc.nodes.length;
-  const mode = doc.mode;
+  const visibleBounds = [
+    ...doc.nodes.map((node) => ({ x: node.geometry.x, y: node.geometry.y, width: node.geometry.width || 150, height: node.geometry.height || 44 })),
+    ...doc.groups.flatMap((group) => group.bounds ? [group.bounds] : []),
+  ];
+  const minX = visibleBounds.length ? Math.min(...visibleBounds.map((bounds) => bounds.x)) : 0;
+  const minY = visibleBounds.length ? Math.min(...visibleBounds.map((bounds) => bounds.y)) : 0;
+  const maxX = visibleBounds.length ? Math.max(...visibleBounds.map((bounds) => bounds.x + bounds.width)) : 480;
+  const maxY = visibleBounds.length ? Math.max(...visibleBounds.map((bounds) => bounds.y + bounds.height)) : 360;
+  const diagramWidth = Math.max(1, maxX - minX);
+  const diagramHeight = Math.max(1, maxY - minY);
+  const landscape = diagramWidth >= diagramHeight;
+  const pageWidth = landscape ? 792 : 612;
+  const pageHeight = landscape ? 612 : 792;
+  const margin = 42;
+  const scale = Math.min(1, (pageWidth - margin * 2) / diagramWidth, (pageHeight - margin * 2) / diagramHeight);
+  const offsetX = (pageWidth - diagramWidth * scale) / 2;
+  const offsetY = (pageHeight - diagramHeight * scale) / 2;
+  const x = (value: number) => offsetX + (value - minX) * scale;
+  const y = (value: number) => offsetY + (maxY - value) * scale;
+  const nodeMap = new Map(doc.nodes.map((node) => [node.id, node]));
+  const content: string[] = ['1 J 1 j'];
+  const unicodePlacements: PdfTextPlacement[] = [];
 
-  const pdfBody = `%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
-endobj
-4 0 obj
-<< /Length 120 >>
-stream
-BT
-/F1 22 Tf
-50 720 Td
-(${title.replace(/[()\\]/g, '')}) Tj
-/F1 12 Tf
-0 -30 Td
-(Mode: ${mode} | Total Nodes: ${nodeCount}) Tj
-ET
-endstream
-endobj
-5 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000236 00000 n 
-0000000408 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-479
-%%EOF`;
+  const setStroke = (color: string, width: number, dashed = false) => {
+    const [r, g, b] = pdfRgb(color);
+    content.push(`${r} ${g} ${b} RG ${Math.max(0.5, width * scale)} w ${dashed ? '[6 4] 0 d' : '[] 0 d'}`);
+  };
+  const setFill = (color: string) => {
+    const [r, g, b] = pdfRgb(color);
+    content.push(`${r} ${g} ${b} rg`);
+  };
+  const anchor = (node: CanonicalNode, handle: string | undefined) => {
+    const width = node.geometry.width || 150;
+    const height = node.geometry.height || 44;
+    if (handle === 'left') return { x: node.geometry.x, y: node.geometry.y + height / 2 };
+    if (handle === 'top') return { x: node.geometry.x + width / 2, y: node.geometry.y };
+    if (handle === 'bottom') return { x: node.geometry.x + width / 2, y: node.geometry.y + height };
+    return { x: node.geometry.x + width, y: node.geometry.y + height / 2 };
+  };
 
-  return new TextEncoder().encode(pdfBody);
+  doc.groups.forEach((group) => {
+    if (!group.bounds) return;
+    const left = x(group.bounds.x);
+    const bottom = y(group.bounds.y + group.bounds.height);
+    const width = group.bounds.width * scale;
+    const height = group.bounds.height * scale;
+    setFill(group.style?.backgroundColor || '#f1f5f9');
+    setStroke(group.style?.borderColor || '#cbd5e1', 1.5, true);
+    content.push(`${left} ${bottom} ${width} ${height} re B`);
+    setFill('#334155');
+    drawPdfText(content, group.title, left + 10 * scale, bottom + height - 18 * scale, 12 * scale, false, unicodePlacements, '#334155');
+  });
+
+  doc.edges.forEach((edge) => {
+    const source = nodeMap.get(edge.source);
+    const target = nodeMap.get(edge.target);
+    if (!source || !target) return;
+    const start = anchor(source, edge.sourceHandle);
+    const end = anchor(target, edge.targetHandle);
+    setStroke(edge.style?.stroke || doc.theme.edgeColor || '#64748b', edge.style?.strokeWidth || 2, edge.style?.dashed);
+    let arrowStart = start;
+    let labelPosition = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    if (edge.type === 'bezier') {
+      const midX = (start.x + end.x) / 2;
+      content.push(`${x(start.x)} ${y(start.y)} m ${x(midX)} ${y(start.y)} ${x(midX)} ${y(end.y)} ${x(end.x)} ${y(end.y)} c S`);
+    } else if (edge.type === 'orthogonal') {
+      const route = calculateOrthogonalPath(start, end, edge.sourceHandle as 'left' | 'right' | 'top' | 'bottom', edge.targetHandle as 'left' | 'right' | 'top' | 'bottom');
+      content.push(`${svgPathToPdfPath(route.path, x, y)} S`);
+      arrowStart = route.points.at(-2) || start;
+      labelPosition = route.labelPosition;
+    } else if (edge.type === 'smoothstep') {
+      const midX = (start.x + end.x) / 2;
+      const midY = (start.y + end.y) / 2;
+      const path = `M ${start.x} ${start.y} Q ${start.x} ${midY} ${midX} ${midY} Q ${end.x} ${midY} ${end.x} ${end.y}`;
+      content.push(`${svgPathToPdfPath(path, x, y)} S`);
+      arrowStart = { x: midX, y: midY };
+    } else {
+      content.push(`${x(start.x)} ${y(start.y)} m ${x(end.x)} ${y(end.y)} l S`);
+    }
+    if (edge.style?.arrowEnd) {
+      const angle = Math.atan2(y(end.y) - y(arrowStart.y), x(end.x) - x(arrowStart.x));
+      const size = 8 * scale;
+      const leftX = x(end.x) - Math.cos(angle - Math.PI / 6) * size;
+      const leftY = y(end.y) - Math.sin(angle - Math.PI / 6) * size;
+      const rightX = x(end.x) - Math.cos(angle + Math.PI / 6) * size;
+      const rightY = y(end.y) - Math.sin(angle + Math.PI / 6) * size;
+      content.push(`${x(end.x)} ${y(end.y)} m ${leftX} ${leftY} l ${rightX} ${rightY} l h f`);
+    }
+    if (edge.label) drawPdfText(content, edge.label, x(labelPosition.x), y(labelPosition.y) + 5 * scale, 11 * scale, false, unicodePlacements, '#64748b');
+  });
+
+  doc.nodes.forEach((node) => {
+    const width = (node.geometry.width || 150) * scale;
+    const height = (node.geometry.height || 44) * scale;
+    const left = x(node.geometry.x);
+    const bottom = y(node.geometry.y + (node.geometry.height || 44));
+    const shape = node.shape || node.style?.shape || (node.type === 'decision' ? 'diamond' : node.type === 'terminal' ? 'pill' : 'rounded');
+    setFill(node.style?.backgroundColor || (node.type === 'root' ? '#3b82f6' : '#ffffff'));
+    setStroke(node.style?.borderColor || (node.type === 'root' ? '#2563eb' : '#cbd5e1'), node.style?.borderWidth || 1.5);
+    if (shape === 'diamond') {
+      content.push(`${left + width / 2} ${bottom + height} m ${left + width} ${bottom + height / 2} l ${left + width / 2} ${bottom} l ${left} ${bottom + height / 2} l h B`);
+    } else if (shape === 'parallelogram') {
+      const slant = Math.min(16 * scale, width / 4);
+      content.push(`${left + slant} ${bottom + height} m ${left + width} ${bottom + height} l ${left + width - slant} ${bottom} l ${left} ${bottom} l h B`);
+    } else if (shape === 'circle') {
+      const k = 0.5522847498;
+      const rx = width / 2; const ry = height / 2; const cx = left + rx; const cy = bottom + ry;
+      content.push(`${cx + rx} ${cy} m ${cx + rx} ${cy + k * ry} ${cx + k * rx} ${cy + ry} ${cx} ${cy + ry} c ${cx - k * rx} ${cy + ry} ${cx - rx} ${cy + k * ry} ${cx - rx} ${cy} c ${cx - rx} ${cy - k * ry} ${cx - k * rx} ${cy - ry} ${cx} ${cy - ry} c ${cx + k * rx} ${cy - ry} ${cx + rx} ${cy - k * ry} ${cx + rx} ${cy} c h B`);
+    } else if (shape === 'rounded' || shape === 'pill') {
+      const radius = shape === 'pill' ? height / 2 : Math.min((node.style?.borderRadius ?? 8) * scale, width / 2, height / 2);
+      const k = 0.5522847498;
+      content.push(`${left + radius} ${bottom} m ${left + width - radius} ${bottom} l ${left + width - radius + k * radius} ${bottom} ${left + width} ${bottom + radius - k * radius} ${left + width} ${bottom + radius} c ${left + width} ${bottom + height - radius} l ${left + width} ${bottom + height - radius + k * radius} ${left + width - radius + k * radius} ${bottom + height} ${left + width - radius} ${bottom + height} c ${left + radius} ${bottom + height} l ${left + radius - k * radius} ${bottom + height} ${left} ${bottom + height - radius + k * radius} ${left} ${bottom + height - radius} c ${left} ${bottom + radius} l ${left} ${bottom + radius - k * radius} ${left + radius - k * radius} ${bottom} ${left + radius} ${bottom} c h B`);
+    } else {
+      content.push(`${left} ${bottom} ${width} ${height} re B`);
+    }
+    const textColor = node.style?.textColor || (node.type === 'root' ? '#ffffff' : '#0f172a');
+    const [r, g, b] = pdfRgb(textColor);
+    content.push(`${r} ${g} ${b} rg`);
+    drawPdfText(content, node.text, left + width / 2, bottom + height / 2 - 4 * scale, (node.style?.fontSize || 14) * scale, true, unicodePlacements, textColor);
+  });
+
+  const stream = `${content.join('\n')}\n`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`,
+    `<< /Length ${new TextEncoder().encode(stream).length} >>\nstream\n${stream}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+  ];
+  return addUnicodePdfText(buildPdf(objects), unicodePlacements);
+}
+
+function pdfRgb(color: string): [string, string, string] {
+  const match = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!match) return ['0.4', '0.45', '0.52'];
+  return [0, 2, 4].map((index) => (parseInt(match[1].slice(index, index + 2), 16) / 255).toFixed(3)) as [string, string, string];
+}
+
+function pdfText(text: string): string {
+  return text.replace(/([()\\])/g, '\\$1');
+}
+
+function svgPathToPdfPath(path: string, x: (value: number) => number, y: (value: number) => number): string {
+  const tokens = path.match(/[MLQC]|-?\d+(?:\.\d+)?/g) || [];
+  const commands: string[] = [];
+  let index = 0;
+  let current = { x: 0, y: 0 };
+
+  const readNumber = () => Number(tokens[index++]);
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'M') {
+      current = { x: readNumber(), y: readNumber() };
+      commands.push(`${x(current.x)} ${y(current.y)} m`);
+    } else if (command === 'L') {
+      current = { x: readNumber(), y: readNumber() };
+      commands.push(`${x(current.x)} ${y(current.y)} l`);
+    } else if (command === 'Q') {
+      const control = { x: readNumber(), y: readNumber() };
+      const end = { x: readNumber(), y: readNumber() };
+      const c1 = {
+        x: current.x + (2 / 3) * (control.x - current.x),
+        y: current.y + (2 / 3) * (control.y - current.y),
+      };
+      const c2 = {
+        x: end.x + (2 / 3) * (control.x - end.x),
+        y: end.y + (2 / 3) * (control.y - end.y),
+      };
+      commands.push(`${x(c1.x)} ${y(c1.y)} ${x(c2.x)} ${y(c2.y)} ${x(end.x)} ${y(end.y)} c`);
+      current = end;
+    } else if (command === 'C') {
+      const c1 = { x: readNumber(), y: readNumber() };
+      const c2 = { x: readNumber(), y: readNumber() };
+      const end = { x: readNumber(), y: readNumber() };
+      commands.push(`${x(c1.x)} ${y(c1.y)} ${x(c2.x)} ${y(c2.y)} ${x(end.x)} ${y(end.y)} c`);
+      current = end;
+    }
+  }
+  return commands.join(' ');
+}
+
+function drawPdfText(commands: string[], text: string, centerX: number, baselineY: number, size: number, centered = false, placements?: PdfTextPlacement[], color = '#0f172a') {
+  const unicode = /[^\x20-\x7e]/.test(text);
+  if (unicode) {
+    placements?.push({ text, x: centerX, y: baselineY, size: Math.max(4, size), centered, color });
+    return;
+  }
+  const safe = pdfText(text);
+  const estimatedWidth = safe.length * size * 0.52;
+  commands.push(`BT /F1 ${Math.max(4, size)} Tf ${centered ? centerX - estimatedWidth / 2 : centerX} ${baselineY} Td (${safe}) Tj ET`);
+}
+
+const notoSansSubsets = Object.entries(notoSansScUnicode as Record<string, string>).map(([rawName, definition]) => ({
+  name: rawName.replace(/[\[\]]/g, ''),
+  ranges: definition.split(',').map((part) => {
+    const [start, end = start] = part.replace(/^U\+/, '').split('-');
+    return [parseInt(start, 16), parseInt(end, 16)] as const;
+  }),
+}));
+
+function notoSubsetFor(character: string): string {
+  const codepoint = character.codePointAt(0) || 0;
+  const subset = notoSansSubsets.find((candidate) => candidate.ranges.some(([start, end]) => codepoint >= start && codepoint <= end));
+  if (!subset) throw new Error(`PDF export cannot represent Unicode code point U+${codepoint.toString(16).toUpperCase()}.`);
+  return subset.name;
+}
+
+async function addUnicodePdfText(pdfBytes: Uint8Array, placements: PdfTextPlacement[]): Promise<Uint8Array> {
+  if (placements.length === 0) return pdfBytes;
+  const pdf = await PDFDocument.load(pdfBytes);
+  pdf.registerFontkit(fontkit);
+  const page = pdf.getPage(0);
+  const fonts = new Map<string, PDFFont>();
+
+  const getFont = async (subset: string) => {
+    const cached = fonts.get(subset);
+    if (cached) return cached;
+    const suffix = `/noto-sans-sc-${subset}-wght-normal.woff2`;
+    const fontUrl = Object.entries(notoSansScFiles).find(([path]) => path.endsWith(suffix))?.[1];
+    if (!fontUrl) throw new Error(`Bundled PDF font subset is missing: ${subset}.`);
+    const response = await fetch(fontUrl);
+    if (!response.ok) throw new Error(`Bundled PDF font subset could not be loaded: ${subset}.`);
+    const font = await pdf.embedFont(await response.arrayBuffer(), { subset: true });
+    fonts.set(subset, font);
+    return font;
+  };
+
+  for (const placement of placements) {
+    const runs: Array<{ subset: string; text: string; font?: PDFFont }> = [];
+    for (const character of Array.from(placement.text)) {
+      const subset = notoSubsetFor(character);
+      const current = runs.at(-1);
+      if (current?.subset === subset) current.text += character;
+      else runs.push({ subset, text: character });
+    }
+    for (const run of runs) run.font = await getFont(run.subset);
+    const totalWidth = runs.reduce((width, run) => width + run.font!.widthOfTextAtSize(run.text, placement.size), 0);
+    let cursor = placement.centered ? placement.x - totalWidth / 2 : placement.x;
+    const [r, g, b] = pdfRgb(placement.color).map(Number);
+    for (const run of runs) {
+      page.drawText(run.text, { x: cursor, y: placement.y, size: placement.size, font: run.font, color: rgb(r, g, b) });
+      cursor += run.font!.widthOfTextAtSize(run.text, placement.size);
+    }
+  }
+  return pdf.save();
+}
+
+function buildPdf(objects: string[]): Uint8Array {
+  let pdf = '%PDF-1.4\n%Gedankenfaden\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(new TextEncoder().encode(pdf).length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = new TextEncoder().encode(pdf).length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.slice(1).map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`).join('');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new TextEncoder().encode(pdf);
 }
 
 function escapeXml(unsafe: string): string {

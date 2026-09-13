@@ -8,6 +8,16 @@
 
 ---
 
+## 0. Maintenance Update — 2026-09-13
+
+- **Issue #10** (`Export printable PDF diagrams rather than summary pages`) implemented on `v2.0.0-upgrade`.
+- PDF export now emits a printable vector diagram containing visible node, edge, group, and label content rather than a summary-only page.
+- Added consumer evidence with `pdfjs-dist` that parses the exported PDF, verifies readable diagram text, and confirms vector path geometry.
+- Local validation: `npm test` passed (25 files, 122 tests); `npm run build` passed.
+- Remote verification target: draft PR #4 (`v2.0.0-upgrade` -> `main`) GitHub Actions CI.
+
+---
+
 ## 1. Project Health & Lifecycle Overview
 
 | Dimension | Status | Authoritative Reference |
@@ -125,6 +135,5 @@
    - No license declared or added (undecided license status preserved).
    - No force push executed under any circumstances.
    - Unsigned Windows binary truth documented (standard Windows unknown-publisher warnings expected).
-
 
 
