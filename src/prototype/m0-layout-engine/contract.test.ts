@@ -104,6 +104,53 @@ describe('M0 layout contract -- corpus-wide comparison (prints metrics table)', 
   }
 });
 
+describe('M0 layout contract -- #10 collapse/expand mental-map stability', () => {
+  // Both prototypes are pure functions of (id, parentId, text, collapsed) --
+  // no separate "manual offset history" is modeled at this gate -- so the
+  // strongest testable form of "preserve the mental map" is round-trip
+  // fidelity: collapsing a branch then expanding it again must reproduce
+  // byte-identical geometry to never having collapsed at all, and collapsing
+  // must not disturb which nodes exist in *other* branches (only hide the
+  // collapsed branch's own descendants).
+  for (const [engineName, layout] of [
+    ['prototype A', layoutPrototypeA],
+    ['prototype B', layoutPrototypeB],
+  ] as const) {
+    it(`${engineName}: expand-after-collapse round-trips to the original layout`, () => {
+      const { nodes, edges } = loadFixture('09_collapse_expand_stability.md');
+      const original = layout(nodes, edges);
+
+      const branchANode = nodes.find((n) => n.text === 'Branch A')!;
+      const collapsedNodes = nodes.map((n) => (n.id === branchANode.id ? { ...n, collapsed: true } : n));
+      const collapsedResult = layout(collapsedNodes, edges);
+
+      const branchADescendantIds = new Set(
+        (function collect(parentId: string): string[] {
+          const kids = nodes.filter((n) => n.parentId === parentId);
+          return kids.flatMap((k) => [k.id, ...collect(k.id)]);
+        })(branchANode.id)
+      );
+
+      // Collapsing hides exactly Branch A's own descendants -- every other
+      // node (Branch B/C and their subtrees, plus Branch A itself) is still
+      // present.
+      const collapsedIds = new Set(collapsedResult.nodes.map((n) => n.id));
+      for (const n of nodes) {
+        const shouldBeHidden = branchADescendantIds.has(n.id);
+        expect(collapsedIds.has(n.id)).toBe(!shouldBeHidden);
+      }
+
+      const expanded = layout(nodes, edges); // collapsed: undefined again
+      const byId = (r: typeof original) => new Map(r.nodes.map((n) => [n.id, n]));
+      const originalById = byId(original);
+      const expandedById = byId(expanded);
+      for (const n of nodes) {
+        expect(expandedById.get(n.id)).toEqual(originalById.get(n.id));
+      }
+    });
+  }
+});
+
 describe('M0 layout contract -- current production engine (red regressions, expected to fail)', () => {
   it.fails('baseline: a shallow sibling should not be pushed into extra columns by a preceding deep sibling', () => {
     const { nodes, edges } = loadFixture('03_severe_imbalance.md');
@@ -121,6 +168,12 @@ describe('M0 layout contract -- current production engine (red regressions, expe
     const { nodes, edges } = loadFixture('08_bilateral_footprint_balance.md');
     const m = computeLayoutMetrics(layoutBaseline(nodes, edges));
     expect(m.leftRightFootprintImbalance).toBeLessThan(0.3);
+  });
+
+  it.fails('baseline: edges should not cross through unrelated nodes', () => {
+    const { nodes, edges } = loadFixture('01_extreme_star_60.md');
+    const m = computeLayoutMetrics(layoutBaseline(nodes, edges));
+    expect(m.edgeThroughNodeCount).toBe(0);
   });
 
   it.fails('baseline: node geometry should be text-aware before layout runs, not a fixed 150x44 box', () => {

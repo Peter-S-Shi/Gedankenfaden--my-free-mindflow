@@ -71,7 +71,11 @@ Also tracked per the acceptance ask: `aspectRatio`, `maxParentChildEdgeLength`,
   4–9. Run locally for cross-validation only; **not copied into the repo**
   (per this repo's privacy rule — treat every GitHub repo as potentially
   public) and referenced below only by aggregate numbers, never by content
-  or file path.
+  or file path. Reproducible by anyone with access to that directory via
+  [`realSamples.test.ts`](realSamples.test.ts) (opt-in,
+  `GEDANKENFADEN_REAL_SAMPLES_DIR=<dir> npx vitest run
+  src/prototype/m0-layout-engine/realSamples.test.ts`; skips cleanly, not a
+  failure, when the env var/dir is absent).
 
 ## 4. Results: baseline vs. prototype A vs. prototype B
 
@@ -187,19 +191,45 @@ No other production file was modified. Neither prototype is wired into
 - **Edge-through-node for extreme fan-out** (§4) is an open problem
   neither prototype solves; needs a follow-up ticket scoped to edge
   routing, separate from node positioning.
-- **Collapse/expand mental-map stability (#10)** was validated as
-  "deterministic given the same input" (both prototypes are pure
-  functions), but not fuzz-tested across a sequence of incremental
-  collapse/expand/edit operations — `09_collapse_expand_stability.md` was
-  laid out once, not exercised through an actual collapse/expand
-  interaction sequence.
+- **Collapse/expand mental-map stability (#10)** is now behaviorally
+  tested, not just asserted in prose: `contract.test.ts`'s
+  "#10 collapse/expand mental-map stability" block collapses Branch A of
+  `09_collapse_expand_stability.md`, confirms only Branch A's own
+  descendants disappear from the laid-out output (Branch B/C untouched),
+  then expands it again and asserts the result is byte-identical to the
+  original layout (round-trip fidelity — the strongest testable form of
+  "preserve the mental map" for a pure, stateless layout function with no
+  separate offset-history model). Not fuzz-tested across arbitrary
+  multi-step collapse/expand/edit *sequences* — a single collapse→expand
+  round-trip per prototype.
 - The real acceptance sample this pass's brief referenced
   (`2023-2026_Sample Outline Topic_Gedankenfaden导入大纲.md`) was located
   this time (in the linked sponge-knowledge corpus, alongside 5 other real
   outlines) and included in the real-sample comparison in §3/§4, by
   aggregate metrics only, consistent with this repo's privacy rule.
 
-## 8. Next milestone
+## 8. Exit code review (`/code-review` against `dcc480a`)
+
+Standards axis: clean (repo has no CODING_STANDARDS.md/CONTRIBUTING.md).
+One judgement-call smell flagged and accepted as intentional for a
+throwaway A/B gate: `prototypeA.ts` and `prototypeB.ts` each carry their
+own near-identical `nearEdgeX` column-assignment function rather than
+sharing one, so either prototype can be read/deleted independently while
+its column logic stays legible — **this duplication must collapse into
+one shared module if/when prototype A's design moves into production**
+(§5, decision item 1).
+
+Spec axis: two real gaps found and fixed in this pass (see this file's
+history / commit log): invariant #10 was only asserted in prose, not
+tested — now has an explicit collapse→expand round-trip test (§7); the
+real-sample numbers in §4 weren't reproducible from what was committed —
+now covered by an opt-in `realSamples.test.ts` anyone with access to that
+external directory can re-run. One flagged gap intentionally not closed:
+the real-sample files themselves stay out of the repo (privacy rule), so
+the *exact* real documents remain reproducible only locally, not in CI —
+this is a deliberate tradeoff, not an oversight.
+
+## 9. Next milestone
 
 Per the M0 brief: **do not start production engine replacement in this
 PR.** #18 stays draft; the next milestone (implement prototype A's design
