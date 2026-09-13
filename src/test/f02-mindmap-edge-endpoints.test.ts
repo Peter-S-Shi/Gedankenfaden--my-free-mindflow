@@ -36,6 +36,8 @@ describe('F02 mind-map edge endpoints', () => {
         draggable: true,
         selectable: true,
         deletable: true,
+        positionAbsoluteX: 0,
+        positionAbsoluteY: 0,
       })
     ));
 
