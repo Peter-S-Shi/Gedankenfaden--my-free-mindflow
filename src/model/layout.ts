@@ -12,11 +12,6 @@ export interface LayoutOptions {
   centerCoordinates?: { x: number; y: number };
 }
 
-interface SubtreeMetrics {
-  height: number;
-  nodeCount: number;
-}
-
 export function autoLayoutDocument(
   doc: CanonicalDocument,
   options: LayoutOptions = {}
@@ -117,7 +112,6 @@ export function layoutMindMapDocument(
   const rootY = options.centerCoordinates?.y ?? 300;
 
   // Build node lookup and hierarchy maps
-  const nodeMap = new Map<string, CanonicalNode>(nextDoc.nodes.map((n) => [n.id, n]));
   const childrenMap = new Map<string, CanonicalNode[]>();
 
   for (const node of nextDoc.nodes) {
@@ -126,43 +120,6 @@ export function layoutMindMapDocument(
       list.push(node);
       childrenMap.set(node.parentId, list);
     }
-  }
-
-  // Calculate subtree vertical metrics recursively
-  const metricsCache = new Map<string, SubtreeMetrics>();
-
-  function calculateSubtreeMetrics(nodeId: string): SubtreeMetrics {
-    if (metricsCache.has(nodeId)) {
-      return metricsCache.get(nodeId)!;
-    }
-
-    const node = nodeMap.get(nodeId);
-    const nHeight = node?.geometry.height || defaultHeight;
-    const children = childrenMap.get(nodeId) || [];
-
-    // If node is collapsed, children do not contribute to layout span
-    if (!node || node.collapsed || children.length === 0) {
-      const metrics = { height: nHeight, nodeCount: 1 };
-      metricsCache.set(nodeId, metrics);
-      return metrics;
-    }
-
-    let totalChildrenHeight = 0;
-    let totalCount = 1;
-
-    children.forEach((child, idx) => {
-      const childMetrics = calculateSubtreeMetrics(child.id);
-      totalChildrenHeight += childMetrics.height;
-      totalCount += childMetrics.nodeCount;
-      if (idx > 0) totalChildrenHeight += vGap;
-    });
-
-    const metrics = {
-      height: Math.max(nHeight, totalChildrenHeight),
-      nodeCount: totalCount,
-    };
-    metricsCache.set(nodeId, metrics);
-    return metrics;
   }
 
   // Position root node
@@ -177,7 +134,6 @@ export function layoutMindMapDocument(
     rootNode.geometry.y += rootNode.manualOffset.dy;
   }
 
-  const rootCenterY = rootY + rootHeight / 2;
   const rootCenterX = rootX + rootWidth / 2;
 
   // Get Level 1 children
@@ -208,109 +164,67 @@ export function layoutMindMapDocument(
 
   const edgeHandleAssignments = new Map<string, { sourceHandle: string; targetHandle: string }>();
 
-  // Helper to layout a horizontal wing (Right or Left)
-  function layoutHorizontalWing(
-    wingList: CanonicalNode[],
-    side: 'right' | 'left'
-  ) {
-    if (wingList.length === 0) return;
-
-    let totalWingHeight = 0;
-    wingList.forEach((child, idx) => {
-      totalWingHeight += calculateSubtreeMetrics(child.id).height;
-      if (idx > 0) totalWingHeight += vGap;
-    });
-
-    let currentY = rootCenterY - totalWingHeight / 2;
-
-    wingList.forEach((level1Node) => {
-      const subtreeMetrics = calculateSubtreeMetrics(level1Node.id);
-      const subtreeY = currentY;
-      const centerY = subtreeY + subtreeMetrics.height / 2;
-
-      const nWidth = level1Node.geometry.width || defaultWidth;
-      const nHeight = level1Node.geometry.height || defaultHeight;
-
-      const nX =
-        side === 'right'
-          ? rootX + rootWidth + hGap
-          : rootX - nWidth - hGap;
-      const nY = centerY - nHeight / 2;
-
-      level1Node.geometry = {
-        x: Math.round(nX),
-        y: Math.round(nY),
-        width: nWidth,
-        height: nHeight,
-      };
-
-      if (level1Node.manualOffset) {
-        level1Node.geometry.x += level1Node.manualOffset.dx;
-        level1Node.geometry.y += level1Node.manualOffset.dy;
-      }
-
-      // Root to Level 1 edge handles
-      edgeHandleAssignments.set(`${rootNode.id}->${level1Node.id}`, {
-        sourceHandle: side,
-        targetHandle: side === 'right' ? 'left' : 'right',
-      });
-
-      // Layout descendants recursively
-      layoutSubtreeChildren(level1Node, side, subtreeY);
-
-      currentY += subtreeMetrics.height + vGap;
-    });
+  function nodeHeight(node: CanonicalNode) {
+    return node.geometry.height || defaultHeight;
   }
 
-  function layoutSubtreeChildren(
+  function nodeWidth(node: CanonicalNode) {
+    return node.geometry.width || defaultWidth;
+  }
+
+  const columnStride = Math.max(...nextDoc.nodes.map(nodeWidth)) + hGap;
+
+  function layoutHorizontalChildren(
     parentNode: CanonicalNode,
     side: 'right' | 'left',
-    topBoundY: number
-  ) {
-    if (parentNode.collapsed) return;
+    firstColumn: number,
+    children = childrenMap.get(parentNode.id) || []
+  ): number {
+    if (parentNode.collapsed || children.length === 0) return firstColumn;
 
-    const children = childrenMap.get(parentNode.id) || [];
-    if (children.length === 0) return;
+    const largestChildHeight = Math.max(...children.map(nodeHeight));
+    const siblingPitch = largestChildHeight + vGap;
+    const localityBudget = Math.max(nodeHeight(parentNode), largestChildHeight) + siblingPitch;
+    const rowsPerColumn = Math.max(2, Math.floor(localityBudget / siblingPitch));
+    const parentCenterY = parentNode.geometry.y + nodeHeight(parentNode) / 2;
+    let nextColumn = firstColumn;
 
-    let currentY = topBoundY;
+    for (let groupStart = 0; groupStart < children.length; groupStart += rowsPerColumn) {
+      const group = children.slice(groupStart, groupStart + rowsPerColumn);
+      group.forEach((child, row) => {
+        const cWidth = nodeWidth(child);
+        const cHeight = nodeHeight(child);
+        const centerY = parentCenterY + (row - (group.length - 1) / 2) * siblingPitch;
+        const cX = side === 'right'
+          ? rootX + rootWidth + hGap + (nextColumn - 1) * columnStride
+          : rootX - cWidth - hGap - (nextColumn - 1) * columnStride;
+        const cY = centerY - cHeight / 2;
 
-    children.forEach((child) => {
-      const childMetrics = calculateSubtreeMetrics(child.id);
-      const centerY = currentY + childMetrics.height / 2;
+        child.geometry = {
+          x: Math.round(cX),
+          y: Math.round(cY),
+          width: cWidth,
+          height: cHeight,
+        };
 
-      const cWidth = child.geometry.width || defaultWidth;
-      const cHeight = child.geometry.height || defaultHeight;
+        if (child.manualOffset) {
+          child.geometry.x += child.manualOffset.dx;
+          child.geometry.y += child.manualOffset.dy;
+        }
 
-      const pX = parentNode.geometry.x;
-      const pWidth = parentNode.geometry.width || defaultWidth;
-
-      const cX =
-        side === 'right'
-          ? pX + pWidth + hGap
-          : pX - cWidth - hGap;
-      const cY = centerY - cHeight / 2;
-
-      child.geometry = {
-        x: Math.round(cX),
-        y: Math.round(cY),
-        width: cWidth,
-        height: cHeight,
-      };
-
-      if (child.manualOffset) {
-        child.geometry.x += child.manualOffset.dx;
-        child.geometry.y += child.manualOffset.dy;
-      }
-
-      edgeHandleAssignments.set(`${parentNode.id}->${child.id}`, {
-        sourceHandle: side,
-        targetHandle: side === 'right' ? 'left' : 'right',
+        edgeHandleAssignments.set(`${parentNode.id}->${child.id}`, {
+          sourceHandle: side,
+          targetHandle: side === 'right' ? 'left' : 'right',
+        });
       });
 
-      layoutSubtreeChildren(child, side, currentY);
-
-      currentY += childMetrics.height + vGap;
-    });
+      let descendantColumn = nextColumn + 1;
+      group.forEach((child) => {
+        descendantColumn = layoutHorizontalChildren(child, side, descendantColumn);
+      });
+      nextColumn = descendantColumn;
+    }
+    return nextColumn;
   }
 
   // Top-to-Bottom preset layout
@@ -345,8 +259,8 @@ export function layoutMindMapDocument(
     });
   } else {
     // Execute Right and Left wings
-    layoutHorizontalWing(rightWingChildren, 'right');
-    layoutHorizontalWing(leftWingChildren, 'left');
+    layoutHorizontalChildren(rootNode, 'right', 1, rightWingChildren);
+    layoutHorizontalChildren(rootNode, 'left', 1, leftWingChildren);
   }
 
   // Update edges with clean handles
