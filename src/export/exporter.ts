@@ -44,6 +44,8 @@ export function exportToSVG(doc: CanonicalDocument): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"></svg>`;
   }
 
+  const effectiveBoxes = computeEffectiveNodeBoxes(doc);
+
   let minX = Infinity;
   let minY = Infinity;
   maxX_calc: {
@@ -51,12 +53,11 @@ export function exportToSVG(doc: CanonicalDocument): string {
     let maxY = -Infinity;
 
     doc.nodes.forEach((n) => {
-      const w = n.geometry.width || 150;
-      const h = n.geometry.height || 44;
-      minX = Math.min(minX, n.geometry.x);
-      minY = Math.min(minY, n.geometry.y);
-      maxX = Math.max(maxX, n.geometry.x + w);
-      maxY = Math.max(maxY, n.geometry.y + h);
+      const box = effectiveBoxes.get(n.id)!;
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + box.width);
+      maxY = Math.max(maxY, box.y + box.height);
     });
 
     const padding = 60;
@@ -81,11 +82,11 @@ export function exportToSVG(doc: CanonicalDocument): string {
       if (!src || !tgt) return;
 
       const anchor = (node: CanonicalNode, handle: string | undefined) => {
-        const width = node.geometry.width || 150; const height = node.geometry.height || 44;
-        if (handle === 'left') return { x: node.geometry.x, y: node.geometry.y + height / 2 };
-        if (handle === 'top') return { x: node.geometry.x + width / 2, y: node.geometry.y };
-        if (handle === 'bottom') return { x: node.geometry.x + width / 2, y: node.geometry.y + height };
-        return { x: node.geometry.x + width, y: node.geometry.y + height / 2 };
+        const box = effectiveBoxes.get(node.id)!;
+        if (handle === 'left') return { x: box.x, y: box.y + box.height / 2 };
+        if (handle === 'top') return { x: box.x + box.width / 2, y: box.y };
+        if (handle === 'bottom') return { x: box.x + box.width / 2, y: box.y + box.height };
+        return { x: box.x + box.width, y: box.y + box.height / 2 };
       };
       const start = anchor(src, edge.sourceHandle); const end = anchor(tgt, edge.targetHandle);
       const pathD = edge.type === 'straight' ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edge.type === 'orthogonal' ? calculateOrthogonalPath(start, end, edge.sourceHandle as 'left' | 'right' | 'top' | 'bottom', edge.targetHandle as 'left' | 'right' | 'top' | 'bottom').path : edge.type === 'smoothstep' ? `M ${start.x} ${start.y} Q ${start.x} ${(start.y + end.y) / 2} ${(start.x + end.x) / 2} ${(start.y + end.y) / 2} Q ${end.x} ${(start.y + end.y) / 2} ${end.x} ${end.y}` : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`;
@@ -99,8 +100,12 @@ export function exportToSVG(doc: CanonicalDocument): string {
 
     // Render nodes
     doc.nodes.forEach((n) => {
-      const w = n.geometry.width || 150;
-      const h = n.geometry.height || 44;
+      const box = effectiveBoxes.get(n.id)!;
+      const w = box.width;
+      const h = box.height;
+      const nx = box.x;
+      const ny = box.y;
+      const fontSize = n.style?.fontSize || 14;
       const rx = n.style?.borderRadius ?? (n.type === 'terminal' ? h / 2 : 8);
       const bg = n.style?.backgroundColor || (n.type === 'root' ? '#3b82f6' : '#ffffff');
       const border = n.style?.borderColor || (n.type === 'root' ? '#2563eb' : '#cbd5e1');
@@ -108,11 +113,17 @@ export function exportToSVG(doc: CanonicalDocument): string {
 
       const shape = n.shape || n.style?.shape || (n.type === 'decision' ? 'diamond' : n.type === 'terminal' ? 'pill' : 'rounded');
       svgContent += `  <g id="${escapeXml(n.id)}" data-node-shape="${shape}">\n`;
-      if (shape === 'diamond') svgContent += `    <polygon points="${n.geometry.x + w / 2},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y + h / 2} ${n.geometry.x + w / 2},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else if (shape === 'parallelogram') svgContent += `    <polygon points="${n.geometry.x + 16},${n.geometry.y} ${n.geometry.x + w},${n.geometry.y} ${n.geometry.x + w - 16},${n.geometry.y + h} ${n.geometry.x},${n.geometry.y + h}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else if (shape === 'circle') svgContent += `    <ellipse cx="${n.geometry.x + w / 2}" cy="${n.geometry.y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else svgContent += `    <rect x="${n.geometry.x}" y="${n.geometry.y}" width="${w}" height="${h}" rx="${shape === 'rectangle' ? 0 : shape === 'pill' ? h / 2 : rx}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      svgContent += `    <text x="${n.geometry.x + w / 2}" y="${n.geometry.y + h / 2 + 4}" fill="${textColor}" font-family="sans-serif" font-size="14" font-weight="500" text-anchor="middle">${escapeXml(n.text)}</text>\n`;
+      if (shape === 'diamond') svgContent += `    <polygon points="${nx + w / 2},${ny} ${nx + w},${ny + h / 2} ${nx + w / 2},${ny + h} ${nx},${ny + h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+      else if (shape === 'parallelogram') svgContent += `    <polygon points="${nx + 16},${ny} ${nx + w},${ny} ${nx + w - 16},${ny + h} ${nx},${ny + h}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+      else if (shape === 'circle') svgContent += `    <ellipse cx="${nx + w / 2}" cy="${ny + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+      else svgContent += `    <rect x="${nx}" y="${ny}" width="${w}" height="${h}" rx="${shape === 'rectangle' ? 0 : shape === 'pill' ? h / 2 : rx}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+
+      const blockHeight = box.lines.length * box.lineHeight;
+      const firstLineY = ny + h / 2 - blockHeight / 2 + box.lineHeight * 0.75;
+      const tspans = box.lines
+        .map((line, i) => `<tspan x="${nx + w / 2}" y="${firstLineY + i * box.lineHeight}">${escapeXml(line)}</tspan>`)
+        .join('');
+      svgContent += `    <text fill="${textColor}" font-family="sans-serif" font-size="${fontSize}" font-weight="500" text-anchor="middle">${tspans}</text>\n`;
       svgContent += `  </g>\n`;
     });
 
@@ -708,6 +719,116 @@ function buildPdf(objects: string[]): Uint8Array {
   pdf += offsets.slice(1).map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`).join('');
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new TextEncoder().encode(pdf);
+}
+
+/**
+ * Estimated glyph width as a fraction of font-size: CJK/full-width characters
+ * render roughly square (~1em), Latin/half-width characters roughly half that
+ * in common sans-serif fonts. This is a rendering-time estimate (no DOM
+ * measurement dependency, so it behaves identically in tests and in the app),
+ * good enough to size an export box realistically rather than the prior
+ * always-one-line, never-measured text.
+ */
+function estimatedCharWidth(char: string, fontSize: number): number {
+  const code = char.codePointAt(0) || 0;
+  const isFullWidth =
+    (code >= 0x1100 && code <= 0x11ff) || // Hangul Jamo
+    (code >= 0x2e80 && code <= 0xa4cf) || // CJK radicals, Kangxi, Hiragana/Katakana, CJK Unified
+    (code >= 0xac00 && code <= 0xd7a3) || // Hangul Syllables
+    (code >= 0xf900 && code <= 0xfaff) || // CJK Compatibility Ideographs
+    (code >= 0xff00 && code <= 0xffef); // Fullwidth forms
+  return fontSize * (isFullWidth ? 1 : 0.56);
+}
+
+interface WrappedNodeText {
+  lines: string[];
+  lineHeight: number;
+}
+
+/**
+ * Word/character-wraps node text to fit within maxWidth (minus horizontal
+ * padding), matching how the live canvas naturally wraps text in a
+ * fixed-width, auto-height node -- unlike the single unwrapped <text> line
+ * previously used for export, which let long text overflow or forced callers
+ * to squeeze everything into one crowded line (Ledger F07, #8 reopened).
+ */
+function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
+  const usableWidth = Math.max(maxWidth - 16, fontSize * 2);
+  const lineHeight = Math.round(fontSize * 1.35);
+  const words = text.split(/(\s+)/).filter((w) => w.length > 0);
+  const lines: string[] = [];
+  let current = '';
+  let currentWidth = 0;
+
+  const pushCurrent = () => {
+    if (current.trim().length > 0) lines.push(current.trim());
+    current = '';
+    currentWidth = 0;
+  };
+
+  for (const word of words) {
+    const wordWidth = [...word].reduce((sum, ch) => sum + estimatedCharWidth(ch, fontSize), 0);
+    if (wordWidth > usableWidth) {
+      // A single "word" (e.g. an unbroken run of CJK characters) longer than
+      // one line's width: break it character-by-character.
+      for (const ch of word) {
+        const chWidth = estimatedCharWidth(ch, fontSize);
+        if (currentWidth + chWidth > usableWidth && current.length > 0) {
+          pushCurrent();
+        }
+        current += ch;
+        currentWidth += chWidth;
+      }
+      continue;
+    }
+    if (currentWidth + wordWidth > usableWidth && current.length > 0) {
+      pushCurrent();
+    }
+    current += word;
+    currentWidth += wordWidth;
+  }
+  pushCurrent();
+
+  return { lines: lines.length > 0 ? lines : [''], lineHeight };
+}
+
+interface EffectiveNodeBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  lines: string[];
+  lineHeight: number;
+}
+
+/**
+ * Grows a node's declared height (never its width) to fit its wrapped text,
+ * symmetrically around the original vertical center so left/right edge
+ * anchors (which use y + height/2) keep pointing at the same absolute Y.
+ * This is the single source of "real" per-node geometry export uses for
+ * bounds, edges, and rendering, so all three stay consistent with each other.
+ */
+function computeEffectiveNodeBoxes(doc: CanonicalDocument): Map<string, EffectiveNodeBox> {
+  const boxes = new Map<string, EffectiveNodeBox>();
+  doc.nodes.forEach((n) => {
+    const width = n.geometry.width || 150;
+    const declaredHeight = n.geometry.height || 44;
+    const fontSize = n.style?.fontSize || 14;
+    const { lines, lineHeight } = wrapNodeText(n.text || '', width, fontSize);
+    const textBlockHeight = lines.length * lineHeight;
+    const requiredHeight = Math.max(declaredHeight, textBlockHeight + 16);
+    const grownBy = requiredHeight - declaredHeight;
+
+    boxes.set(n.id, {
+      x: n.geometry.x,
+      y: n.geometry.y - grownBy / 2,
+      width,
+      height: requiredHeight,
+      lines,
+      lineHeight,
+    });
+  });
+  return boxes;
 }
 
 function escapeXml(unsafe: string): string {
