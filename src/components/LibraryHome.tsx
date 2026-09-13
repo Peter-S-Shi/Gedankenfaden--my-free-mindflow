@@ -144,7 +144,10 @@ export const LibraryHome: React.FC<LibraryHomeProps> = ({
 
       {/* Crash Recovery Notification Banner */}
       {crashRecovery?.hasUnsavedOrCrash && (
-        <div className="bg-amber-50 border-b border-amber-200 px-5 lg:px-10 py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fadeIn">
+        <div
+          data-testid="crash-recovery-banner"
+          className="bg-amber-50 border-b border-amber-200 px-5 lg:px-10 py-3 flex flex-wrap items-center justify-between gap-3 shadow-xs animate-fadeIn"
+        >
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
               <AlertTriangle size={18} />

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
-    "package:portable": "node scripts/package-portable.mjs"
+    "package:portable": "node scripts/package-portable.mjs",
+    "verify:close-guard": "node scripts/verify-clean-close-native.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",

@@ -26,6 +26,7 @@ import {
 import { getNativeBridge } from './platform/tauriBridge';
 import { packageDocumentToMflow } from './model/container';
 import { watchLibraryFolder } from './model/libraryWatch';
+import { registerNativeCloseGuard } from './platform/nativeCloseGuard';
 
 const STORAGE_KEY = 'gedankenfaden_recent_docs_v1';
 
@@ -235,6 +236,18 @@ export const App: React.FC = () => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // Distinguish a normal native window close from a recoverable interruption (Ledger F10):
+  // flush any pending autosave and mark the session journal clean before the window
+  // actually closes, so a genuine crash/kill/power-loss remains the only path that
+  // leaves the journal dirty and triggers recovery on relaunch.
+  useEffect(() => {
+    const unregister = registerNativeCloseGuard({
+      flushPendingAutosave: () => autoSaveEngineRef.current.flushPending(),
+      markClean: () => markSessionClean(),
+    });
+    return unregister;
   }, []);
 
   // Keep the selected Library in sync with external filesystem changes (Ledger F09):
