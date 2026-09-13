@@ -1,0 +1,30 @@
+# Layout Sample 05 — Mixed Depth Irregular
+
+- Alpha
+  - Alpha 1
+    - Alpha 1.1
+      - Alpha 1.1.1
+        - Alpha 1.1.1.1
+  - Alpha 2
+- Beta
+  - Beta 1
+  - Beta 2
+    - Beta 2.1
+    - Beta 2.2
+      - Beta 2.2.1
+- Gamma
+  - Gamma 1
+    - Gamma 1.1
+  - Gamma 2
+  - Gamma 3
+  - Gamma 4
+    - Gamma 4.1
+      - Gamma 4.1.1
+        - Gamma 4.1.1.1
+          - Gamma 4.1.1.1.1
+- Delta
+- Epsilon
+  - Epsilon 1
+    - Epsilon 1.1
+    - Epsilon 1.2
+    - Epsilon 1.3

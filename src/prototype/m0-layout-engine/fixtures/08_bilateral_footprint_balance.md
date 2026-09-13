@@ -1,0 +1,67 @@
+# Layout Sample 08 — Bilateral Footprint Balance
+
+- Branch Heavy A
+  - Branch Heavy A Child 1
+    - Branch Heavy A Grandchild 1.1
+    - Branch Heavy A Grandchild 1.2
+  - Branch Heavy A Child 2
+    - Branch Heavy A Grandchild 2.1
+    - Branch Heavy A Grandchild 2.2
+  - Branch Heavy A Child 3
+    - Branch Heavy A Grandchild 3.1
+    - Branch Heavy A Grandchild 3.2
+  - Branch Heavy A Child 4
+    - Branch Heavy A Grandchild 4.1
+    - Branch Heavy A Grandchild 4.2
+  - Branch Heavy A Child 5
+  - Branch Heavy A Child 6
+  - Branch Heavy A Child 7
+- Branch Light B
+  - Branch Light B Child 1
+    - Branch Light B Grandchild 1.1
+    - Branch Light B Grandchild 1.2
+  - Branch Light B Child 2
+- Branch Medium C
+  - Branch Medium C Child 1
+    - Branch Medium C Grandchild 1.1
+    - Branch Medium C Grandchild 1.2
+  - Branch Medium C Child 2
+    - Branch Medium C Grandchild 2.1
+    - Branch Medium C Grandchild 2.2
+  - Branch Medium C Child 3
+  - Branch Medium C Child 4
+- Branch Tiny D
+  - Branch Tiny D Child 1
+- Branch Heavy E
+  - Branch Heavy E Child 1
+    - Branch Heavy E Grandchild 1.1
+    - Branch Heavy E Grandchild 1.2
+  - Branch Heavy E Child 2
+    - Branch Heavy E Grandchild 2.1
+    - Branch Heavy E Grandchild 2.2
+  - Branch Heavy E Child 3
+    - Branch Heavy E Grandchild 3.1
+    - Branch Heavy E Grandchild 3.2
+  - Branch Heavy E Child 4
+    - Branch Heavy E Grandchild 4.1
+    - Branch Heavy E Grandchild 4.2
+  - Branch Heavy E Child 5
+    - Branch Heavy E Grandchild 5.1
+    - Branch Heavy E Grandchild 5.2
+  - Branch Heavy E Child 6
+- Branch Light F
+  - Branch Light F Child 1
+  - Branch Light F Child 2
+- Branch Medium G
+  - Branch Medium G Child 1
+    - Branch Medium G Grandchild 1.1
+    - Branch Medium G Grandchild 1.2
+  - Branch Medium G Child 2
+    - Branch Medium G Grandchild 2.1
+    - Branch Medium G Grandchild 2.2
+  - Branch Medium G Child 3
+    - Branch Medium G Grandchild 3.1
+    - Branch Medium G Grandchild 3.2
+  - Branch Medium G Child 4
+- Branch Tiny H
+  - Branch Tiny H Child 1

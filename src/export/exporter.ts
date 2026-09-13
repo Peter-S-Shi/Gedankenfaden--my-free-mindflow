@@ -729,7 +729,7 @@ function buildPdf(objects: string[]): Uint8Array {
  * good enough to size an export box realistically rather than the prior
  * always-one-line, never-measured text.
  */
-function estimatedCharWidth(char: string, fontSize: number): number {
+export function estimatedCharWidth(char: string, fontSize: number): number {
   const code = char.codePointAt(0) || 0;
   const isFullWidth =
     (code >= 0x1100 && code <= 0x11ff) || // Hangul Jamo
@@ -740,7 +740,7 @@ function estimatedCharWidth(char: string, fontSize: number): number {
   return fontSize * (isFullWidth ? 1 : 0.56);
 }
 
-interface WrappedNodeText {
+export interface WrappedNodeText {
   lines: string[];
   lineHeight: number;
 }
@@ -752,7 +752,7 @@ interface WrappedNodeText {
  * previously used for export, which let long text overflow or forced callers
  * to squeeze everything into one crowded line (Ledger F07, #8 reopened).
  */
-function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
+export function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
   const usableWidth = Math.max(maxWidth - 16, fontSize * 2);
   const lineHeight = Math.round(fontSize * 1.35);
   const words = text.split(/(\s+)/).filter((w) => w.length > 0);
