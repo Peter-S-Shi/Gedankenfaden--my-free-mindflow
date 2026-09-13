@@ -147,7 +147,9 @@ export function layoutMindMapEngineV2(
 
     // Fan-out decision seam: consulted (so it's exercised and testable)
     // but its result isn't branched on yet -- see decideFanoutStrategy's
-    // doc comment.
+    // doc comment. TODO(M1-B+): once a strategy other than 'none' is
+    // production-ready, branch on this result here instead of always
+    // falling through to the single-column packing below.
     decideFanoutStrategy(children.length);
 
     const totalHeight =

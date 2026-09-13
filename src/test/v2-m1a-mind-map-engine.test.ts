@@ -130,6 +130,27 @@ describe('M1-A mind map engine -- text-aware footprint balancing is real', () =>
     expect(longestNode.geometry.height).toBeGreaterThan(44);
   });
 
+  it('07_mixed_cjk_english.md: mixed CJK/English text wraps to real heights with no node overlap', () => {
+    const doc = loadCorpusDoc('07_mixed_cjk_english.md');
+    // Mixed-script wrapping is exactly where a pure-CJK or pure-Latin-only
+    // char-width assumption would break -- assert every node still ends up
+    // with a real, non-degenerate box and none overlap once laid out.
+    for (const n of doc.nodes) {
+      expect(n.geometry.height).toBeGreaterThanOrEqual(44);
+      expect(n.geometry.width).toBeGreaterThan(0);
+    }
+    let overlaps = 0;
+    for (let i = 0; i < doc.nodes.length; i++) {
+      for (let j = i + 1; j < doc.nodes.length; j++) {
+        if (rectsOverlap(doc.nodes[i], doc.nodes[j])) overlaps++;
+      }
+    }
+    expect(overlaps).toBe(0);
+
+    const longestMixedNode = doc.nodes.find((n) => n.text.includes('中英文混排之后同层节点'))!;
+    expect(longestMixedNode.geometry.height).toBeGreaterThan(44);
+  });
+
   it('08_bilateral_footprint_balance.md: left/right split balances rendered footprint, not descendant count', () => {
     const doc = loadCorpusDoc('08_bilateral_footprint_balance.md');
     const root = rootOf(doc);
