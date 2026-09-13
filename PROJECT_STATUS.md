@@ -8,6 +8,28 @@
 
 ---
 
+## 0a. V2 Layout Engine Reconstruction — Merged into `v2.0.0-upgrade` (Complete)
+
+**Scope**: `v2-layout-engine-reconstruction` (formerly PR #18, child of the V2 umbrella `v2.0.0-upgrade`). Replaced the mind-map layout engine's node-positioning architecture end to end: contract definition and prototype evaluation (M0), production engine core (M1-A), live product integration (M1-B), geometry-convergence acceptance across layout/canvas/export (M1-C), and final closure on high fan-out and incremental-edit stability (M1-D). This work is complete and merged; it is not the overall V2 release and does not by itself make `v2.0.0-upgrade` release-ready.
+
+**What changed**:
+- `src/model/mindMapLayoutEngine.ts` (new) is the production balanced mind-map layout engine, wired live via `autoLayoutDocument()`/`layout.ts` for the default "balanced" preset. The legacy `layoutMindMapDocument()` remains in place and still serves the `LR`/`RL`/`TB` presets and Flowchart/Dagre, both untouched by this work.
+- Footprint-weighted bilateral balance, parent-local recursive packing, same-depth band semantics, text-aware geometry (shared with export via `src/model/textMeasurement.ts`), collapse behavior, and manual offsets are production behavior, not prototype claims.
+- High fan-out (parents with pathologically many same-side direct children) is handled by a measured-evidence-activated multi-column grid strategy (`FANOUT_GRID_ACTIVATION_THRESHOLD`), replacing the earlier inert seam.
+- Incremental-edit stability (#10c): an opt-in `stabilizeAgainst` option lets a relayout keep every structurally-unchanged node at its exact prior position regardless of edits elsewhere in the tree; wired into every live add/delete/paste/fold-toggle edit handler in `CanvasEditor.tsx`.
+- The throwaway M0 prototype implementation (`src/prototype/m0-layout-engine/`'s `.ts` modules) has been retired; only its neutral fixture corpus and historical evidence report remain, clearly marked non-production.
+
+**Known, deliberately-accepted residual limitations** (not blockers, documented in `CONTEXT.md` and the engine's own doc comments):
+- A fan-out-grid-packed parent's own children are not covered by incremental-edit stabilization (a documented scope boundary: fan-out and stabilization are two separately-solved contracts, not yet combined).
+- A fanned child that itself has further descendants is positioned at correct depth but is not fully guaranteed collision-free against a neighboring grid column — unexercised in real-world evidence (every fanned child in both the synthetic and real acceptance samples was a leaf).
+- Canvas-DOM text-metrics divergence from the model's text-wrapping estimator (M1-C's "Divergence A") was checked with a live headless-Chromium acceptance pass for representative long CJK, mixed CJK/English, and long-title text; the model's estimate was conservative (real rendered text stayed within, not beyond, the model's declared box) in every case checked. This is evidence from representative samples, not an exhaustive proof, and is not re-verified on every future text/font change.
+
+**Verification**: full automated suite (39 files / 214 tests) plus focused M1-A/B/C/D suites, `tsc --noEmit`, and `npm run build` all clean; a private real-sample acceptance pass against real local mind-map outlines (topology categories: ordinary, deep/uneven — none in this sample set reached the fan-out threshold) found zero overlaps and confirmed stabilization idempotence; remote GitHub Actions CI ran green (both Ubuntu and Windows legs, including the full Windows native/Tauri build) against the exact merged commit via a temporary `milestone/**`-pattern verification branch, since this child branch's own base (`v2.0.0-upgrade`) is not itself a CI trigger target.
+
+**Next real macro stage for the V2 program**: the remaining `v2.0.0-upgrade` repair tickets and umbrella PR #4's own path to `main` (release readiness for `v2.0.0` overall is a separate, later milestone — not reached by this layout-engine work alone).
+
+---
+
 ## 0. Maintenance Update — 2026-09-13
 
 - **Issue #10** (`Export printable PDF diagrams rather than summary pages`) implemented on `v2.0.0-upgrade`.

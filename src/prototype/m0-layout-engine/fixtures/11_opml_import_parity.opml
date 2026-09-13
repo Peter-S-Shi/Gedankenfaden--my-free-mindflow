@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Layout Sample 11 — OPML Import Parity</title>
+  </head>
+  <body>
+    <outline text="Alpha">
+      <outline text="Alpha 1">
+        <outline text="Alpha 1.1">
+          <outline text="Alpha 1.1.1"/>
+        </outline>
+      </outline>
+      <outline text="Alpha 2"/>
+    </outline>
+    <outline text="Beta">
+      <outline text="Beta 1"/>
+      <outline text="Beta 2">
+        <outline text="Beta 2.1"/>
+        <outline text="Beta 2.2"/>
+      </outline>
+    </outline>
+    <outline text="Gamma">
+      <outline text="Gamma 1"/>
+      <outline text="Gamma 2"/>
+      <outline text="Gamma 3"/>
+      <outline text="Gamma 4">
+        <outline text="Gamma 4.1">
+          <outline text="Gamma 4.1.1"/>
+        </outline>
+      </outline>
+    </outline>
+  </body>
+</opml>

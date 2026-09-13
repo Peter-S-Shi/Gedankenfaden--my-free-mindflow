@@ -1,6 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import { CanonicalDocument, CanonicalNode } from './types';
 import { cloneDocument } from './document';
+import { layoutMindMapEngineV2 } from './mindMapLayoutEngine';
 
 export interface LayoutOptions {
   preset?: 'balanced' | 'LR' | 'RL' | 'TB';
@@ -10,6 +11,15 @@ export interface LayoutOptions {
   horizontalGap?: number;
   verticalGap?: number;
   centerCoordinates?: { x: number; y: number };
+  /**
+   * M1-D (#10c incremental-edit stability): the document's own prior
+   * layout output, when the caller has one and this relayout is for a
+   * single incremental edit (add/remove/edit a node) rather than a full
+   * reset. Passed straight through to `layoutMindMapEngineV2` -- see its
+   * `stabilizeAgainst` doc comment. Ignored on the flowchart and legacy
+   * (LR/RL/TB) paths, which don't implement this contract.
+   */
+  stabilizeAgainst?: CanonicalDocument;
 }
 
 export function autoLayoutDocument(
@@ -19,7 +29,29 @@ export function autoLayoutDocument(
   if (doc.mode === 'flowchart') {
     return layoutFlowchartDocument(doc, options);
   }
+  if (shouldUseMindMapEngineV2(options)) {
+    return layoutMindMapEngineV2(doc, {
+      preset: 'balanced',
+      horizontalGap: options.horizontalGap,
+      verticalGap: options.verticalGap,
+      centerCoordinates: options.centerCoordinates,
+      stabilizeAgainst: options.stabilizeAgainst,
+    });
+  }
   return layoutMindMapDocument(doc, options);
+}
+
+function resolveMindMapPreset(options: LayoutOptions): NonNullable<LayoutOptions['preset']> {
+  return (
+    options.preset ||
+    (options.direction === 'LR' || options.direction === 'RL' || options.direction === 'TB'
+      ? options.direction
+      : 'balanced')
+  );
+}
+
+function shouldUseMindMapEngineV2(options: LayoutOptions): boolean {
+  return resolveMindMapPreset(options) === 'balanced';
 }
 
 /**
@@ -90,11 +122,7 @@ export function layoutMindMapDocument(
   doc: CanonicalDocument,
   options: LayoutOptions = {}
 ): CanonicalDocument {
-  const preset =
-    options.preset ||
-    (options.direction === 'LR' || options.direction === 'RL' || options.direction === 'TB'
-      ? options.direction
-      : 'balanced');
+  const preset = resolveMindMapPreset(options);
   const defaultWidth = options.nodeWidth || 150;
   const defaultHeight = options.nodeHeight || 44;
   const hGap = options.horizontalGap || 90;

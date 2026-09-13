@@ -5,7 +5,7 @@
 
 import { CanonicalDocument, CanonicalNode, CanonicalEdge } from './types';
 import { getDefaultTheme } from './theme';
-import { layoutMindMapDocument } from './layout';
+import { autoLayoutDocument } from './layout';
 
 interface ParsedOutlineNode {
   text: string;
@@ -221,6 +221,7 @@ function convertTreeToCanonical(rootTitle: string, children: ParsedOutlineNode[]
     groups: [],
   };
 
-  // Perform balanced mind map layout
-  return layoutMindMapDocument(doc, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
+  // Perform balanced mind map layout through the same live dispatch seam
+  // as the editor, so importer output cannot drift from product layout.
+  return autoLayoutDocument(doc, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
 }

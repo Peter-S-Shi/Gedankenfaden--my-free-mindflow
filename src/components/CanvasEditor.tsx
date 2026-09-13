@@ -147,7 +147,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           nodes: nextNodes,
           updatedAt: new Date().toISOString(),
         };
-        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset });
+        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset, stabilizeAgainst: prevDoc });
         const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
         setNodes(projected.nodes);
         setEdges(projected.edges);
@@ -312,6 +312,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     (preset: LayoutOptions['preset']) => {
       setLayoutPreset(preset);
       const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+      // Deliberately NOT stabilized (M1-D #10c): this is the user explicitly
+      // asking for a full auto-layout reset, not an incremental edit -- it
+      // should also be able to fix positions a stabilized incremental edit
+      // left untouched (e.g. after a manual drag), so it must recompute
+      // everyone from scratch.
       const layoutedDoc = autoLayoutDocument(currentDoc, { preset });
       const projected = canonicalToReactFlow(layoutedDoc, {
         onToggleFold: handleToggleFold,
@@ -370,7 +375,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
       const projected = canonicalToReactFlow(layouted, {
         onToggleFold: handleToggleFold,
         selectedNodeId: newId,
@@ -428,7 +433,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: newId,
@@ -671,7 +676,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc }) : nextDoc;
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: parentToSelect,
@@ -701,7 +706,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     const nextDoc = deleteNodePreservingChildren(doc, selectedNodeId);
     if (nextDoc === doc) return;
 
-    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset }) : nextDoc;
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc }) : nextDoc;
     const projected = canonicalToReactFlow(layouted, {
       onToggleFold: handleToggleFold,
       selectedNodeId: null,
@@ -871,7 +876,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           edges: [...doc.edges, ...parsed.edges],
           updatedAt: new Date().toISOString(),
         };
-        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
         const firstParsedId = parsed.nodes[0]?.id || selectedNodeId;
         setSelectedNodeId(firstParsedId);
         const projected = canonicalToReactFlow(layouted, {
@@ -928,7 +933,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
       const firstClonedId = clonedNodes[0]?.id || selectedNodeId;
       setSelectedNodeId(firstClonedId);
       const projected = canonicalToReactFlow(layouted, {
