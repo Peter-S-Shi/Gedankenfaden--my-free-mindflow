@@ -112,11 +112,7 @@ export function layoutMindMapDocument(
   doc: CanonicalDocument,
   options: LayoutOptions = {}
 ): CanonicalDocument {
-  const preset =
-    options.preset ||
-    (options.direction === 'LR' || options.direction === 'RL' || options.direction === 'TB'
-      ? options.direction
-      : 'balanced');
+  const preset = resolveMindMapPreset(options);
   const defaultWidth = options.nodeWidth || 150;
   const defaultHeight = options.nodeHeight || 44;
   const hGap = options.horizontalGap || 90;

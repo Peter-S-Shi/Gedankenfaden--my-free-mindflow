@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { createEmptyDocument } from '../model/document';
 import { autoLayoutDocument } from '../model/layout';
@@ -34,6 +35,36 @@ function createBalancedDispatchFixture(): CanonicalDocument {
     { id: 'root->left-or-right-b', source: 'root', target: 'left-or-right-b' },
   ];
   return doc;
+}
+
+function importSpecifiers(filePath: string): string[] {
+  const sourceText = fs.readFileSync(filePath, 'utf-8');
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const specifiers: string[] = [];
+
+  sourceFile.forEachChild((node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      specifiers.push(node.moduleSpecifier.text);
+    }
+  });
+
+  return specifiers;
+}
+
+function importedNamesFrom(filePath: string, moduleSpecifier: string): string[] {
+  const sourceText = fs.readFileSync(filePath, 'utf-8');
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const names: string[] = [];
+
+  sourceFile.forEachChild((node) => {
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) return;
+    if (node.moduleSpecifier.text !== moduleSpecifier) return;
+    const namedBindings = node.importClause?.namedBindings;
+    if (!namedBindings || !ts.isNamedImports(namedBindings)) return;
+    namedBindings.elements.forEach((element) => names.push(element.name.text));
+  });
+
+  return names;
 }
 
 describe('M1-B live layout dispatch integration', () => {
@@ -156,14 +187,14 @@ describe('M1-B live layout dispatch integration', () => {
 
   it('keeps the V2 engine dependency one-way from the dispatch module', () => {
     const modelDir = path.join(__dirname, '..', 'model');
-    const layoutSource = fs.readFileSync(path.join(modelDir, 'layout.ts'), 'utf-8');
-    const engineSource = fs.readFileSync(path.join(modelDir, 'mindMapLayoutEngine.ts'), 'utf-8');
-    const importerSource = fs.readFileSync(path.join(modelDir, 'importers.ts'), 'utf-8');
+    const layoutImports = importSpecifiers(path.join(modelDir, 'layout.ts'));
+    const engineImports = importSpecifiers(path.join(modelDir, 'mindMapLayoutEngine.ts'));
+    const importerLayoutNames = importedNamesFrom(path.join(modelDir, 'importers.ts'), './layout');
 
-    expect(layoutSource).toContain("from './mindMapLayoutEngine'");
-    expect(engineSource).not.toMatch(/from ['"]\.\/layout['"]/);
-    expect(engineSource).not.toMatch(/from ['"]\.\/importers['"]/);
-    expect(importerSource).toContain('autoLayoutDocument');
-    expect(importerSource).not.toContain('layoutMindMapDocument');
+    expect(layoutImports).toContain('./mindMapLayoutEngine');
+    expect(engineImports).not.toContain('./layout');
+    expect(engineImports).not.toContain('./importers');
+    expect(importerLayoutNames).toContain('autoLayoutDocument');
+    expect(importerLayoutNames).not.toContain('layoutMindMapDocument');
   });
 });
