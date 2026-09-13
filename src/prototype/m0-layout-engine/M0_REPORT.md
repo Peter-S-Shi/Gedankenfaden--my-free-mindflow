@@ -437,12 +437,31 @@ prototype A moves into production). Spec axis found two gaps (untested
 #10 round-trip, unreproducible real-sample numbers), both fixed before
 that gate's push.
 
-**This corrective pass's own exit review** (run against the original
-gate's own exit point, since that's what this pass corrects) is recorded
-in the branch's commit history alongside this report, per the same
-process -- see the commit that lands after this report for its findings.
+**This corrective pass's own exit review** (`/code-review` against
+`d807629`, the original gate's exit point): Standards axis found one real
+(if minor) bug caused by duplication -- `prototypeAAdaptive.ts` forked
+from `prototypeA.ts` and missed the manual-offset fix that landed in A/B
+in the same commit; fixed. Also flagged (accepted, not fixed) the
+Adaptive fork's ~170-line duplication of A's structure for one branch,
+and the identical 8-line manual-offset block duplicated between A and B.
+Spec axis: `src/model/layout.ts` confirmed untouched; the Architecture
+Decision's default-engine/threshold statement confirmed explicit and
+number-backed (not hand-waved); PR #18's own body confirmed independently
+updated, not just this file; one gap found and fixed -- the report never
+stated an explicit M1-unblocked verdict (now §12).
 
-## 12. Next milestone
+## 12. Is M1 (Production Layout Engine Replacement) genuinely unblocked?
+
+**Partially, not fully.** The core node-positioning work (§1-§4, §6) is
+solid enough to start M1's implementation of prototype A's design in
+`src/model/layout.ts` -- that part is genuinely unblocked. But two things
+found in this corrective pass should be resolved, or at least explicitly
+scoped into M1, before M1 can be called *complete*: §5's high-fan-out
+exception (neither candidate is production-ready as implemented) and §7's
+incremental-edit-displacement tradeoff (a real, unresolved conflict with
+contract #5 that needs a product decision, not just an implementation).
+Starting M1 without a plan for those two is starting it with known,
+named gaps rather than a clean gate.
 
 Per the M0 brief: **do not start production engine replacement in this
 PR.** #18 stays draft; the next milestone (implement prototype A's design

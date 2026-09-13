@@ -164,7 +164,18 @@ export function layoutPrototypeAAdaptive(
   placeChildren(root.id, positioned.get(root.id)!.y + rootSize.height / 2, 'right', 1);
   placeChildren(root.id, positioned.get(root.id)!.y + rootSize.height / 2, 'left', 1);
 
-  const resultNodes: PositionedNode[] = nodes.map((n) => positioned.get(n.id)!).filter(Boolean);
+  // See prototypeA.ts's identical handling -- manual offsets must survive
+  // relayout unchanged. Flagged by the Standards-axis exit review as
+  // missing here: this file forked from prototypeA.ts before the
+  // manualOffset fix landed there, and the fork drifted.
+  const resultNodes: PositionedNode[] = nodes
+    .map((n) => {
+      const base = positioned.get(n.id);
+      if (!base) return undefined;
+      if (!n.manualOffset) return base;
+      return { ...base, x: base.x + n.manualOffset.dx, y: base.y + n.manualOffset.dy };
+    })
+    .filter((n): n is PositionedNode => !!n);
   const resultEdges: PositionedEdge[] = edges.map((e) => ({ source: e.source, target: e.target }));
 
   return { nodes: resultNodes, edges: resultEdges };
