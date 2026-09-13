@@ -366,9 +366,10 @@ Per the corrective brief's privacy-hygiene ask, three things were checked
 and, where found in the *current* tree, fixed forward (see this file's and
 the branch's commit history):
 
-- `M0_REPORT.md` and `fixtures/README.md` wording ("[REDACTED]-war-policy
-  interest topic", "real [REDACTED] / [REDACTED] samples") replaced with neutral
-  language ("external real-world outline samples"). Fixed on both
+- `M0_REPORT.md` and `fixtures/README.md` wording (referencing the user's
+  real interest-topic name and a second real sample family by name)
+  replaced with neutral language ("external real-world outline samples").
+  Fixed on both
   `v2-layout-engine-reconstruction` and (where the same wording had leaked
   via an earlier commit) `v2.0.0-upgrade`.
 - Two test files committed earlier in the V2 line
@@ -379,8 +380,8 @@ the branch's commit history):
   originate) and `v2-layout-engine-reconstruction` (which had inherited
   them), forward-fix commits, tests re-verified green.
 
-**Git-history scope found, not yet rewritten -- reported per the brief's
-own stop condition rather than force-pushed blindly:**
+**Git-history scope: investigated, reported, then rewritten on explicit
+user authorization.**
 
 `git log --all -S` for the private topic strings found them in **6
 reachable commits across two related but distinct regions** of
@@ -389,42 +390,47 @@ itself is completely unaffected -- it doesn't even contain the files in
 question):
 
 1. **Narrow region** (commits `316c66e`, `1dbbe41`, both near the branch
-   tip): the two test files above. Rewriting just these two commits'
-   content would cascade new SHAs to ~9 descendant commits total across
-   both `v2.0.0-upgrade` and `v2-layout-engine-reconstruction` (everything
-   from `316c66e` forward). This alone would be a narrowly-scoped,
-   understandable rewrite.
+   tip): the two test files above.
 2. **Broad region** (commits `37ae82c`, `05e030f`, only 2 commits after
    the branch's root merge from PR #3): `.github/V2_DEFECT_LEDGER.md`
-   (pre-existing content, not something this session wrote) references
-   "[REDACTED] War sample" and "[REDACTED] Ballpark sample family" as defect
-   evidence, and **that reference is still present at HEAD** (current
-   tree, not just history). Rewriting content this deep would cascade new
-   SHAs to essentially the **entire** `v2.0.0-upgrade` branch (~27+
-   commits) and all of PR #18 on top of it.
+   (pre-existing content, not something this session wrote) referenced
+   the same real-world topic names as defect evidence, and that reference
+   was still present at HEAD (current tree, not just history).
 
 Per the brief: *"if this requires broad destructive rewriting... stop and
 report the exact commits/refs affected... rather than force-push
-blindly."* Because the full remediation (region 2) is broad by any
-reasonable reading -- it would rewrite nearly the whole PR #4 history,
-already-pushed and public -- **no history rewrite was performed.** Two
-things need your decision before any force-push happens:
+blindly."* This was reported to the user before any rewrite happened.
+The user then explicitly authorized both the ledger wording fix and a
+full history rewrite.
 
-- **`.github/V2_DEFECT_LEDGER.md` still says "[REDACTED] War sample" /
-  "[REDACTED] Ballpark sample family" at HEAD right now** on both
-  `v2.0.0-upgrade` and `v2-layout-engine-reconstruction`. This predates
-  this session and wasn't part of what was asked to be fixed forward, but
-  it's the same category of exposure. If you want it genericized, that's a
-  quick forward-fix (like the test-file wording), separate from any
-  history rewrite.
-- Whether to rewrite history for region 1 (narrow, ~9 commits, both
-  branches) and/or region 2 (broad, ~27+ commits) is your call: a forward
-  fix (what's already done) means the *current* tree is clean but the
-  *old* commit content remains visible via `git log`/`git show` to anyone
-  who looks; a history rewrite removes it from history too but force-pushes
-  a large swath of already-public commit SHAs on both PR #4 and PR #18,
-  which can break any existing GitHub review-comment/CI-run associations
-  tied to those SHAs.
+**What was actually done:** a fresh, throwaway clone (never pushed except
+the two intended branches) was rewritten with `git filter-repo
+--replace-text ... --replace-message ...` (both blob content and commit
+messages), restricted to exactly `v2.0.0-upgrade` and
+`v2-layout-engine-reconstruction` via `--refs` -- no other branch (`main`
+included) was included in the rewrite's universe, so nothing else could
+be touched by it. Verified before pushing: zero remaining matches for any
+of the private topic strings across every commit's file content *and*
+message on both branches; `.github/V2_DEFECT_LEDGER.md` reads cleanly at
+every historical revision, not just HEAD; `npx tsc --noEmit` and the full
+`src/prototype/m0-layout-engine` + affected test-file suites (58 tests)
+still pass on the rewritten tree. Pushed with `--force-with-lease`
+(pinned to each branch's exact known prior tip, so a concurrent
+unexpected push would have aborted the push rather than silently
+overwriting it) to both branches.
+
+**One side effect worth naming:** because the rewrite touches everything
+reachable from `v2.0.0-upgrade`'s tip, the commit that PR #4 shares with
+`main` as its merge-base also gained a new SHA (even though its own
+content didn't change) -- this shifted PR #4's *computed* merge-base
+slightly, which is why GitHub may briefly show a different mergeability
+recompute. Checked directly: `git merge-tree` against `main` produces the
+**exact same conflicting files** (`.github/V2_DEFECT_LEDGER.md`,
+`PROJECT_STATUS.md`) both before and after the rewrite -- this is a
+**pre-existing PR #4 vs. `main` conflict, unrelated to this privacy work**,
+not something the rewrite introduced. PR #18's own topology (base
+`v2.0.0-upgrade`, head `v2-layout-engine-reconstruction`) was verified
+`MERGEABLE` after the rewrite.
 
 ## 11. Exit code review
 
