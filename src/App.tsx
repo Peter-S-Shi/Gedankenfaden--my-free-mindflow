@@ -185,7 +185,9 @@ export const App: React.FC = () => {
           const lower = cliFilePath.toLowerCase();
           const isStructuredImport = lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.opml');
           const defaultDocDir = await bridge.getDefaultDocumentsDir();
-          const storedFolder = localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
+          const persistedRoot = await bridge.getPersistedLibraryRoot();
+          const storedFolder =
+            persistedRoot || localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
           const imported = isStructuredImport
             ? await importDocumentIntoLibrary(cliFilePath, storedFolder, bridge)
             : null;
@@ -212,7 +214,9 @@ export const App: React.FC = () => {
       // 3. Resolve active documents folder & sync library
       try {
         const defaultDocDir = await bridge.getDefaultDocumentsDir();
-        const storedFolder = localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
+        const persistedRoot = await bridge.getPersistedLibraryRoot();
+        const storedFolder =
+          persistedRoot || localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
         if (isMounted) setCurrentFolder(storedFolder);
 
         if (!(await bridge.exists(storedFolder))) {
