@@ -25,6 +25,7 @@ import {
 } from './model/library';
 import { getNativeBridge } from './platform/tauriBridge';
 import { packageDocumentToMflow } from './model/container';
+import { watchLibraryFolder } from './model/libraryWatch';
 
 const STORAGE_KEY = 'gedankenfaden_recent_docs_v1';
 
@@ -235,6 +236,16 @@ export const App: React.FC = () => {
       isMounted = false;
     };
   }, []);
+
+  // Keep the selected Library in sync with external filesystem changes (Ledger F09):
+  // watches the current folder and rescans on external create/rename/delete. Changing
+  // folders or unmounting tears down the previous watcher before anything else runs.
+  useEffect(() => {
+    if (!currentFolder) return undefined;
+    const bridge = getNativeBridge();
+    const handle = watchLibraryFolder(currentFolder, bridge, setLibraryEntries);
+    return () => handle.stop();
+  }, [currentFolder]);
 
   useEffect(() => {
     try {

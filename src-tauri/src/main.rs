@@ -1,13 +1,16 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+
+const LIBRARY_CHANGED_EVENT: &str = "library-fs-changed";
 
 const LIBRARY_ROOT_MARKER_FILE: &str = "library_root.txt";
 
@@ -85,6 +88,29 @@ fn require_authorized(path: &str, state: &tauri::State<FsAuthState>) -> Result<(
 
 fn library_root_marker_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join(LIBRARY_ROOT_MARKER_FILE)
+}
+
+/// Holds at most one active filesystem watcher, always on the currently authorized
+/// Library root. Starting a new watch (a different folder, or none) tears down
+/// whatever was previously watched so no stale observation survives a folder
+/// change or a closed Library context.
+struct LibraryWatcherState {
+    watcher: Mutex<Option<RecommendedWatcher>>,
+    watched_path: Mutex<Option<String>>,
+}
+
+impl LibraryWatcherState {
+    fn new() -> Self {
+        Self {
+            watcher: Mutex::new(None),
+            watched_path: Mutex::new(None),
+        }
+    }
+
+    fn stop(&self) {
+        *self.watcher.lock().unwrap() = None;
+        *self.watched_path.lock().unwrap() = None;
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -371,6 +397,47 @@ fn pick_export_file_dialog(
     Ok(Some(path_str))
 }
 
+/// Watches the given path (which must already be an authorized location, per
+/// `FsAuthState`) for external filesystem changes, emitting `library-fs-changed`
+/// to the renderer on each event. Only the active Library root is watched
+/// non-recursively — F12 (recursive discovery) is explicitly out of scope here.
+/// Any previously active watcher is torn down first, so a folder change or a
+/// repeated call never leaves more than one watcher alive.
+#[tauri::command]
+fn watch_library_root(
+    app: tauri::AppHandle,
+    path: String,
+    fs_state: tauri::State<FsAuthState>,
+    watcher_state: tauri::State<LibraryWatcherState>,
+) -> Result<(), String> {
+    require_authorized(&path, &fs_state)?;
+
+    watcher_state.stop();
+
+    let emit_handle = app.clone();
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if res.is_ok() {
+            let _ = emit_handle.emit(LIBRARY_CHANGED_EVENT, ());
+        }
+    })
+    .map_err(|e| format!("Failed to create filesystem watcher: {}", e))?;
+
+    watcher
+        .watch(Path::new(&path), RecursiveMode::NonRecursive)
+        .map_err(|e| format!("Failed to watch {}: {}", path, e))?;
+
+    *watcher_state.watcher.lock().unwrap() = Some(watcher);
+    *watcher_state.watched_path.lock().unwrap() = Some(normalize_path(&path));
+    Ok(())
+}
+
+/// Tears down the active Library watcher, if any (folder closed, app backgrounded
+/// the Library view, or the Library context otherwise no longer needs live updates).
+#[tauri::command]
+fn unwatch_library_root(watcher_state: tauri::State<LibraryWatcherState>) {
+    watcher_state.stop();
+}
+
 #[tauri::command]
 fn close_app_window(app: tauri::AppHandle) {
     app.exit(0);
@@ -382,6 +449,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .manage(FsAuthState::new())
+        .manage(LibraryWatcherState::new())
         .setup(|app| {
             let state = app.state::<FsAuthState>();
             if let Ok(app_data_dir) = resolve_app_data_dir(app.handle()) {
@@ -410,6 +478,8 @@ fn main() {
             pick_folder_dialog,
             pick_document_file_dialog,
             pick_export_file_dialog,
+            watch_library_root,
+            unwatch_library_root,
             close_app_window,
         ])
         .run(tauri::generate_context!())
@@ -472,5 +542,60 @@ mod tests {
         state.add_root("C:/Users/test/AppData/Roaming/Gedankenfaden");
 
         assert!(!state.is_authorized(""));
+    }
+
+    #[test]
+    fn watcher_state_stop_clears_watcher_and_watched_path() {
+        let state = LibraryWatcherState::new();
+        *state.watched_path.lock().unwrap() = Some("d:/customworkspaces/mymaps".to_string());
+        assert!(state.watched_path.lock().unwrap().is_some());
+
+        state.stop();
+
+        assert!(state.watched_path.lock().unwrap().is_none());
+        assert!(state.watcher.lock().unwrap().is_none());
+    }
+
+    /// Exercises the exact `notify` API surface production code uses
+    /// (`recommended_watcher` + `RecursiveMode::NonRecursive`) against a real
+    /// temp directory, proving the underlying mechanism actually observes
+    /// external filesystem changes rather than only asserting on a mock.
+    #[test]
+    fn notify_watcher_detects_external_file_creation() {
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!(
+            "gedankenfaden_watch_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("failed to create temp watch directory");
+
+        let (tx, rx) = channel();
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let _ = tx.send(res.is_ok());
+        })
+        .expect("failed to create watcher");
+        watcher
+            .watch(&dir, RecursiveMode::NonRecursive)
+            .expect("failed to watch temp directory");
+
+        let file_path = dir.join("created.txt");
+        fs::write(&file_path, b"external change").expect("failed to write probe file");
+
+        let event = rx.recv_timeout(Duration::from_secs(5));
+
+        drop(watcher);
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(
+            event.is_ok(),
+            "expected a filesystem event after external file creation"
+        );
     }
 }

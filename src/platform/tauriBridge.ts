@@ -4,6 +4,9 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
+
+const LIBRARY_CHANGED_EVENT = 'library-fs-changed';
 
 export interface FileEntry {
   name: string;
@@ -33,6 +36,12 @@ export interface INativeBridge {
   pickFolder(): Promise<string | null>;
   pickDocumentFile(): Promise<string | null>;
   pickExportFile(suggestedFilename: string, extension: string): Promise<string | null>;
+  /** Starts (or moves) live observation of external changes to an authorized Library folder. */
+  watchLibraryRoot(path: string): Promise<void>;
+  /** Tears down the active Library watcher, if any. */
+  unwatchLibraryRoot(): Promise<void>;
+  /** Subscribes to external Library filesystem change notifications; returns an unsubscribe function. */
+  onLibraryChanged(callback: () => void): () => void;
 }
 
 export function isRunningInTauri(): boolean {
@@ -135,6 +144,32 @@ export class TauriNativeBridge implements INativeBridge {
       return null;
     }
   }
+
+  async watchLibraryRoot(path: string): Promise<void> {
+    await invoke('watch_library_root', { path });
+  }
+
+  async unwatchLibraryRoot(): Promise<void> {
+    await invoke('unwatch_library_root');
+  }
+
+  onLibraryChanged(callback: () => void): () => void {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+
+    listen(LIBRARY_CHANGED_EVENT, () => callback()).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }
 }
 
 /**
@@ -158,6 +193,8 @@ export class MemoryMockNativeBridge implements INativeBridge {
   private pickedDocumentFile: string | null = null;
   private pickedExportFile: string | null = null;
   private persistedLibraryRoot: string | null = null;
+  private watchedLibraryRoot: string | null = null;
+  private libraryChangeListeners: Set<() => void> = new Set();
 
   private normalize(p: string): string {
     return p.replace(/\\/g, '/');
@@ -299,6 +336,32 @@ export class MemoryMockNativeBridge implements INativeBridge {
 
   async pickExportFile(_suggestedFilename: string, _extension: string): Promise<string | null> {
     return this.pickedExportFile;
+  }
+
+  async watchLibraryRoot(path: string): Promise<void> {
+    this.watchedLibraryRoot = this.normalize(path);
+  }
+
+  async unwatchLibraryRoot(): Promise<void> {
+    this.watchedLibraryRoot = null;
+  }
+
+  onLibraryChanged(callback: () => void): () => void {
+    this.libraryChangeListeners.add(callback);
+    return () => {
+      this.libraryChangeListeners.delete(callback);
+    };
+  }
+
+  /** Test/simulation hook: fires an external Library filesystem change notification. */
+  simulateExternalLibraryChange(): void {
+    for (const listener of this.libraryChangeListeners) {
+      listener();
+    }
+  }
+
+  getWatchedLibraryRoot(): string | null {
+    return this.watchedLibraryRoot;
   }
 
   async readDir(dirPath: string): Promise<FileEntry[]> {
