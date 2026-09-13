@@ -3,7 +3,7 @@ import { CanonicalDocument } from './model/types';
 import { createEmptyDocument } from './model/document';
 import { getDefaultTheme } from './model/theme';
 import { LibraryHome } from './components/LibraryHome';
-import { CanvasEditor } from './components/CanvasEditor';
+import { CanvasEditor, SaveResult } from './components/CanvasEditor';
 import {
   AutoSaveEngine,
   saveRollingSnapshot,
@@ -22,6 +22,7 @@ import {
   deleteDocumentFromLibrary,
   loadDocumentFromFile,
   importDocumentIntoLibrary,
+  saveDocumentToLibrary,
 } from './model/library';
 import { getNativeBridge } from './platform/tauriBridge';
 import { packageDocumentToMflow } from './model/container';
@@ -312,7 +313,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveDoc = async (updatedDoc: CanonicalDocument) => {
+  const handleSaveDoc = async (updatedDoc: CanonicalDocument): Promise<SaveResult> => {
     setDocuments((prev) =>
       prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
     );
@@ -320,17 +321,29 @@ export const App: React.FC = () => {
 
     const bridge = getNativeBridge();
 
-    // Immediate save directly to target path if open
+    // Immediate save directly to target path if open. A failed native write is
+    // reported to the caller (never silently swallowed); a successful write
+    // refreshes the visible Library metadata for this document right away,
+    // without a manual rescan (Ledger F11).
     if (activeDocPath) {
-      try {
-        if (activeDocPath.toLowerCase().endsWith('.mflow')) {
-          const bytes = await packageDocumentToMflow(updatedDoc);
-          await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
-        } else if (activeDocPath.toLowerCase().endsWith('.json')) {
-          await atomicWriteTextFile(activeDocPath, JSON.stringify(updatedDoc, null, 2), bridge);
-        }
-      } catch (err) {
-        console.error('Failed to save document to file:', err);
+      const savedPath = activeDocPath;
+      const existing = libraryEntries.find((e) => e.filePath === savedPath);
+      const result = await saveDocumentToLibrary(updatedDoc, savedPath, bridge, existing);
+
+      if (!result.success) {
+        console.error('Failed to save document to file:', result.message);
+        return { success: false, message: result.message };
+      }
+
+      if (result.entry) {
+        const newEntry = result.entry;
+        setLibraryEntries((prev) => {
+          const idx = prev.findIndex((e) => e.filePath === savedPath);
+          if (idx < 0) return [newEntry, ...prev];
+          const next = [...prev];
+          next[idx] = newEntry;
+          return next;
+        });
       }
     }
 
@@ -346,10 +359,14 @@ export const App: React.FC = () => {
             await atomicWriteTextFile(activeDocPath, JSON.stringify(doc, null, 2), bridge);
           }
         } catch {
-          // Ignored
+          // The debounced rolling snapshot above already preserved this edit for
+          // recovery; the explicit save path (above) is what reports failure to
+          // the user, so a background autosave write failure does not need to.
         }
       }
     });
+
+    return { success: true };
   };
 
   const handleDeleteDoc = async (target: LibraryEntry | CanonicalDocument) => {

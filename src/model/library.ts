@@ -150,6 +150,71 @@ export async function importDocumentIntoLibrary(
   };
 }
 
+export interface SaveDocumentResult {
+  success: boolean;
+  /** User-facing failure reason. Only meaningful when success is false. */
+  message?: string;
+  /** Freshly derived Library metadata for this document. Only present when success is true. */
+  entry?: LibraryEntry;
+}
+
+/**
+ * Derives Library metadata directly from an in-memory document, without touching disk.
+ * Used to refresh the visible Library immediately after a save (Ledger F11) rather than
+ * waiting for the next full filesystem rescan.
+ */
+export function deriveLibraryEntry(
+  doc: CanonicalDocument,
+  filePath: string,
+  existing?: Pick<LibraryEntry, 'isPinned' | 'tags'>
+): LibraryEntry {
+  return {
+    id: doc.id,
+    title: doc.title || 'Untitled Document',
+    mode: doc.mode || 'mindmap',
+    filePath,
+    fileFormat: filePath.toLowerCase().endsWith('.mflow') ? 'mflow' : 'json',
+    updatedAt: doc.updatedAt,
+    nodeCount: doc.nodes?.length || 0,
+    edgeCount: doc.edges?.length || 0,
+    isPinned: existing?.isPinned,
+    tags: existing?.tags,
+  };
+}
+
+/**
+ * Persists a document to its owned file path and reports the real outcome: a failed
+ * native write is returned as failure (never silently swallowed), and a successful
+ * write returns the freshly derived Library metadata so the caller can update the
+ * visible Library immediately, without a manual rescan (Ledger F11).
+ *
+ * Only `.mflow` and `.json` targets are written; any other path is a no-op success
+ * (nothing to persist to — mirrors the prior behavior for unrecognized extensions).
+ */
+export async function saveDocumentToLibrary(
+  doc: CanonicalDocument,
+  filePath: string,
+  bridge: INativeBridge = getNativeBridge(),
+  existing?: Pick<LibraryEntry, 'isPinned' | 'tags'>
+): Promise<SaveDocumentResult> {
+  const lower = filePath.toLowerCase();
+  try {
+    if (lower.endsWith('.mflow')) {
+      const bytes = await packageDocumentToMflow(doc);
+      await atomicWriteBinaryFile(filePath, bytes, bridge);
+    } else if (lower.endsWith('.json')) {
+      await atomicWriteTextFile(filePath, JSON.stringify(doc, null, 2), bridge);
+    } else {
+      return { success: true };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error while saving to disk';
+    return { success: false, message };
+  }
+
+  return { success: true, entry: deriveLibraryEntry(doc, filePath, existing) };
+}
+
 /**
  * Inspects a document file and generates a metadata catalog entry
  */

@@ -59,10 +59,16 @@ const nodeTypes = {
   customNode: CustomNode,
 };
 
+export interface SaveResult {
+  success: boolean;
+  /** User-facing failure reason. Only meaningful when success is false. */
+  message?: string;
+}
+
 interface CanvasEditorProps {
   initialDocument: CanonicalDocument;
   onBackToLibrary: () => void;
-  onSaveDocument: (doc: CanonicalDocument) => void;
+  onSaveDocument: (doc: CanonicalDocument) => Promise<SaveResult>;
 }
 
 export const CanvasEditor: React.FC<CanvasEditorProps> = ({
@@ -76,6 +82,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [layoutPreset, setLayoutPreset] = useState<LayoutOptions['preset']>('balanced');
 
   // Internal clipboard for branch copy/cut/paste
@@ -1000,10 +1007,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc.nodes, handleUpdateNode]
   );
 
-  const handleSaveDocument = useCallback(() => {
+  const handleSaveDocument = useCallback(async () => {
     const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-    onSaveDocument(currentDoc);
-    setStatusMessage('Saved to local storage');
+    setStatusMessage('Saving...');
+    const result = await onSaveDocument(currentDoc);
+    if (result.success) {
+      setSaveError(null);
+      setStatusMessage('Saved to local storage');
+    } else {
+      const reason = result.message || 'Unknown error';
+      setSaveError(reason);
+      setStatusMessage(`Save failed: ${reason}`);
+    }
   }, [nodes, edges, doc, onSaveDocument]);
 
   const handleExportFormat = useCallback(
@@ -1578,9 +1593,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             </ViewportPortal>
 
             <Panel position="bottom-center" className="mb-4">
-              <div className="px-3 py-1.5 bg-slate-900/80 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
-                <FolderSync size={12} className="text-blue-400" />
-                <span>Status: {statusMessage}</span>
+              <div
+                data-testid="save-status-pill"
+                data-save-error={saveError ? 'true' : 'false'}
+                className={`px-3 py-1.5 backdrop-blur-md text-white rounded-full text-xs font-medium shadow-lg flex items-center gap-2 ${
+                  saveError ? 'bg-red-600/90' : 'bg-slate-900/80'
+                }`}
+              >
+                <FolderSync size={12} className={saveError ? 'text-red-200' : 'text-blue-400'} />
+                <span data-testid="save-status-text">Status: {statusMessage}</span>
               </div>
             </Panel>
           </ReactFlow>
