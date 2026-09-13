@@ -28,7 +28,7 @@ import { parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { parseMultilineToTree } from '../model/pasteParser';
-import { createGroup, computeGroupBounds } from '../model/groups';
+import { createGroup, computeGroupBounds, translateGroup } from '../model/groups';
 import { DeletionPlan, planCanvasDeletion } from '../model/deletion';
 import { getNativeBridge } from '../platform/tauriBridge';
 import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
@@ -85,6 +85,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const groupDragRef = useRef<{ groupId: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
 
   // Clean lifecycle unmount: cancel animations and release instances
   useEffect(() => {
@@ -557,6 +558,46 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     },
     [doc, updateHistoryStatus]
   );
+
+  const beginGroupDrag = useCallback((event: React.PointerEvent, groupId: string) => {
+    const flowPoint = rfInstanceRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!flowPoint) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    groupDragRef.current = { groupId, startX: flowPoint.x, startY: flowPoint.y, dx: 0, dy: 0 };
+  }, []);
+
+  const moveGroupDrag = useCallback((event: React.PointerEvent) => {
+    const activeDrag = groupDragRef.current;
+    const flowPoint = rfInstanceRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!activeDrag || !flowPoint) return;
+    const dx = flowPoint.x - activeDrag.startX;
+    const dy = flowPoint.y - activeDrag.startY;
+    const stepX = dx - activeDrag.dx;
+    const stepY = dy - activeDrag.dy;
+    if (stepX === 0 && stepY === 0) return;
+    activeDrag.dx = dx;
+    activeDrag.dy = dy;
+    setDoc((previousDoc) => {
+      const nextDoc = translateGroup(previousDoc, activeDrag.groupId, stepX, stepY);
+      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold, selectedNodeId, onUpdateLabel: handleUpdateNodeLabel });
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      return nextDoc;
+    });
+  }, [handleToggleFold, handleUpdateNodeLabel, selectedNodeId]);
+
+  const endGroupDrag = useCallback(() => {
+    if (!groupDragRef.current) return;
+    groupDragRef.current = null;
+    setDoc((currentDoc) => {
+      historyRef.current.pushState(currentDoc);
+      updateHistoryStatus();
+      return currentDoc;
+    });
+    setStatusMessage('Moved group container');
+  }, [updateHistoryStatus]);
 
   // Request explicit confirmation before deleting canvas content.
   const handleDeleteSelectedSubtree = useCallback(() => {
@@ -1521,7 +1562,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                       zIndex: 0,
                     }}
                   >
-                    <div className="px-2.5 py-1 bg-white/90 border-b border-slate-200/90 rounded-t-xl text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shadow-2xs">
+                    <div
+                      className="pointer-events-auto cursor-move touch-none px-2.5 py-1 bg-white/90 border-b border-slate-200/90 rounded-t-xl text-[11px] font-bold text-slate-700 flex items-center gap-1.5 shadow-2xs"
+                      onPointerDown={(event) => beginGroupDrag(event, group.id)}
+                      onPointerMove={moveGroupDrag}
+                      onPointerUp={endGroupDrag}
+                      onPointerCancel={endGroupDrag}
+                    >
                       <Layers size={12} className="text-blue-500" />
                       <span>{group.title}</span>
                     </div>
