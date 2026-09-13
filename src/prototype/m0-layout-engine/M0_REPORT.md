@@ -9,9 +9,9 @@
 > imported them; production tests only ever read the neutral fixture data
 > below. That prototype implementation has been deleted as genuinely
 > throwaway, its job done. This file and `fixtures/` are kept as the
-> historical evidence record the production engine's own doc comments and
-> `CONTEXT.md` still cite -- read it as a record of a design decision, not
-> as a description of current code. The production engine that resulted
+> historical evidence record `src/model/mindMapLayoutEngine.ts`'s own doc
+> comments still cite -- read it as a record of a design decision, not as
+> a description of current code. The production engine that resulted
 > from this gate is `src/model/mindMapLayoutEngine.ts` (M1-A, extended in
 > M1-D); its own tests live in `src/test/v2-m1a-mind-map-engine.test.ts`
 > and `src/test/v2-m1d-fanout-and-stability.test.ts`.

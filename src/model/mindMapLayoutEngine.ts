@@ -66,8 +66,9 @@ type Side = 'left' | 'right';
 
 /**
  * Fan-out activation threshold (M0's open item #1, now closed for the
- * common case): M0's empirical sweep (`src/prototype/m0-layout-engine/
- * fanoutStrategy.test.ts`, summarized in M0_REPORT.md §5) measured plain
+ * common case): M0's empirical sweep (the throwaway prototype harness that
+ * produced it is retired; see `src/prototype/m0-layout-engine/M0_REPORT.md`
+ * §5, its surviving historical evidence record) measured plain
  * single-column banding's `edgeThroughNodeCount` starting to degrade at
  * n≈16 direct same-side children (8 crossings) and becoming clearly bad
  * by n≈24-40 (20-62 crossings; 302 on the real 60-node fixture at aspect
