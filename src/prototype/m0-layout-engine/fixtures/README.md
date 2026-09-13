@@ -31,4 +31,4 @@ These files are intentionally **input-only**. There are no `.mflow` golden outpu
 - collapse/expand stability
 - whether one sibling subtree consumes hierarchy depth that belongs to later siblings
 
-Use these alongside your existing real [REDACTED] / [REDACTED] samples, not instead of them.
+Use these alongside your existing real-world outline samples, not instead of them.
