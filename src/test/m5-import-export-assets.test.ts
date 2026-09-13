@@ -104,24 +104,14 @@ describe('Milestone 5: Multi-Format Exporter Suite (11 Formats)', () => {
     expect(svg).toContain('</svg>');
   });
 
-  it('3. exports raster PNG bytes with valid magic header', async () => {
+  it('3. requires a browser canvas for genuine PNG export', async () => {
     const doc = getSampleDoc();
-    const png = await exportToPNG(doc);
-    expect(png.length).toBeGreaterThan(8);
-    // PNG Magic bytes: 0x89 0x50 0x4E 0x47
-    expect(png[0]).toBe(0x89);
-    expect(png[1]).toBe(0x50);
-    expect(png[2]).toBe(0x4e);
-    expect(png[3]).toBe(0x47);
+    await expect(exportToPNG(doc)).rejects.toThrow('browser or WebView canvas runtime');
   });
 
-  it('4. exports raster JPEG bytes with valid magic header', async () => {
+  it('4. requires a browser canvas for genuine JPEG export', async () => {
     const doc = getSampleDoc();
-    const jpeg = await exportToJPEG(doc);
-    expect(jpeg.length).toBeGreaterThan(4);
-    // JPEG Magic bytes: 0xFF 0xD8
-    expect(jpeg[0]).toBe(0xff);
-    expect(jpeg[1]).toBe(0xd8);
+    await expect(exportToJPEG(doc)).rejects.toThrow('browser or WebView canvas runtime');
   });
 
   it('5. exports standard PDF 1.4 document bytes', async () => {

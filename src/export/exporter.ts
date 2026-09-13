@@ -405,35 +405,33 @@ export function exportToHTML(doc: CanonicalDocument): string {
 
 /**
  * 9. PNG Exporter (.png)
- * Produces binary PNG buffer via offscreen SVG rasterization or fallback binary format
+ * Produces genuine PNG bytes by rasterizing the canonical SVG in the browser/WebView canvas.
  */
-export async function exportToPNG(doc: CanonicalDocument): Promise<Uint8Array> {
-  const svg = exportToSVG(doc);
-  // In Node / Vitest headless runner, produce standard PNG header with SVG payload wrapper
-  // In real browser runtime, OffscreenCanvas or canvas.toBlob() is used
-  const encoder = new TextEncoder();
-  const svgBytes = encoder.encode(svg);
-  const pngHeader = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const combined = new Uint8Array(pngHeader.length + svgBytes.length);
-  combined.set(pngHeader);
-  combined.set(svgBytes, pngHeader.length);
-  return combined;
+async function rasterizeSvg(svg: string, mimeType: 'image/png' | 'image/jpeg'): Promise<Uint8Array> {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') {
+    throw new Error('Raster export requires a browser or WebView canvas runtime.');
+  }
+  const source = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const next = new Image(); next.onload = () => resolve(next); next.onerror = () => reject(new Error('SVG rasterization failed')); next.src = source;
+    });
+    const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth || image.width; canvas.height = image.naturalHeight || image.height;
+    const context = canvas.getContext('2d'); if (!context) throw new Error('Canvas 2D context is unavailable');
+    if (mimeType === 'image/jpeg') { context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height); }
+    context.drawImage(image, 0, 0);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error('Raster encoding failed')), mimeType, 0.92));
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally { URL.revokeObjectURL(source); }
 }
+
+export async function exportToPNG(doc: CanonicalDocument): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc), 'image/png'); }
 
 /**
  * 10. JPEG Exporter (.jpeg)
  * Produces binary JPEG buffer
  */
-export async function exportToJPEG(doc: CanonicalDocument): Promise<Uint8Array> {
-  const svg = exportToSVG(doc);
-  const encoder = new TextEncoder();
-  const svgBytes = encoder.encode(svg);
-  const jpegHeader = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
-  const combined = new Uint8Array(jpegHeader.length + svgBytes.length);
-  combined.set(jpegHeader);
-  combined.set(svgBytes, jpegHeader.length);
-  return combined;
-}
+export async function exportToJPEG(doc: CanonicalDocument): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc), 'image/jpeg'); }
 
 /**
  * 11. PDF Document Exporter (.pdf)
