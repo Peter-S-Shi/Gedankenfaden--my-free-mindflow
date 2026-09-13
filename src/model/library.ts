@@ -273,6 +273,56 @@ export async function scanDirectoryForDocuments(
   return results;
 }
 
+const IMPORTED_OUTLINE_MARKER = '.gedankenfaden-imported';
+
+/**
+ * Marker suffix appended to the .mflow copy Rescan Disk creates for a .md/.opml
+ * outline it finds sitting directly in the Library folder (Ledger F09/F13):
+ * "Import File" already accepts .md/.markdown/.opml, but scanning previously
+ * only recognized .mflow/.json, so a dropped outline never appeared in the
+ * Library until the user manually imported it. Discovering it here reconciles
+ * Rescan/watcher-driven discovery with what Import File already supports.
+ *
+ * The target path is derived deterministically from the source file's own
+ * name (not a timestamp), so re-scanning the same folder never creates a
+ * second copy: if the marked .mflow already exists, the source is left alone.
+ */
+export async function scanDirectoryForImportableOutlines(
+  dirPath: string,
+  bridge: INativeBridge = getNativeBridge()
+): Promise<LibraryEntry[]> {
+  if (!(await bridge.exists(dirPath))) {
+    return [];
+  }
+
+  const fileEntries: FileEntry[] = await bridge.readDir(dirPath);
+  const results: LibraryEntry[] = [];
+
+  for (const file of fileEntries) {
+    if (file.isDirectory) continue;
+    const lower = file.name.toLowerCase();
+    const isOutline =
+      lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.opml');
+    if (!isOutline) continue;
+
+    const basename = file.name.replace(/\.(md|markdown|opml)$/i, '');
+    const targetPath = `${dirPath}/${basename}${IMPORTED_OUTLINE_MARKER}.mflow`.replace(/\\/g, '/');
+
+    if (await bridge.exists(targetPath)) continue;
+
+    const doc = await loadDocumentFromFile(file.path, bridge);
+    if (!doc) continue;
+
+    const bytes = packageDocumentToMflow(doc);
+    await atomicWriteBinaryFile(targetPath, bytes, bridge);
+
+    const entry = await inspectDocumentFile(targetPath, bridge);
+    if (entry) results.push(entry);
+  }
+
+  return results;
+}
+
 /**
  * Synchronizes fast library cache against multiple scanned directories
  */
@@ -288,7 +338,8 @@ export async function syncLibraryWithDisk(
   }
 
   for (const dir of scanDirs) {
-    const scanned = await scanDirectoryForDocuments(dir, bridge);
+    const importedOutlines = await scanDirectoryForImportableOutlines(dir, bridge);
+    const scanned = [...(await scanDirectoryForDocuments(dir, bridge)), ...importedOutlines];
     for (const item of scanned) {
       const existing = entryMap.get(item.filePath);
       entryMap.set(item.filePath, {
