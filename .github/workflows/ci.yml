@@ -51,6 +51,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: cargo build --manifest-path src-tauri/Cargo.toml
 
+      - name: Run Rust unit tests (native filesystem authorization & Library watcher)
+        if: matrix.os == 'windows-latest'
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build Windows Native Release Binary
         if: matrix.os == 'windows-latest'
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
