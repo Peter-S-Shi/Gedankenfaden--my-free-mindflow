@@ -3,6 +3,11 @@ import { Handle, Position, NodeProps } from '@xyflow/react';
 import { CustomNodeData } from '../model/adapter';
 import { NodeShape } from '../model/types';
 
+export const MINDMAP_HANDLE_IDS = {
+  source: ['left', 'right'],
+  target: ['left', 'right'],
+} as const;
+
 export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const nodeData = data as unknown as CustomNodeData;
   const [isEditing, setIsEditing] = useState(false);
@@ -134,13 +139,25 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       <Handle
         type="target"
         position={Position.Left}
-        id="left"
+        id={MINDMAP_HANDLE_IDS.target[0]}
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
       />
       <Handle
         type="source"
         position={Position.Right}
-        id="right"
+        id={MINDMAP_HANDLE_IDS.source[1]}
+        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id={MINDMAP_HANDLE_IDS.source[0]}
+        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id={MINDMAP_HANDLE_IDS.target[1]}
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
       />
       <Handle
