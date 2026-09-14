@@ -125,8 +125,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   return (
     <svg
       data-testid="annotation-layer"
-      className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ width: '100%', height: '100%', zIndex: 0 }}
+      className="absolute pointer-events-none overflow-visible"
+      style={{ top: 0, left: 0, width: 0, height: 0, zIndex: 0 }}
       onPointerMove={handlePointerMoveHandle}
       onPointerUp={handlePointerUpHandle}
     >

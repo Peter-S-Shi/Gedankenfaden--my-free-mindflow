@@ -353,15 +353,16 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   const syncToCanonical = useCallback(
     (nextNodes: Node<CustomNodeData>[], nextEdges: Edge[], pushHistory = true) => {
-      const nextDoc = reactFlowToCanonical(nextNodes, nextEdges, doc);
-      if (pushHistory) {
-        historyRef.current.pushState(nextDoc);
-        updateHistoryStatus();
-      }
-      setDoc(nextDoc);
-      return nextDoc;
+      setDoc((prevDoc) => {
+        const nextDoc = reactFlowToCanonical(nextNodes, nextEdges, prevDoc);
+        if (pushHistory) {
+          historyRef.current.pushState(nextDoc);
+          updateHistoryStatus();
+        }
+        return nextDoc;
+      });
     },
-    [doc, updateHistoryStatus]
+    [updateHistoryStatus]
   );
 
   const childrenIdsByParent = useMemo(() => buildChildrenIdsByParent(doc.nodes), [doc.nodes]);
@@ -1113,13 +1114,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   // Annotation Management (Boundary, Brace, Relationship Line)
   const handleAddBoundary = useCallback(
     (targetNodeId?: string) => {
-      const candidateIds = multiSelectedNodeIds.size > 0
-        ? Array.from(multiSelectedNodeIds)
-        : targetNodeId
-        ? [targetNodeId]
-        : selectedNodeId
-        ? [selectedNodeId]
-        : [];
+      const flowSelected = rfInstanceRef.current?.getNodes().filter((n) => n.selected).map((n) => n.id) || [];
+      const combined = new Set([...flowSelected, ...Array.from(multiSelectedNodeIds)]);
+      
+      let candidateIds: string[] = [];
+      if (targetNodeId && combined.has(targetNodeId)) {
+        candidateIds = Array.from(combined);
+      } else if (targetNodeId) {
+        candidateIds = [targetNodeId];
+      } else if (combined.size > 0) {
+        candidateIds = Array.from(combined);
+      } else if (selectedNodeId) {
+        candidateIds = [selectedNodeId];
+      }
+
       if (!candidateIds.length) return;
 
       const newBoundaries = createBoundaryAnnotations(candidateIds, doc.nodes);
@@ -1142,13 +1150,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   const handleAddBrace = useCallback(
     (targetNodeId?: string) => {
-      const candidateIds = multiSelectedNodeIds.size > 0
-        ? Array.from(multiSelectedNodeIds)
-        : targetNodeId
-        ? [targetNodeId]
-        : selectedNodeId
-        ? [selectedNodeId]
-        : [];
+      const flowSelected = rfInstanceRef.current?.getNodes().filter((n) => n.selected).map((n) => n.id) || [];
+      const combined = new Set([...flowSelected, ...Array.from(multiSelectedNodeIds)]);
+      
+      let candidateIds: string[] = [];
+      if (targetNodeId && combined.has(targetNodeId)) {
+        candidateIds = Array.from(combined);
+      } else if (targetNodeId) {
+        candidateIds = [targetNodeId];
+      } else if (combined.size > 0) {
+        candidateIds = Array.from(combined);
+      } else if (selectedNodeId) {
+        candidateIds = [selectedNodeId];
+      }
+
       if (!candidateIds.length) return;
 
       const newBraces = createBraceAnnotations(candidateIds, doc.nodes);
@@ -1163,7 +1178,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       historyRef.current.pushState(nextDoc);
       updateHistoryStatus();
       setSelectedAnnotationId(newBraces[0].id);
-      setStatusMessage(`Created brace summary (${newBraces.length} group${newBraces.length > 1 ? 's' : ''})`);
+      setStatusMessage(`Created brace (${newBraces.length} group${newBraces.length > 1 ? 's' : ''})`);
       setContextMenu(null);
     },
     [doc, multiSelectedNodeIds, selectedNodeId, updateHistoryStatus]
@@ -1188,20 +1203,22 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       const newLine = createRelationshipLineAnnotation(targetingLineSourceId, targetNodeId);
       if (!newLine) return;
 
-      const nextDoc: CanonicalDocument = {
-        ...doc,
-        annotations: [...(doc.annotations || []), newLine],
-        updatedAt: new Date().toISOString(),
-      };
-      setDoc(nextDoc);
-      historyRef.current.pushState(nextDoc);
+      setDoc((prevDoc) => {
+        const nextDoc: CanonicalDocument = {
+          ...prevDoc,
+          annotations: [...(prevDoc.annotations || []), newLine],
+          updatedAt: new Date().toISOString(),
+        };
+        historyRef.current.pushState(nextDoc);
+        return nextDoc;
+      });
       updateHistoryStatus();
       setSelectedAnnotationId(newLine.id);
       setTargetingLineSourceId(null);
       setTargetingMousePos(null);
       setStatusMessage('Created relationship line');
     },
-    [doc, targetingLineSourceId, updateHistoryStatus]
+    [targetingLineSourceId, updateHistoryStatus]
   );
 
   const handleCancelTargetingLine = useCallback(() => {
@@ -2876,7 +2893,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             <ViewportPortal>
               <AnnotationLayer
                 annotations={doc.annotations}
-                nodes={doc.nodes}
+                nodes={nodes.map(n => ({
+                  id: n.id,
+                  text: n.data?.label || '',
+                  geometry: {
+                    x: n.position.x,
+                    y: n.position.y,
+                    width: n.measured?.width ?? n.width ?? (doc.nodes.find(dn => dn.id === n.id)?.geometry.width || 120),
+                    height: n.measured?.height ?? n.height ?? (doc.nodes.find(dn => dn.id === n.id)?.geometry.height || 40)
+                  },
+                  parentId: n.data?.parentId,
+                  mindMapSide: n.data?.mindMapSide,
+                }) as any)}
                 selectedAnnotationId={selectedAnnotationId}
                 onSelectAnnotation={(id) => {
                   setSelectedAnnotationId(id);
@@ -3226,21 +3254,21 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                         onClick={() => handleAddBoundary(targetNodeId)}
                         className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
                       >
-                        <span>Boundary (外框)</span>
+                        <span>Boundary</span>
                       </button>
                       <button
                         data-testid="context-action-add-brace"
                         onClick={() => handleAddBrace(targetNodeId)}
                         className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
                       >
-                        <span>Brace (概括)</span>
+                        <span>Brace</span>
                       </button>
                       <button
                         data-testid="context-action-add-relationship-line"
                         onClick={() => handleStartRelationshipLine(targetNodeId)}
                         className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
                       >
-                        <span>Relationship Line (连线)</span>
+                        <span>Relationship Line</span>
                       </button>
                     </div>
                   </div>
