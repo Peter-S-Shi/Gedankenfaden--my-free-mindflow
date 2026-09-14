@@ -37,6 +37,7 @@ import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { buildChildrenIdsByParent, carryDescendantsWithDraggedParents } from '../model/dragSubtree';
+import { computeTextAwareNodeSize } from '../model/textMeasurement';
 import {
   ArrowLeft,
   Plus,
@@ -135,6 +136,19 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     []
   );
 
+  // Product Hardening: Persistent Manual Node Sizing -- live per-frame
+  // height follow for Mind Map's width-only resize handle. React Flow's
+  // own resize control only ever changes width for a side ('left'/'right')
+  // control; it never recomputes height. This callback (wired to
+  // `NodeResizeControl`'s `onResize` in CustomNode) keeps the box's height
+  // in sync with the text-aware wrap at the live width, purely as a local
+  // style update -- no canonical/doc write, no history entry, no global
+  // layout. The one-time canonical reconciliation happens once, on resize
+  // end, in `handleResizeEnd`.
+  const handleLiveResizeWidth = useCallback((nodeId: string, height: number) => {
+    setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, style: { ...n.style, height } } : n)));
+  }, []);
+
   // Fold / Unfold branch callback
   const handleToggleFold = useCallback(
     (nodeId: string) => {
@@ -148,7 +162,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           updatedAt: new Date().toISOString(),
         };
         const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset, stabilizeAgainst: prevDoc });
-        const projected = canonicalToReactFlow(layouted, { onToggleFold: handleToggleFold });
+        const projected = canonicalToReactFlow(layouted, {
+          onToggleFold: handleToggleFold,
+          onLiveResizeWidth: handleLiveResizeWidth,
+          onResizeEnd: handleResizeEndFromNode,
+        });
         setNodes(projected.nodes);
         setEdges(projected.edges);
         historyRef.current.pushState(layouted);
@@ -157,7 +175,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       });
       setStatusMessage('Toggled branch fold');
     },
-    [layoutPreset]
+    [layoutPreset, handleLiveResizeWidth]
   );
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -174,14 +192,21 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
   }, []);
 
+  const handleResizeEndRef = useRef<((nodeId: string, dimensions: { width: number; height: number }) => void) | null>(null);
+  const handleResizeEndFromNode = useCallback((nodeId: string, dimensions: { width: number; height: number }) => {
+    handleResizeEndRef.current?.(nodeId, dimensions);
+  }, []);
+
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () =>
       canonicalToReactFlow(initialDocument, {
         onToggleFold: handleToggleFold,
         selectedNodeId: null,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       }),
-    [initialDocument, handleToggleFold, handleUpdateNodeLabel]
+    [initialDocument, handleToggleFold, handleUpdateNodeLabel, handleLiveResizeWidth, handleResizeEndFromNode]
   );
   const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
@@ -212,8 +237,130 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   // behind while the parent moves.
   const childrenIdsByParent = useMemo(() => buildChildrenIdsByParent(doc.nodes), [doc.nodes]);
 
+  // Product Hardening: Persistent Manual Node Sizing -- the one canonical
+  // settle pass for a full resize gesture (mousedown-to-mouseup), called from
+  // the resize control's `onResizeEnd`.
+  //
+  // Mind Map: marks `manualSize` (width-only) on the resized node, then runs
+  // exactly one `stabilizeAgainst`-anchored relayout so only that node's own
+  // subtree repositions -- unrelated branches never move (#10c).
+  // Flowchart: marks `manualSize` (width+height) and persists geometry in
+  // place with NO relayout call at all -- a Dagre pass would reposition
+  // other nodes by rank, which a single node's resize must never do.
+  //
+  // Either way, this whole gesture becomes exactly one history entry. The
+  // live React Flow `dimensions` changes below only update transient geometry;
+  // this explicit bridge is what makes the manual size durable.
+  const handleResizeEnd = useCallback(
+    (nodeId: string, dimensions: { width: number; height: number }) => {
+      const preGestureDoc = doc;
+      const isFlowchart = doc.mode === 'flowchart';
+
+      const withManualSize: CanonicalDocument = {
+        ...doc,
+        nodes: doc.nodes.map((n) => {
+          if (n.id !== nodeId) return n;
+          const width = dimensions.width;
+          const height = isFlowchart
+            ? dimensions.height
+            : computeTextAwareNodeSize(n.text || '', {
+                width,
+                fontSize: n.style?.fontSize,
+              }).height;
+
+          return {
+            ...n,
+            geometry: { ...n.geometry, width, height },
+            manualSize: isFlowchart ? { width, height } : { width },
+          };
+        }),
+      };
+
+      const finalDoc = isFlowchart
+        ? withManualSize
+        : autoLayoutDocument(withManualSize, { preset: layoutPreset, stabilizeAgainst: preGestureDoc });
+
+      const projected = canonicalToReactFlow(finalDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
+
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      setDoc(finalDoc);
+      historyRef.current.pushState(finalDoc);
+      updateHistoryStatus();
+      setStatusMessage(isFlowchart ? 'Resized node' : 'Resized topic width');
+    },
+    [doc, layoutPreset, selectedNodeId, handleToggleFold, handleUpdateNodeLabel, handleLiveResizeWidth, handleResizeEndFromNode, updateHistoryStatus]
+  );
+
+  useEffect(() => {
+    handleResizeEndRef.current = handleResizeEnd;
+  }, [handleResizeEnd]);
+
+  // Product Hardening: Persistent Manual Node Sizing -- explicit "Reset
+  // Size" path. Clearing `manualSize` alone would not be enough: `geometry.
+  // width`/`height` are sticky (every layout pass just echoes back whatever
+  // is already there), so the stale manual value would keep being read as
+  // the "declared width" fallback forever. Resetting is therefore an
+  // explicit action that also clears `geometry.width`/`height`, not an
+  // inference from final geometry.
+  //
+  // Mind Map: clearing both lets the next relayout fall through to the
+  // natural default width (150) and recompute text-aware height at that
+  // width -- one stabilized pass so only this node's own subtree moves.
+  // Flowchart: no relayout (a resize/reset must never move other nodes);
+  // this node's geometry is set directly back to the product default
+  // (160x48) in place.
+  const handleResetNodeSize = useCallback(() => {
+    if (!selectedNodeId) return;
+    const target = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!target?.manualSize) return;
+
+    const preResetDoc = doc;
+    const clearedDoc: CanonicalDocument = {
+      ...doc,
+      nodes: doc.nodes.map((n) =>
+        n.id === selectedNodeId
+          ? { ...n, manualSize: undefined, geometry: { ...n.geometry, width: undefined, height: undefined } }
+          : n
+      ),
+    };
+
+    const isFlowchart = doc.mode === 'flowchart';
+    const finalDoc = isFlowchart
+      ? {
+          ...clearedDoc,
+          nodes: clearedDoc.nodes.map((n) =>
+            n.id === selectedNodeId ? { ...n, geometry: { ...n.geometry, width: 160, height: 48 } } : n
+          ),
+        }
+      : autoLayoutDocument(clearedDoc, { preset: layoutPreset, stabilizeAgainst: preResetDoc });
+
+    const projected = canonicalToReactFlow(finalDoc, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId,
+      onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
+    });
+
+    setNodes(projected.nodes);
+    setEdges(projected.edges);
+    setDoc(finalDoc);
+    historyRef.current.pushState(finalDoc);
+    updateHistoryStatus();
+    setStatusMessage('Reset node size');
+  }, [doc, selectedNodeId, layoutPreset, handleToggleFold, handleUpdateNodeLabel, handleLiveResizeWidth, updateHistoryStatus]);
+
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<CustomNodeData>>[]) => {
+      const hasResizeDimensionChange = changes.some((c) => c.type === 'dimensions');
+
       setNodes((nds) => {
         const next = carryDescendantsWithDraggedParents(
           nds,
@@ -221,6 +368,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           changes.filter((c) => c.type === 'position'),
           childrenIdsByParent
         );
+
+        if (hasResizeDimensionChange) {
+          return next;
+        }
 
         const isDragEnd = changes.some((c) => c.type === 'position' && !c.dragging);
         if (isDragEnd) {
@@ -322,6 +473,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
 
       setNodes(projected.nodes);
@@ -380,6 +533,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: newId,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
 
       const updatedRfNodes = projected.nodes.map((n) => ({
@@ -438,6 +593,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       onToggleFold: handleToggleFold,
       selectedNodeId: newId,
       onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
     });
 
     const updatedRfNodes = projected.nodes.map((n) => ({
@@ -496,6 +653,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: newId,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
       const updatedRfNodes = projected.nodes.map((n) => ({
         ...n,
@@ -552,6 +711,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       onToggleFold: handleToggleFold,
       selectedNodeId: newId,
       onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
     });
     const updatedRfNodes = projected.nodes.map((n) => ({
       ...n,
@@ -607,12 +768,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     activeDrag.dy = dy;
     setDoc((previousDoc) => {
       const nextDoc = translateGroup(previousDoc, activeDrag.groupId, stepX, stepY);
-      const projected = canonicalToReactFlow(nextDoc, { onToggleFold: handleToggleFold, selectedNodeId, onUpdateLabel: handleUpdateNodeLabel });
+      const projected = canonicalToReactFlow(nextDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
       setNodes(projected.nodes);
       setEdges(projected.edges);
       return nextDoc;
     });
-  }, [handleToggleFold, handleUpdateNodeLabel, selectedNodeId]);
+  }, [handleToggleFold, handleUpdateNodeLabel, selectedNodeId, handleLiveResizeWidth]);
 
   const endGroupDrag = useCallback(() => {
     if (!groupDragRef.current) return;
@@ -649,6 +816,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: targetNode.id,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
       setNodes(projected.nodes);
       setEdges(projected.edges);
@@ -681,6 +850,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       onToggleFold: handleToggleFold,
       selectedNodeId: parentToSelect,
       onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
     });
 
     const updatedRfNodes = projected.nodes.map((n) => ({
@@ -711,6 +882,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       onToggleFold: handleToggleFold,
       selectedNodeId: null,
       onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
     });
 
     setDoc(layouted);
@@ -883,6 +1056,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           onToggleFold: handleToggleFold,
           selectedNodeId: firstParsedId,
           onUpdateLabel: handleUpdateNodeLabel,
+          onLiveResizeWidth: handleLiveResizeWidth,
+          onResizeEnd: handleResizeEndFromNode,
         });
 
         setDoc(layouted);
@@ -940,6 +1115,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: firstClonedId,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
 
       setDoc(layouted);
@@ -963,6 +1140,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: nextSelected,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
       setNodes(projected.nodes);
       setEdges(projected.edges);
@@ -983,6 +1162,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId: nextSelected,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
       setNodes(projected.nodes);
       setEdges(projected.edges);
@@ -1004,6 +1185,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onToggleFold: handleToggleFold,
         selectedNodeId,
         onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
       });
       setNodes(projected.nodes);
       setEdges(projected.edges);
@@ -1028,6 +1211,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           onToggleFold: handleToggleFold,
           selectedNodeId: nodeId,
           onUpdateLabel: handleUpdateNodeLabel,
+          onLiveResizeWidth: handleLiveResizeWidth,
+          onResizeEnd: handleResizeEndFromNode,
         });
         setNodes(projected.nodes);
         setEdges(projected.edges);
@@ -1118,6 +1303,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               onToggleFold: handleToggleFold,
               selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
+              onLiveResizeWidth: handleLiveResizeWidth,
+              onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
@@ -1142,6 +1329,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               onToggleFold: handleToggleFold,
               selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
+              onLiveResizeWidth: handleLiveResizeWidth,
+              onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
@@ -1166,6 +1355,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               onToggleFold: handleToggleFold,
               selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
+              onLiveResizeWidth: handleLiveResizeWidth,
+              onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
@@ -1193,6 +1384,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               onToggleFold: handleToggleFold,
               selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
+              onLiveResizeWidth: handleLiveResizeWidth,
+              onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
@@ -1375,6 +1568,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 Child
               </button>
             </>
+          )}
+
+          {selectedCanonicalNode?.manualSize && (
+            <button
+              onClick={handleResetNodeSize}
+              title={doc.mode === 'mindmap' ? 'Reset to natural text-aware width' : 'Reset to default size'}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
+            >
+              <Sparkles size={14} />
+              Reset Size
+            </button>
           )}
 
           <button

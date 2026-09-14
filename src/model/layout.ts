@@ -78,8 +78,12 @@ function layoutFlowchartDocument(
   g.setDefaultEdgeLabel(() => ({}));
 
   doc.nodes.forEach((node) => {
-    const width = node.geometry.width || defaultWidth;
-    const height = node.geometry.height || defaultHeight;
+    // Flowchart nodes get independent width+height manual resize (Product
+    // Hardening: Persistent Manual Node Sizing) -- `manualSize` is the
+    // explicit persisted intent, honored ahead of whatever is already in
+    // `geometry` so Auto Layout never silently reverts a manual resize.
+    const width = node.manualSize?.width ?? node.geometry.width ?? defaultWidth;
+    const height = node.manualSize?.height ?? node.geometry.height ?? defaultHeight;
     g.setNode(node.id, { width, height });
   });
 
@@ -94,8 +98,8 @@ function layoutFlowchartDocument(
     const dagreNode = g.node(node.id);
     if (!dagreNode) return node;
 
-    const width = node.geometry.width || defaultWidth;
-    const height = node.geometry.height || defaultHeight;
+    const width = node.manualSize?.width ?? node.geometry.width ?? defaultWidth;
+    const height = node.manualSize?.height ?? node.geometry.height ?? defaultHeight;
 
     let x = Math.round(dagreNode.x - width / 2);
     let y = Math.round(dagreNode.y - height / 2);
@@ -133,7 +137,7 @@ export function layoutMindMapDocument(
 
   // Locate central root node
   const rootNode = nextDoc.nodes.find((n) => n.type === 'root') || nextDoc.nodes.find((n) => !n.parentId) || nextDoc.nodes[0];
-  const rootWidth = rootNode.geometry.width || 160;
+  const rootWidth = rootNode.manualSize?.width ?? rootNode.geometry.width ?? 160;
   const rootHeight = rootNode.geometry.height || 48;
 
   const rootX = options.centerCoordinates?.x ?? 400;
@@ -197,7 +201,7 @@ export function layoutMindMapDocument(
   }
 
   function nodeWidth(node: CanonicalNode) {
-    return node.geometry.width || defaultWidth;
+    return node.manualSize?.width ?? node.geometry.width ?? defaultWidth;
   }
 
   const columnStride = Math.max(...nextDoc.nodes.map(nodeWidth)) + hGap;
@@ -268,15 +272,15 @@ export function layoutMindMapDocument(
   if (topDownChildren.length > 0) {
     let totalWidth = 0;
     topDownChildren.forEach((child, idx) => {
-      const w = child.geometry.width || defaultWidth;
+      const w = nodeWidth(child);
       totalWidth += w;
       if (idx > 0) totalWidth += hGap;
     });
 
     let currentX = rootCenterX - totalWidth / 2;
     topDownChildren.forEach((child) => {
-      const cWidth = child.geometry.width || defaultWidth;
-      const cHeight = child.geometry.height || defaultHeight;
+      const cWidth = nodeWidth(child);
+      const cHeight = nodeHeight(child);
       const cX = currentX;
       const cY = rootY + rootHeight + vGap * 2;
 

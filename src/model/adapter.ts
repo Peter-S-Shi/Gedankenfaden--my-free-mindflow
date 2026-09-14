@@ -1,5 +1,5 @@
 import type { Node, Edge } from '@xyflow/react';
-import { CanonicalDocument, CanonicalNode, CanonicalEdge, NodeShape } from './types';
+import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentMode, NodeShape } from './types';
 import { cloneDocument } from './document';
 import { resolveNodeVisuals, BUILTIN_THEMES, ResolvedNodeVisuals } from './theme';
 import { computeDocumentNumbering } from './numbering';
@@ -18,8 +18,25 @@ export interface CustomNodeData extends Record<string, unknown> {
   numberingBadge?: string;
   hasChildren?: boolean;
   childCount?: number;
+  /** Document mode -- decides which resize affordance CustomNode renders: width-only for Mind Map, width+height for Flowchart. */
+  mode?: DocumentMode;
   onToggleFold?: (nodeId: string) => void;
   onUpdateLabel?: (nodeId: string, label: string) => void;
+  /**
+   * Product Hardening: Persistent Manual Node Sizing -- Mind Map's width-only
+   * resize handle only ever changes width natively; this callback lets
+   * CustomNode ask the canvas to recompute and apply the text-aware auto
+   * height live, on every drag frame, without touching canonical state or
+   * history (see `CanvasEditor.handleLiveResizeWidth`).
+   */
+  onLiveResizeWidth?: (nodeId: string, height: number) => void;
+  /**
+   * Commits the completed native resize gesture back to the canonical model.
+   * React Flow owns the live DOM/node dimensions while dragging; the canvas
+   * uses this explicit gesture-end bridge to create exactly one durable
+   * `manualSize` + history checkpoint.
+   */
+  onResizeEnd?: (nodeId: string, dimensions: { width: number; height: number }) => void;
 }
 
 const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
@@ -37,8 +54,11 @@ const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
   'numberingBadge',
   'hasChildren',
   'childCount',
+  'mode',
   'onToggleFold',
   'onUpdateLabel',
+  'onLiveResizeWidth',
+  'onResizeEnd',
 ]);
 
 function preserveDomainNodeData(data: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -52,6 +72,8 @@ function preserveDomainNodeData(data: Record<string, unknown> | undefined): Reco
 export interface CanonicalToReactFlowCallbacks {
   onToggleFold?: (nodeId: string) => void;
   onUpdateLabel?: (nodeId: string, label: string) => void;
+  onLiveResizeWidth?: (nodeId: string, height: number) => void;
+  onResizeEnd?: (nodeId: string, dimensions: { width: number; height: number }) => void;
   selectedNodeId?: string | null;
 }
 
@@ -121,8 +143,11 @@ export function canonicalToReactFlow(
         numberingBadge: numberingMap.get(n.id),
         hasChildren,
         childCount: directChildren.length,
+        mode: doc.mode,
         onToggleFold: callbacks?.onToggleFold,
         onUpdateLabel: callbacks?.onUpdateLabel,
+        onLiveResizeWidth: callbacks?.onLiveResizeWidth,
+        onResizeEnd: callbacks?.onResizeEnd,
       },
       style: {
         width: n.geometry.width,
@@ -188,14 +213,36 @@ export function reactFlowToCanonical(
       geometry: {
         x: rn.position.x,
         y: rn.position.y,
-        width: typeof rn.style?.width === 'number' ? rn.style.width : (existing?.geometry.width || 150),
-        height: typeof rn.style?.height === 'number' ? rn.style.height : (existing?.geometry.height || 44),
+        // A resize (`NodeResizeControl`/`NodeResizer`) writes the new size to
+        // React Flow's own `width`/`height`/`measured` node fields, not to
+        // `style` -- read those first (same precedence order React Flow's
+        // own renderer uses) so a live or just-completed resize round-trips
+        // into canonical geometry; `style.width/height` (what this adapter
+        // itself writes on every projection) is the fallback for anything
+        // that hasn't been resized.
+        width:
+          typeof rn.width === 'number'
+            ? rn.width
+            : typeof rn.measured?.width === 'number'
+              ? rn.measured.width
+              : typeof rn.style?.width === 'number'
+                ? rn.style.width
+                : existing?.geometry.width || 150,
+        height:
+          typeof rn.height === 'number'
+            ? rn.height
+            : typeof rn.measured?.height === 'number'
+              ? rn.measured.height
+              : typeof rn.style?.height === 'number'
+                ? rn.style.height
+                : existing?.geometry.height || 44,
       },
       type: (rn.data?.nodeType as CanonicalNode['type']) || existing?.type || 'default',
       parentId: rn.data?.parentId || existing?.parentId,
       shape: (rn.data?.shape as NodeShape) || existing?.shape,
       assetRef: (rn.data?.assetRef as string) || existing?.assetRef,
       collapsed: typeof rn.data?.collapsed === 'boolean' ? rn.data.collapsed : existing?.collapsed,
+      manualSize: existing?.manualSize,
       manualOffset: rn.data?.manualOffset || existing?.manualOffset,
       style: rn.data?.style || existing?.style,
       data: preserveDomainNodeData(rn.data),

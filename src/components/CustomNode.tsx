@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeProps, NodeResizeControl, NodeResizer } from '@xyflow/react';
 import { CustomNodeData } from '../model/adapter';
 import { NodeShape } from '../model/types';
+import { computeTextAwareNodeSize } from '../model/textMeasurement';
 
 export const MINDMAP_HANDLE_IDS = {
   source: ['left', 'right'],
@@ -83,6 +84,22 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const isCollapsed = Boolean(nodeData.collapsed);
   const childCount = nodeData.childCount || 0;
   const numberingBadge = nodeData.numberingBadge;
+  const isFlowchart = nodeData.mode === 'flowchart';
+
+  // Product Hardening: Persistent Manual Node Sizing. Mind Map nodes (root
+  // and ordinary topics) get a width-only "topic width" control -- height
+  // always stays text-aware-derived, never user-set. Flowchart nodes get a
+  // normal two-dimensional resize. The Mind Map control is intentionally
+  // nudged below the right connection handle; Flowchart keeps the standard
+  // resizer handles/lines. In both modes the visible resize affordance stays
+  // clear of connection handle pointer-capture areas.
+  const resizeHandleStyle: React.CSSProperties = {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+    background: '#3b82f6',
+    border: '1.5px solid #ffffff',
+  };
 
   return (
     <div
@@ -172,6 +189,48 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         id="bottom"
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
       />
+
+      {/* Manual size resize affordance (Product Hardening: Persistent Manual
+          Node Sizing). Mind Map: topic-width-only control -- dragging only
+          ever changes width; height keeps following the text-aware wrap in
+          real time via onResize below. Flowchart: normal 2D resize. Both
+          render only while selected, at the bottom-right corner, well clear
+          of the left/right/top/bottom connection handles above and the
+          fold badge (right-mid edge) below. */}
+      {isFlowchart ? (
+        <NodeResizer
+          nodeId={id}
+          isVisible={selected}
+          minWidth={100}
+          minHeight={44}
+          handleStyle={resizeHandleStyle}
+          lineStyle={{ borderColor: '#3b82f6' }}
+          onResizeEnd={(_event, params) => {
+            nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+          }}
+        />
+      ) : (
+        selected && (
+        <NodeResizeControl
+          nodeId={id}
+          position="right"
+          resizeDirection="horizontal"
+          minWidth={90}
+          maxWidth={640}
+          style={{ ...resizeHandleStyle, top: '78%' }}
+          onResize={(_event, params) => {
+            const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
+              width: params.width,
+              fontSize: visuals.fontSize,
+            }).height;
+            nodeData.onLiveResizeWidth?.(id, nextHeight);
+          }}
+          onResizeEnd={(_event, params) => {
+            nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+          }}
+        />
+        )
+      )}
 
       {/* Node Content Container */}
       <div

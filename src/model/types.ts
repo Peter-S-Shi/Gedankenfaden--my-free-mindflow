@@ -23,6 +23,24 @@ export interface NodeGeometry {
   height?: number;
 }
 
+/**
+ * Persisted user intent for a manually-set node size (Product Hardening:
+ * Persistent Manual Node Sizing). This is the explicit source of truth for
+ * "the user chose this size on purpose" -- layout engines must not infer
+ * manual intent from whatever happens to be in `geometry.width`/`height`
+ * (that's just the last-computed output, not a record of intent).
+ *
+ * Mind Map nodes (root and ordinary topics) only ever set `width`: height
+ * always stays text-aware-derived from the node's text, font size, and this
+ * width (see `computeTextAwareNodeSize`). Flowchart nodes set both `width`
+ * and `height` (independent two-dimensional resize; Flowchart geometry is
+ * not text-driven).
+ */
+export interface ManualNodeSize {
+  width: number;
+  height?: number;
+}
+
 export interface NodeStyle {
   backgroundColor?: string;
   borderColor?: string;
@@ -51,6 +69,7 @@ export interface CanonicalNode {
   numbering?: NodeNumberingRule;
   collapsed?: boolean; // Gather child branches
   manualOffset?: { dx: number; dy: number }; // Preserves fine-tuning post-layout
+  manualSize?: ManualNodeSize; // Preserves a user-driven resize across relayout/save/undo
   data?: Record<string, unknown>;
 }
 
