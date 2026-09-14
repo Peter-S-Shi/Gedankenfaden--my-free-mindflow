@@ -18,7 +18,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme, NumberingStyle } from '../model/types';
+import {
+  CanonicalDocument,
+  CanonicalNode,
+  CanonicalEdge,
+  DocumentTheme,
+  NumberingStyle,
+  MindMapAnnotation,
+  RelationshipLineAnnotation,
+} from '../model/types';
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
@@ -36,6 +44,12 @@ import {
   planDeleteNodePreservingChildren,
   deleteNodePreservingChildren,
 } from '../model/deletion';
+import {
+  createBoundaryAnnotations,
+  createBraceAnnotations,
+  createRelationshipLineAnnotation,
+  pruneOrphanAnnotations,
+} from '../model/annotations';
 import { getNativeBridge } from '../platform/tauriBridge';
 import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
 import {
@@ -45,6 +59,7 @@ import {
   SubmenuPlacement,
 } from '../interaction/submenuPlacement';
 import { CustomNode } from './CustomNode';
+import { AnnotationLayer } from './AnnotationLayer';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
 import { ConfirmationDialog } from './ConfirmationDialog';
@@ -91,6 +106,7 @@ import {
   CheckSquare,
   Crosshair,
   Paperclip,
+  Bookmark,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -295,12 +311,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     initialDocument.nodes[0] ? initialDocument.nodes[0].id : null
   );
-
-  const handleUpdateNodeRef = useRef<((nodeId: string, updates: Partial<CanonicalNode>) => void) | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [targetingLineSourceId, setTargetingLineSourceId] = useState<string | null>(null);
+  const [targetingMousePos, setTargetingMousePos] = useState<{ x: number; y: number } | null>(null);
 
   const selectedCanonicalNode = useMemo(() => {
     return doc.nodes.find((n) => n.id === selectedNodeId) || null;
   }, [doc.nodes, selectedNodeId]);
+
+  const selectedAnnotation = useMemo(() => {
+    if (!selectedAnnotationId) return null;
+    return doc.annotations?.find((a) => a.id === selectedAnnotationId) || null;
+  }, [doc.annotations, selectedAnnotationId]);
+
+  const handleUpdateNodeRef = useRef<((nodeId: string, updates: Partial<CanonicalNode>) => void) | null>(null);
 
   const handleResizeEndRef = useRef<((nodeId: string, dimensions: { width: number; height: number }) => void) | null>(null);
   const handleResizeEndFromNode = useCallback((nodeId: string, dimensions: { width: number; height: number }) => {
@@ -1086,6 +1110,164 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Moved group container');
   }, [updateHistoryStatus]);
 
+  // Annotation Management (Boundary, Brace, Relationship Line)
+  const handleAddBoundary = useCallback(
+    (targetNodeId?: string) => {
+      const candidateIds = multiSelectedNodeIds.size > 0
+        ? Array.from(multiSelectedNodeIds)
+        : targetNodeId
+        ? [targetNodeId]
+        : selectedNodeId
+        ? [selectedNodeId]
+        : [];
+      if (!candidateIds.length) return;
+
+      const newBoundaries = createBoundaryAnnotations(candidateIds, doc.nodes);
+      if (!newBoundaries.length) return;
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        annotations: [...(doc.annotations || []), ...newBoundaries],
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setSelectedAnnotationId(newBoundaries[0].id);
+      setStatusMessage(`Created boundary (${newBoundaries.length} group${newBoundaries.length > 1 ? 's' : ''})`);
+      setContextMenu(null);
+    },
+    [doc, multiSelectedNodeIds, selectedNodeId, updateHistoryStatus]
+  );
+
+  const handleAddBrace = useCallback(
+    (targetNodeId?: string) => {
+      const candidateIds = multiSelectedNodeIds.size > 0
+        ? Array.from(multiSelectedNodeIds)
+        : targetNodeId
+        ? [targetNodeId]
+        : selectedNodeId
+        ? [selectedNodeId]
+        : [];
+      if (!candidateIds.length) return;
+
+      const newBraces = createBraceAnnotations(candidateIds, doc.nodes);
+      if (!newBraces.length) return;
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        annotations: [...(doc.annotations || []), ...newBraces],
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setSelectedAnnotationId(newBraces[0].id);
+      setStatusMessage(`Created brace summary (${newBraces.length} group${newBraces.length > 1 ? 's' : ''})`);
+      setContextMenu(null);
+    },
+    [doc, multiSelectedNodeIds, selectedNodeId, updateHistoryStatus]
+  );
+
+  const handleStartRelationshipLine = useCallback(
+    (sourceNodeId: string) => {
+      setTargetingLineSourceId(sourceNodeId);
+      setTargetingMousePos(null);
+      setContextMenu(null);
+      setStatusMessage('Connecting line: click target topic (Esc to cancel)');
+    },
+    []
+  );
+
+  const handleCommitRelationshipLine = useCallback(
+    (targetNodeId: string) => {
+      if (!targetingLineSourceId) return;
+      if (targetingLineSourceId === targetNodeId) {
+        return;
+      }
+      const newLine = createRelationshipLineAnnotation(targetingLineSourceId, targetNodeId);
+      if (!newLine) return;
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        annotations: [...(doc.annotations || []), newLine],
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setSelectedAnnotationId(newLine.id);
+      setTargetingLineSourceId(null);
+      setTargetingMousePos(null);
+      setStatusMessage('Created relationship line');
+    },
+    [doc, targetingLineSourceId, updateHistoryStatus]
+  );
+
+  const handleCancelTargetingLine = useCallback(() => {
+    if (targetingLineSourceId) {
+      setTargetingLineSourceId(null);
+      setTargetingMousePos(null);
+      setStatusMessage('Cancelled relationship line');
+    }
+  }, [targetingLineSourceId]);
+
+  const handleUpdateAnnotation = useCallback(
+    (id: string, updates: Partial<MindMapAnnotation>) => {
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        annotations: (doc.annotations || []).map((ann) =>
+          ann.id === id ? ({ ...ann, ...updates } as MindMapAnnotation) : ann
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+    },
+    [doc, updateHistoryStatus]
+  );
+
+  const handleControlPointDrag = useCallback(
+    (id: string, which: 'c1' | 'c2', delta: { dx: number; dy: number }) => {
+      setDoc((prevDoc) => {
+        const nextAnnotations = (prevDoc.annotations || []).map((ann) => {
+          if (ann.id !== id || ann.kind !== 'relationshipLine') return ann;
+          const route = (ann as RelationshipLineAnnotation).route || {};
+          const updatedRoute =
+            which === 'c1'
+              ? { ...route, c1Offset: delta }
+              : { ...route, c2Offset: delta };
+          return { ...ann, route: updatedRoute } as MindMapAnnotation;
+        });
+        return {
+          ...prevDoc,
+          annotations: nextAnnotations,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    },
+    []
+  );
+
+  const handleDeleteAnnotation = useCallback(
+    (id: string) => {
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        annotations: (doc.annotations || []).filter((ann) => ann.id !== id),
+        updatedAt: new Date().toISOString(),
+      };
+      setDoc(nextDoc);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      if (selectedAnnotationId === id) {
+        setSelectedAnnotationId(null);
+      }
+      setStatusMessage('Deleted annotation');
+    },
+    [doc, selectedAnnotationId, updateHistoryStatus]
+  );
+
   // Deletion handling
   const handleDeleteSelectedSubtree = useCallback(() => {
     if (!selectedNodeId) return;
@@ -1107,6 +1289,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         ...doc,
         nodes: [targetNode],
         edges: [],
+        annotations: pruneOrphanAnnotations(doc.annotations, new Set([targetNode.id])),
         updatedAt: new Date().toISOString(),
       };
       setDoc(nextDoc);
@@ -1132,6 +1315,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     const nextEdges = doc.edges.filter(
       (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
     );
+    const nextAnnotations = pruneOrphanAnnotations(doc.annotations, new Set(nextNodes.map((n) => n.id)));
 
     const parentToSelect = targetNode.parentId || (nextNodes[0] ? nextNodes[0].id : null);
     setSelectedNodeId(parentToSelect);
@@ -1140,6 +1324,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       ...doc,
       nodes: nextNodes,
       edges: nextEdges,
+      annotations: nextAnnotations,
       updatedAt: new Date().toISOString(),
     };
 
@@ -2133,6 +2318,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (targetingLineSourceId) {
+          handleCancelTargetingLine();
+          return;
+        }
+        if (selectedAnnotationId) {
+          setSelectedAnnotationId(null);
+          return;
+        }
         if (focusNodeId) {
           setFocusNodeId(null);
           setStatusMessage('Exited focus mode');
@@ -2140,6 +2333,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         }
         if (contextMenu) {
           setContextMenu(null);
+          return;
+        }
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
+        const activeTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+        if (activeTag !== 'input' && activeTag !== 'textarea') {
+          e.preventDefault();
+          handleDeleteAnnotation(selectedAnnotationId);
           return;
         }
       }
@@ -2623,14 +2824,30 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             onNodeDragStop={onNodeDragStop}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+            onNodeClick={(_event, node) => {
+              if (targetingLineSourceId) {
+                handleCommitRelationshipLine(node.id);
+              } else {
+                setSelectedNodeId(node.id);
+                setSelectedAnnotationId(null);
+              }
+            }}
             onNodeContextMenu={handleNodeContextMenu}
             onPaneContextMenu={handlePaneContextMenu}
             onViewportChange={handleViewportChange}
+            onPointerMove={(e) => {
+              if (targetingLineSourceId && rfInstanceRef.current) {
+                const flowPos = rfInstanceRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+                setTargetingMousePos(flowPos);
+              }
+            }}
             onPaneClick={() => {
-              setSelectedNodeId(null);
-              setMultiSelectedNodeIds(new Set());
-              setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
+              if (!targetingLineSourceId) {
+                setSelectedNodeId(null);
+                setSelectedAnnotationId(null);
+                setMultiSelectedNodeIds(new Set());
+                setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
+              }
             }}
             nodeTypes={nodeTypes}
             onInit={(instance) => {
@@ -2654,6 +2871,25 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               maskColor="rgba(241, 245, 249, 0.7)"
               style={{ borderRadius: 8, overflow: 'hidden' }}
             />
+
+            {/* Mind Map Annotation Layer (Boundaries, Braces, Relationship Lines) */}
+            <ViewportPortal>
+              <AnnotationLayer
+                annotations={doc.annotations}
+                nodes={doc.nodes}
+                selectedAnnotationId={selectedAnnotationId}
+                onSelectAnnotation={(id) => {
+                  setSelectedAnnotationId(id);
+                  setSelectedNodeId(null);
+                  setMultiSelectedNodeIds(new Set());
+                }}
+                onUpdateAnnotation={handleUpdateAnnotation}
+                onDeleteAnnotation={handleDeleteAnnotation}
+                targetingSourceNodeId={targetingLineSourceId}
+                targetingMousePos={targetingMousePos}
+                onControlPointDrag={handleControlPointDrag}
+              />
+            </ViewportPortal>
 
             {/* Visual Group Containers Layer */}
             <ViewportPortal>
@@ -2968,6 +3204,48 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                   </div>
                 </div>
 
+                {/* 3b. Annotations Submenu (Mind Map mode) */}
+                {doc.mode === 'mindmap' && (
+                  <div
+                    className="relative group/sub"
+                    onMouseEnter={(event) => positionContextSubmenu('annotation', event.currentTarget)}
+                  >
+                    <div
+                      data-testid="context-menu-annotation-trigger"
+                      className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Bookmark size={13} className="text-slate-400" />
+                        <span>Annotations</span>
+                      </div>
+                      <ChevronRight size={12} className="text-slate-400" />
+                    </div>
+                    <div {...getSubmenuProps('annotation')}>
+                      <button
+                        data-testid="context-action-add-boundary"
+                        onClick={() => handleAddBoundary(targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                      >
+                        <span>Boundary (外框)</span>
+                      </button>
+                      <button
+                        data-testid="context-action-add-brace"
+                        onClick={() => handleAddBrace(targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                      >
+                        <span>Brace (概括)</span>
+                      </button>
+                      <button
+                        data-testid="context-action-add-relationship-line"
+                        onClick={() => handleStartRelationshipLine(targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                      >
+                        <span>Relationship Line (连线)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* 4. Numbering Submenu -- M3 Behavior Correction Contract:
                      parent-scoped from this node, disabled when it has no
                      children (nothing for a rule here to number). */}
@@ -3225,6 +3503,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           <InspectorPanel
             document={doc}
             selectedNode={selectedCanonicalNode}
+            selectedAnnotation={selectedAnnotation}
+            onUpdateAnnotation={handleUpdateAnnotation}
+            onDeleteAnnotation={handleDeleteAnnotation}
             onUpdateTheme={handleUpdateTheme}
             onUpdateNode={handleUpdateNode}
             onResetNodeStyle={handleResetNodeStyle}

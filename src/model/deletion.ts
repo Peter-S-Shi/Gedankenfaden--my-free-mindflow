@@ -1,4 +1,5 @@
 import { CanonicalDocument, CanonicalEdge } from './types';
+import { pruneOrphanAnnotations } from './annotations';
 
 export interface DeletionPlan {
   kind: 'delete-node' | 'delete-subtree' | 'delete-node-preserve-children' | 'clear-root-branches';
@@ -111,10 +112,14 @@ export function deleteNodePreservingChildren(
     });
   }
 
+  const validNodeIds = new Set(nextNodes.map((n) => n.id));
+  const nextAnnotations = pruneOrphanAnnotations(doc.annotations, validNodeIds);
+
   return {
     ...doc,
     nodes: nextNodes,
     edges: nextEdges,
+    annotations: nextAnnotations,
     updatedAt: new Date().toISOString(),
   };
 }

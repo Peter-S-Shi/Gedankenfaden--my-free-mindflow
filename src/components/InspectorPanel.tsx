@@ -1,5 +1,14 @@
 import React from 'react';
-import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
+import {
+  CanonicalDocument,
+  CanonicalNode,
+  NodeShape,
+  DocumentTheme,
+  MindMapAnnotation,
+  BoundaryAnnotation,
+  BraceAnnotation,
+  RelationshipLineAnnotation,
+} from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
 import { canApplyNumbering } from '../model/numbering';
 import { PRESET_ICONS } from '../model/icons';
@@ -13,11 +22,17 @@ import {
   Upload,
   ChevronDown,
   Smile,
+  Bookmark,
+  GitCommit,
+  Share2,
 } from 'lucide-react';
 
 export interface InspectorPanelProps {
   document: CanonicalDocument;
   selectedNode: CanonicalNode | null;
+  selectedAnnotation?: MindMapAnnotation | null;
+  onUpdateAnnotation?: (id: string, updates: Partial<MindMapAnnotation>) => void;
+  onDeleteAnnotation?: (id: string) => void;
   onUpdateTheme: (theme: DocumentTheme) => void;
   onUpdateNode: (nodeId: string, updates: Partial<CanonicalNode>) => void;
   onResetNodeStyle: (nodeId: string) => void;
@@ -60,6 +75,9 @@ const PRESET_COLORS = [
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   document,
   selectedNode,
+  selectedAnnotation,
+  onUpdateAnnotation,
+  onDeleteAnnotation,
   onUpdateTheme,
   onUpdateNode,
   onResetNodeStyle,
@@ -145,8 +163,298 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       </div>
 
       <div className="p-2.5 space-y-2 flex-1">
+        {/* Section 0: Selected Annotation Properties */}
+        {selectedAnnotation && (
+          <details className="border border-blue-200 rounded-lg bg-white overflow-hidden shadow-2xs" open>
+            <summary className="px-3 py-2.5 bg-blue-50/70 flex items-center justify-between cursor-pointer text-xs font-bold text-blue-900 hover:bg-blue-100 transition-colors">
+              <div className="flex items-center gap-1.5">
+                {selectedAnnotation.kind === 'boundary' && <Bookmark size={13} className="text-blue-600" />}
+                {selectedAnnotation.kind === 'brace' && <Share2 size={13} className="text-blue-600" />}
+                {selectedAnnotation.kind === 'relationshipLine' && <GitCommit size={13} className="text-blue-600" />}
+                <span className="capitalize">{selectedAnnotation.kind === 'relationshipLine' ? 'Relationship Line' : selectedAnnotation.kind}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {onDeleteAnnotation && (
+                  <button
+                    type="button"
+                    title="Delete Annotation"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteAnnotation(selectedAnnotation.id);
+                    }}
+                    className="p-1 text-rose-500 hover:bg-rose-50 rounded transition-colors"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+                <ChevronDown size={13} className="text-slate-400 transition-transform details-arrow" />
+              </div>
+            </summary>
+            <div className="p-3 border-t border-blue-100 space-y-3 text-xs">
+              {/* Boundary Annotation Controls */}
+              {selectedAnnotation.kind === 'boundary' && (() => {
+                const b = selectedAnnotation as BoundaryAnnotation;
+                const bStyle = b.style || {};
+                return (
+                  <>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Badge Title
+                      </label>
+                      <input
+                        type="text"
+                        value={b.title || ''}
+                        onChange={(e) => onUpdateAnnotation?.(b.id, { title: e.target.value })}
+                        placeholder="Boundary Title"
+                        className="w-full text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded focus:border-blue-400 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Border Style
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {(['dashed', 'solid'] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAnnotation?.(b.id, {
+                                style: { ...bStyle, borderStyle: st },
+                              })
+                            }
+                            className={`text-[11px] py-1 px-2 rounded border capitalize ${
+                              (bStyle.borderStyle || 'dashed') === st
+                                ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Border Color
+                      </label>
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        {PRESET_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAnnotation?.(b.id, {
+                                style: { ...bStyle, borderColor: c, fillColor: c },
+                              })
+                            }
+                            className="w-4 h-4 rounded-full border border-slate-300 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                        <span>Fill Opacity</span>
+                        <span>{Math.round((bStyle.fillOpacity ?? 0.06) * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="0.4"
+                        step="0.02"
+                        value={bStyle.fillOpacity ?? 0.06}
+                        onChange={(e) =>
+                          onUpdateAnnotation?.(b.id, {
+                            style: { ...bStyle, fillOpacity: parseFloat(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Brace Annotation Controls */}
+              {selectedAnnotation.kind === 'brace' && (() => {
+                const br = selectedAnnotation as BraceAnnotation;
+                const brStyle = br.style || {};
+                return (
+                  <>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Summary Label
+                      </label>
+                      <input
+                        type="text"
+                        value={br.label || ''}
+                        onChange={(e) => onUpdateAnnotation?.(br.id, { label: e.target.value })}
+                        placeholder="Summary text"
+                        className="w-full text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded focus:border-blue-400 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Brace Color
+                      </label>
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        {PRESET_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAnnotation?.(br.id, {
+                                style: { ...brStyle, color: c },
+                              })
+                            }
+                            className="w-4 h-4 rounded-full border border-slate-300 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                        <span>Line Thickness</span>
+                        <span>{brStyle.strokeWidth ?? 2}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={brStyle.strokeWidth ?? 2}
+                        onChange={(e) =>
+                          onUpdateAnnotation?.(br.id, {
+                            style: { ...brStyle, strokeWidth: parseInt(e.target.value, 10) },
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Relationship Line Annotation Controls */}
+              {selectedAnnotation.kind === 'relationshipLine' && (() => {
+                const rel = selectedAnnotation as RelationshipLineAnnotation;
+                const relStyle = rel.style || {};
+                return (
+                  <>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Line Label
+                      </label>
+                      <input
+                        type="text"
+                        value={rel.label || ''}
+                        onChange={(e) => onUpdateAnnotation?.(rel.id, { label: e.target.value })}
+                        placeholder="Relationship description"
+                        className="w-full text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded focus:border-blue-400 focus:bg-white outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Line Style
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {(['dashed', 'solid'] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAnnotation?.(rel.id, {
+                                style: { ...relStyle, lineStyle: st },
+                              })
+                            }
+                            className={`text-[11px] py-1 px-2 rounded border capitalize ${
+                              (relStyle.lineStyle || 'dashed') === st
+                                ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Line Color
+                      </label>
+                      <div className="flex flex-wrap gap-1 mb-1.5">
+                        {PRESET_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() =>
+                              onUpdateAnnotation?.(rel.id, {
+                                style: { ...relStyle, stroke: c },
+                              })
+                            }
+                            className="w-4 h-4 rounded-full border border-slate-300 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                        Arrowheads
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateAnnotation?.(rel.id, {
+                              style: { ...relStyle, arrowStart: !relStyle.arrowStart },
+                            })
+                          }
+                          className={`text-[11px] py-1 px-2 rounded border ${
+                            relStyle.arrowStart
+                              ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          Start Arrow
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateAnnotation?.(rel.id, {
+                              style: { ...relStyle, arrowEnd: relStyle.arrowEnd === false },
+                            })
+                          }
+                          className={`text-[11px] py-1 px-2 rounded border ${
+                            relStyle.arrowEnd !== false
+                              ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          End Arrow
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </details>
+        )}
+
         {/* Section 1: Node Appearance */}
-        <details className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs" open={Boolean(selectedNode)}>
+        <details className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs" open={Boolean(selectedNode && !selectedAnnotation)}>
           <summary className="px-3 py-2.5 bg-slate-50/70 flex items-center justify-between cursor-pointer text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors">
             <span>Node Appearance</span>
             <ChevronDown size={13} className="text-slate-400 transition-transform details-arrow" />

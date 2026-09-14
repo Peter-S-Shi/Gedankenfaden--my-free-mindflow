@@ -124,6 +124,66 @@ export interface DocumentTheme {
   nodeTextColor?: string;
 }
 
+export interface BoundaryStyle {
+  borderColor?: string;
+  borderWidth?: number;
+  borderStyle?: 'dashed' | 'solid';
+  fillColor?: string;
+  fillOpacity?: number;
+  borderRadius?: number;
+}
+
+export interface BoundaryAnnotation {
+  id: string;
+  kind: 'boundary';
+  title?: string;
+  nodeIds: string[];
+  style?: BoundaryStyle;
+}
+
+export interface BraceStyle {
+  color?: string;
+  strokeWidth?: number;
+  braceStyle?: 'curly' | 'straight' | 'rounded';
+}
+
+export interface BraceAnnotation {
+  id: string;
+  kind: 'brace';
+  parentId?: string;
+  nodeIds: string[];
+  label?: string;
+  style?: BraceStyle;
+}
+
+export interface RelationshipLineRoute {
+  c1Offset?: { dx: number; dy: number };
+  c2Offset?: { dx: number; dy: number };
+}
+
+export interface RelationshipLineStyle {
+  stroke?: string;
+  strokeWidth?: number;
+  lineStyle?: 'dashed' | 'solid';
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
+}
+
+export interface RelationshipLineAnnotation {
+  id: string;
+  kind: 'relationshipLine';
+  sourceNodeId: string;
+  targetNodeId: string;
+  label?: string;
+  style?: RelationshipLineStyle;
+  route?: RelationshipLineRoute;
+}
+
+export type MindMapAnnotation =
+  | BoundaryAnnotation
+  | BraceAnnotation
+  | RelationshipLineAnnotation;
+
 export interface CanonicalDocument {
   schemaVersion: '1.0';
   id: string;
@@ -136,5 +196,7 @@ export interface CanonicalDocument {
   nodes: CanonicalNode[];
   edges: CanonicalEdge[];
   groups: CanonicalGroup[];
+  annotations?: MindMapAnnotation[];
   metadata?: Record<string, unknown>;
 }
+

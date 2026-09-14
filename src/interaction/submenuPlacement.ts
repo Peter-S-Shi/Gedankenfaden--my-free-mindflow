@@ -22,6 +22,7 @@ export interface SubmenuPlacement {
 
 export const CONTEXT_SUBMENU_SIZES = {
   topic: { width: 176, height: 96 },
+  annotation: { width: 180, height: 96 },
   media: { width: 224, height: 260 },
   numbering: { width: 192, height: 210 },
   collapse: { width: 192, height: 96 },
