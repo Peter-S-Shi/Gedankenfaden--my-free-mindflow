@@ -27,6 +27,7 @@ import { importFromMarkdown, importFromOPML } from '../model/importers';
 import { parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
+import { PRESET_ICONS } from '../model/icons';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, computeGroupBounds, translateGroup } from '../model/groups';
 import { DeletionPlan, planCanvasDeletion, deleteNodePreservingChildren } from '../model/deletion';
@@ -62,6 +63,7 @@ import {
   Eye,
   CheckSquare,
   Crosshair,
+  Paperclip,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -1738,16 +1740,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  const handleChooseIcon = useCallback((nodeId: string) => {
-    const icons = ['💡', '⚠️', '✅', '⭐', '🚀', '📌', '🎯', '🔥'];
-    const chosen = icons[Math.floor(Math.random() * icons.length)];
-    const target = doc.nodes.find((n) => n.id === nodeId);
-    if (target) {
-      const cleanText = target.text?.replace(/^([💡⚠️✅⭐🚀📌🎯🔥]\s*)/, '') || 'Topic';
-      handleUpdateNode(nodeId, { text: `${chosen} ${cleanText}` });
-      setStatusMessage(`Added icon ${chosen}`);
-    }
-  }, [doc.nodes, handleUpdateNode]);
+  const handleChooseIcon = useCallback(
+    (nodeId: string, icon?: string) => {
+      handleUpdateNode(nodeId, { icon });
+      setStatusMessage(icon ? `Applied icon ${icon}` : 'Removed icon');
+    },
+    [handleUpdateNode]
+  );
 
   // Spatial Navigation
   const handleArrowNavigation = useCallback(
@@ -2368,349 +2367,386 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           </ReactFlow>
 
           {/* M3: Right-Click Context Menu with Frozen 8 Feature Families + Submenus */}
-          {contextMenu && (
-            <div
-              data-testid="canvas-context-menu"
-              onClick={(e) => e.stopPropagation()}
-              className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl py-1.5 z-50 text-xs w-[230px] select-none animate-fadeIn"
-              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-            >
-              {/* 1. Clipboard */}
-              <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                Clipboard
-              </div>
-              <button
-                onClick={() => {
-                  handleCopyBranch();
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <Copy size={13} className="text-slate-400" />
-                  <span>Copy</span>
-                </div>
-                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+C</kbd>
-              </button>
-              <button
-                onClick={() => {
-                  handleCutBranch();
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <Scissors size={13} className="text-slate-400" />
-                  <span>Cut</span>
-                </div>
-                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+X</kbd>
-              </button>
-              <button
-                onClick={() => {
-                  handlePaste();
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <Clipboard size={13} className="text-slate-400" />
-                  <span>Paste</span>
-                </div>
-                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+V</kbd>
-              </button>
+          {contextMenu && (() => {
+            const flipSubmenuLeft = typeof window !== 'undefined' && contextMenu.x + 230 + 220 > window.innerWidth;
+            const flipSubmenuUp = typeof window !== 'undefined' && contextMenu.y > window.innerHeight - 320;
+            const getSubmenuClass = (widthClass: string, preferBottom: boolean = false) => {
+              const horizontalClass = flipSubmenuLeft ? 'right-[calc(100%-4px)] left-auto' : 'left-[calc(100%-4px)] right-auto';
+              const verticalClass = flipSubmenuUp || preferBottom ? 'bottom-0 top-auto' : 'top-0 bottom-auto';
+              return `hidden group-hover/sub:block absolute ${horizontalClass} ${verticalClass} ${widthClass} bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs`;
+            };
+            const targetNode = doc.nodes.find((n) => n.id === contextMenu.nodeId);
 
-              <div className="my-1 border-t border-slate-100" />
-
-              {/* 2. Topic Creation Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+            return (
+              <div
+                data-testid="canvas-context-menu"
+                onClick={(e) => e.stopPropagation()}
+                className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl py-1.5 z-50 text-xs w-[230px] select-none animate-fadeIn"
+                style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+              >
+                {/* 1. Clipboard */}
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Clipboard
+                </div>
+                <button
+                  onClick={() => {
+                    handleCopyBranch();
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+                >
                   <div className="flex items-center gap-2">
-                    <Plus size={13} className="text-slate-400" />
-                    <span>Topic creation</span>
+                    <Copy size={13} className="text-slate-400" />
+                    <span>Copy</span>
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
-                </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => {
-                      handleAddChildNode();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
-                  >
-                    <span>Child topic</span>
-                    <kbd className="text-[10px] text-slate-400 font-mono">Tab</kbd>
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleAddSiblingNode('below');
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
-                  >
-                    <span>Sibling topic</span>
-                    <kbd className="text-[10px] text-slate-400 font-mono">Enter</kbd>
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleAddParentNode();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
-                  >
-                    <span>Parent topic</span>
-                    <kbd className="text-[10px] text-slate-400 font-mono">Shift+Tab</kbd>
-                  </button>
-                </div>
-              </div>
-
-              {/* 3. Media Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+C</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    handleCutBranch();
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+                >
                   <div className="flex items-center gap-2">
-                    <ImageIcon size={13} className="text-slate-400" />
-                    <span>Media</span>
+                    <Scissors size={13} className="text-slate-400" />
+                    <span>Cut</span>
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
-                </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-40 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <label className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center gap-2 cursor-pointer">
-                    <span>Image…</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !contextMenu.nodeId) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          const dataUrl = ev.target?.result as string;
-                          handleUpdateNode(contextMenu.nodeId, { assetRef: dataUrl });
-                        };
-                        reader.readAsDataURL(file);
+                  <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+X</kbd>
+                </button>
+                <button
+                  onClick={() => {
+                    handlePaste();
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Clipboard size={13} className="text-slate-400" />
+                    <span>Paste</span>
+                  </div>
+                  <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+V</kbd>
+                </button>
+
+                <div className="my-1 border-t border-slate-100" />
+
+                {/* 2. Topic Creation Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Plus size={13} className="text-slate-400" />
+                      <span>Topic creation</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
+                  </div>
+                  <div className={getSubmenuClass('w-44', false)}>
+                    <button
+                      onClick={() => {
+                        handleAddChildNode();
                         setContextMenu(null);
                       }}
-                    />
-                  </label>
-                  <button
-                    onClick={() => {
-                      handleChooseIcon(contextMenu.nodeId);
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50"
-                  >
-                    Icon…
-                  </button>
-                </div>
-              </div>
-
-              {/* 4. Numbering Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <ListOrdered size={13} className="text-slate-400" />
-                    <span>Numbering</span>
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                    >
+                      <span>Child topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Tab</kbd>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleAddSiblingNode('below');
+                        setContextMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                    >
+                      <span>Sibling topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Enter</kbd>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleAddParentNode();
+                        setContextMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                    >
+                      <span>Parent topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Shift+Tab</kbd>
+                    </button>
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
                 </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => handleApplyNumbering('none')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    None
-                  </button>
-                  <button
-                    onClick={() => handleApplyNumbering('decimal')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    1, 2, 3, …
-                  </button>
-                  <button
-                    onClick={() => handleApplyNumbering('roman')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    I, II, III, …
-                  </button>
-                  <button
-                    onClick={() => handleApplyNumbering('alpha')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    a, b, c, …
-                  </button>
-                  <div className="my-1 border-t border-slate-100" />
-                  <button
-                    onClick={() => handleApplyNumbering('decimal', 1)}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Number first level
-                  </button>
-                  <button
-                    onClick={() => handleApplyNumbering('decimal', 2)}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Number first two levels
-                  </button>
-                  <button
-                    onClick={() => handleApplyNumbering('decimal', 3)}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Number first three levels
-                  </button>
-                </div>
-              </div>
 
-              {/* 5. Separate Collapse Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <ChevronDown size={13} className="text-slate-400" />
-                    <span>Collapse</span>
+                {/* 3. Media Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon size={13} className="text-slate-400" />
+                      <span>Media</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
-                </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => handleCollapseBranch('current')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Collapse current topic
-                  </button>
-                  <button
-                    onClick={() => handleCollapseBranch('siblings')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Collapse sibling topics
-                  </button>
-                  <button
-                    onClick={() => handleCollapseBranch('descendants')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Collapse all descendants
-                  </button>
-                </div>
-              </div>
-
-              {/* 6. Separate Expand Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <Eye size={13} className="text-slate-400" />
-                    <span>Expand</span>
+                  <div className={getSubmenuClass('w-56', false)}>
+                    <label className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center gap-2 cursor-pointer">
+                      <Paperclip size={12} className="text-slate-400" />
+                      <span>Attach Image…</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file || !contextMenu.nodeId) return;
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const dataUrl = ev.target?.result as string;
+                            handleUpdateNode(contextMenu.nodeId, { assetRef: dataUrl });
+                          };
+                          reader.readAsDataURL(file);
+                          setContextMenu(null);
+                        }}
+                      />
+                    </label>
+                    <div className="my-1 border-t border-slate-100" />
+                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Topic Icon
+                    </div>
+                    <div className="p-2 grid grid-cols-5 gap-1 max-h-40 overflow-y-auto">
+                      {PRESET_ICONS.map(({ emoji, label }) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          title={label}
+                          onClick={() => {
+                            handleChooseIcon(contextMenu.nodeId, emoji);
+                            setContextMenu(null);
+                          }}
+                          className={`h-7 w-7 flex items-center justify-center text-sm rounded hover:bg-slate-100 transition-all ${
+                            targetNode?.icon === emoji ? 'bg-blue-100 ring-1 ring-blue-500' : ''
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                    {targetNode?.icon && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleChooseIcon(contextMenu.nodeId, undefined);
+                          setContextMenu(null);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 border-t border-slate-100"
+                      >
+                        Remove icon
+                      </button>
+                    )}
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
                 </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => handleExpandBranch('current')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Expand current topic
-                  </button>
-                  <button
-                    onClick={() => handleExpandBranch('siblings')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Expand sibling topics
-                  </button>
-                  <button
-                    onClick={() => handleExpandBranch('descendants')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Expand all descendants
-                  </button>
-                </div>
-              </div>
 
-              {/* 7. Selection Submenu */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <CheckSquare size={13} className="text-slate-400" />
-                    <span>Selection</span>
+                {/* 4. Numbering Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <ListOrdered size={13} className="text-slate-400" />
+                      <span>Numbering</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <ChevronRight size={12} className="text-slate-400" />
-                </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => handleSelectHierarchy('same-branch')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Same-level in current branch
-                  </button>
-                  <button
-                    onClick={() => handleSelectHierarchy('all-level')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Same-level across map
-                  </button>
-                  <button
-                    onClick={() => handleSelectHierarchy('clear')}
-                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                  >
-                    Clear multi-selection
-                  </button>
-                </div>
-              </div>
-
-              <div className="my-1 border-t border-slate-100" />
-
-              {/* 8. Delete Submenu (Danger) */}
-              <div className="relative group/sub">
-                <div className="w-full px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center justify-between cursor-pointer">
-                  <div className="flex items-center gap-2">
-                    <Trash2 size={13} className="text-rose-500" />
-                    <span>Delete</span>
+                  <div className={getSubmenuClass('w-48', false)}>
+                    <button
+                      onClick={() => handleApplyNumbering('none')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      None
+                    </button>
+                    <button
+                      onClick={() => handleApplyNumbering('decimal')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      1, 2, 3, …
+                    </button>
+                    <button
+                      onClick={() => handleApplyNumbering('roman')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      I, II, III, …
+                    </button>
+                    <button
+                      onClick={() => handleApplyNumbering('alpha')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      a, b, c, …
+                    </button>
+                    <div className="my-1 border-t border-slate-100" />
+                    <button
+                      onClick={() => handleApplyNumbering('decimal', 1)}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Number first level
+                    </button>
+                    <button
+                      onClick={() => handleApplyNumbering('decimal', 2)}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Number first two levels
+                    </button>
+                    <button
+                      onClick={() => handleApplyNumbering('decimal', 3)}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Number first three levels
+                    </button>
                   </div>
-                  <ChevronRight size={12} className="text-rose-400" />
                 </div>
-                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
-                  <button
-                    onClick={() => {
-                      handleDeleteSelectedSubtree();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
-                  >
-                    Delete topic + descendants
-                  </button>
-                  <button
-                    onClick={() => {
-                      confirmDeleteOnlyKeepChildren();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
-                  >
-                    Delete only · keep children
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleDeleteSelectedTopics();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
-                  >
-                    Delete selected topics
-                  </button>
+
+                {/* 5. Separate Collapse Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <ChevronDown size={13} className="text-slate-400" />
+                      <span>Collapse</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
+                  </div>
+                  <div className={getSubmenuClass('w-48', true)}>
+                    <button
+                      onClick={() => handleCollapseBranch('current')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Collapse current topic
+                    </button>
+                    <button
+                      onClick={() => handleCollapseBranch('siblings')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Collapse sibling topics
+                    </button>
+                    <button
+                      onClick={() => handleCollapseBranch('descendants')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Collapse all descendants
+                    </button>
+                  </div>
                 </div>
+
+                {/* 6. Separate Expand Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Eye size={13} className="text-slate-400" />
+                      <span>Expand</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
+                  </div>
+                  <div className={getSubmenuClass('w-48', true)}>
+                    <button
+                      onClick={() => handleExpandBranch('current')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Expand current topic
+                    </button>
+                    <button
+                      onClick={() => handleExpandBranch('siblings')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Expand sibling topics
+                    </button>
+                    <button
+                      onClick={() => handleExpandBranch('descendants')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Expand all descendants
+                    </button>
+                  </div>
+                </div>
+
+                {/* 7. Selection Submenu */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <CheckSquare size={13} className="text-slate-400" />
+                      <span>Selection</span>
+                    </div>
+                    <ChevronRight size={12} className="text-slate-400" />
+                  </div>
+                  <div className={getSubmenuClass('w-52', true)}>
+                    <button
+                      onClick={() => handleSelectHierarchy('same-branch')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Same-level in current branch
+                    </button>
+                    <button
+                      onClick={() => handleSelectHierarchy('all-level')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Same-level across map
+                    </button>
+                    <button
+                      onClick={() => handleSelectHierarchy('clear')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                    >
+                      Clear multi-selection
+                    </button>
+                  </div>
+                </div>
+
+                <div className="my-1 border-t border-slate-100" />
+
+                {/* 8. Delete Submenu (Danger) */}
+                <div className="relative group/sub">
+                  <div className="w-full px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center justify-between cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Trash2 size={13} className="text-rose-500" />
+                      <span>Delete</span>
+                    </div>
+                    <ChevronRight size={12} className="text-rose-400" />
+                  </div>
+                  <div className={getSubmenuClass('w-52', true)}>
+                    <button
+                      onClick={() => {
+                        handleDeleteSelectedSubtree();
+                        setContextMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                    >
+                      Delete topic + descendants
+                    </button>
+                    <button
+                      onClick={() => {
+                        confirmDeleteOnlyKeepChildren();
+                        setContextMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                    >
+                      Delete only · keep children
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleDeleteSelectedTopics();
+                        setContextMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                    >
+                      Delete selected topics
+                    </button>
+                  </div>
+                </div>
+
+                <div className="my-1 border-t border-slate-100" />
+
+                {/* 9. Focus Mode */}
+                <button
+                  onClick={handleToggleFocusMode}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Crosshair size={13} className={focusNodeId ? 'text-blue-600' : 'text-slate-400'} />
+                    <span>{focusNodeId ? 'Exit focus mode' : 'Focus mode'}</span>
+                  </div>
+                  <kbd className="text-[10px] text-slate-400 font-mono">F</kbd>
+                </button>
               </div>
-
-              <div className="my-1 border-t border-slate-100" />
-
-              {/* 9. Focus Mode */}
-              <button
-                onClick={handleToggleFocusMode}
-                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
-                  <Crosshair size={13} className={focusNodeId ? 'text-blue-600' : 'text-slate-400'} />
-                  <span>{focusNodeId ? 'Exit focus mode' : 'Focus mode'}</span>
-                </div>
-                <kbd className="text-[10px] text-slate-400 font-mono">F</kbd>
-              </button>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Export Dialog / Overlay */}
           {isExportMenuOpen && (

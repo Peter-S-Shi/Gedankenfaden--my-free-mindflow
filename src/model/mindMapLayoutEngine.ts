@@ -528,12 +528,10 @@ function makeSizeOf(nodes: CanonicalNode[]): (id: string) => { width: number; he
     const node = byId.get(id);
     if (!node) return { width: 150, height: 44 };
     // `manualSize.width` (explicit, persisted user intent -- Product
-    // Hardening: Persistent Manual Node Sizing) takes priority over
-    // whatever is already in `geometry.width` (the last-computed output,
-    // kept only for backward compatibility with documents that predate
-    // this field). Height is never read from `manualSize` here -- Mind Map
-    // height always stays text-aware-derived below.
-    const declaredWidth = node.manualSize?.width ?? node.geometry.width ?? 150;
+    // Hardening: Persistent Manual Node Sizing) takes priority.
+    // When manualSize.width is absent, Auto Layout recomputes dynamic
+    // text-first width with single-line bias and 360px ceiling.
+    const declaredWidth = node.manualSize?.width;
     const fontSize = node.style?.fontSize || 14;
     const size = computeTextAwareNodeSize(node.text || '', { width: declaredWidth, fontSize });
     cache.set(id, size);

@@ -68,7 +68,7 @@ function divergentNodes(doc: CanonicalDocument): CanonicalNode[] {
 // ─── Suite 1: Import width chain (Divergence B) ───────────────────────────────
 
 describe('M1-C geometry convergence — import width chain', () => {
-  it('non-root nodes from importFromMarkdown have explicit geometry.width=140, not the 150 fallback', () => {
+  it('non-root nodes from importFromMarkdown have dynamic text-first auto width', () => {
     const doc = importFromMarkdown(`
 # Root Title
 - Branch A
@@ -78,14 +78,14 @@ describe('M1-C geometry convergence — import width chain', () => {
     const root = rootOf(doc);
     const nonRoot = doc.nodes.filter((n) => n.id !== root.id);
     for (const n of nonRoot) {
-      expect(n.geometry.width, `node "${n.text}" width should be 140`).toBe(140);
+      expect(n.geometry.width, `node "${n.text}" width`).toBe(computeTextAwareNodeSize(n.text).width);
     }
   });
 
-  it('root node from importFromMarkdown has geometry.width=160', () => {
+  it('root node from importFromMarkdown has dynamic text-first auto width', () => {
     const doc = importFromMarkdown(`# A long root title\n- Branch\n`);
     const root = rootOf(doc);
-    expect(root.geometry.width).toBe(160);
+    expect(root.geometry.width).toBe(computeTextAwareNodeSize('A long root title').width);
   });
 
   it('width used for layout sizing matches declared geometry.width (no silent 150 substitution)', () => {
@@ -174,7 +174,7 @@ describe('M1-C geometry convergence — OPML import path', () => {
 describe('M1-C geometry convergence — CJK corpus fixtures', () => {
   it('06_long_chinese_text.md: every node converges (CJK text wraps to real heights)', () => {
     const doc = loadMarkdownFixture('06_long_chinese_text.md');
-    const longNode = doc.nodes.find((n) => n.text.length > 30);
+    const longNode = doc.nodes.find((n) => n.id !== rootOf(doc).id && n.text.length > 30);
     expect(longNode?.geometry.height).toBeGreaterThan(44);
     const bad = divergentNodes(doc);
     expect(bad, `Divergent CJK nodes: ${bad.map((n) => `"${n.text.slice(0, 20)}…" h=${n.geometry.height}`).join(', ')}`).toHaveLength(0);

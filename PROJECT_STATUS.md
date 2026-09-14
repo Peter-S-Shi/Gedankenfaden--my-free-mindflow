@@ -5,8 +5,8 @@
 **Stable Published Baseline**: `v1.0.0` on `main`  
 **V2 Product Hardening**: COMPLETE / PASS (Repair Queue Closure: PASS)  
 **Layout Engine Reconstruction**: COMPLETE (Merged into `v2.0.0-upgrade`)  
-**V2 M3 UI Reconstruction**: COMPLETE (PASS)  
-**Next Macro Stage**: V2 Release Candidate & Full Native Regression  
+**V2 M3 UI Reconstruction**: IMPLEMENTATION COMPLETE / HUMAN ACCEPTANCE PENDING  
+**Next Macro Stage**: V2 Release Candidate (PENDING / BLOCKED UNTIL HUMAN ACCEPTANCE)  
 **Release Truth**: v2.0.0 RC, Final Release, and Portfolio Refresh are PENDING (PR #4 is Draft, not merge-ready)  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-14  
@@ -26,8 +26,8 @@
 | **#17 Mind-Map Subtree Dragging** | **COMPLETE (PASS)** | `c7eb7e8`, drags entire subtree with uniform displacement delta |
 | **F12 Recursive Directory Discovery** | **DEFERRED** | Explicit product decision / out of current scope (single-root preserved) |
 | **PH Repair Queue Exit Gate** | **CLOSED (PASS)** | Exact-head CI `34797692094` green; native manual acceptance passed |
-| **UI Reconstruction (V2 M3)** | **COMPLETE (PASS)** | Text-first dynamic sizing, border hover resize, 8 context menu families, collapsible Inspector, focus mode |
-| **V2 Release Candidate & Packaging** | **NEXT STAGE** | Scheduled following UI Reconstruction |
+| **UI Reconstruction (V2 M3)** | **IMPLEMENTATION COMPLETE / HUMAN ACCEPTANCE PENDING** | Text-first dynamic sizing, border hover resize, 8 context menu families, collapsible Inspector, independent icon picker |
+| **V2 Release Candidate & Packaging** | **PENDING (BLOCKED UNTIL HUMAN ACCEPTANCE)** | Scheduled following human manual acceptance of UI Reconstruction |
 | **Umbrella PR #4** | **OPEN (DRAFT)** | Base: `main`, Head: `v2.0.0-upgrade` |
 
 ### Key Product Hardening Accomplishments

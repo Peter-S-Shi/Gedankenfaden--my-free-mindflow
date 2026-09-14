@@ -16,6 +16,7 @@ export interface CustomNodeData extends Record<string, unknown> {
   isNewBorn?: boolean;
   visuals?: ResolvedNodeVisuals;
   numberingBadge?: string;
+  icon?: string;
   hasChildren?: boolean;
   childCount?: number;
   /** Document mode -- decides which resize affordance CustomNode renders: width-only for Mind Map, width+height for Flowchart. */
@@ -45,6 +46,7 @@ const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
   'style',
   'shape',
   'assetRef',
+  'icon',
   'collapsed',
   'manualOffset',
   'parentId',
@@ -136,6 +138,7 @@ export function canonicalToReactFlow(
         style: n.style,
         shape: n.shape || visuals.shape,
         assetRef: n.assetRef,
+        icon: n.icon,
         collapsed: Boolean(n.collapsed),
         manualOffset: n.manualOffset,
         parentId: n.parentId,
@@ -241,6 +244,7 @@ export function reactFlowToCanonical(
       parentId: rn.data?.parentId || existing?.parentId,
       shape: (rn.data?.shape as NodeShape) || existing?.shape,
       assetRef: (rn.data?.assetRef as string) || existing?.assetRef,
+      icon: rn.data?.icon !== undefined ? rn.data.icon : existing?.icon,
       collapsed: typeof rn.data?.collapsed === 'boolean' ? rn.data.collapsed : existing?.collapsed,
       manualSize: existing?.manualSize,
       manualOffset: rn.data?.manualOffset || existing?.manualOffset,

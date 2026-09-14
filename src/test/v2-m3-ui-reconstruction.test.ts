@@ -240,3 +240,146 @@ describe('V2 M3: Structural Topic Mutations', () => {
     expect(leafNode?.parentId).toBe('root');
   });
 });
+
+describe('V2 M3: Auto Layout Dynamic Sizing vs Manual Width Preservation', () => {
+  it('recomputes dynamic text-first width for non-manually sized nodes upon Auto Layout', () => {
+    const doc = createEmptyDocument('Auto Layout Test', 'mindmap');
+    const root = doc.nodes[0];
+    root.id = 'root';
+
+    // A node with short text initially given arbitrary geometry width (e.g. 150)
+    const nodeA: CanonicalNode = {
+      id: 'nodeA',
+      text: 'Ideas',
+      parentId: 'root',
+      geometry: { x: 0, y: 0, width: 150, height: 44 },
+    };
+    // A node with longer text initially given arbitrary geometry width (e.g. 150)
+    const nodeB: CanonicalNode = {
+      id: 'nodeB',
+      text: 'Market Research and Competitive Analysis Q3',
+      parentId: 'root',
+      geometry: { x: 0, y: 0, width: 150, height: 44 },
+    };
+    // A node with manualSize override (manualSize.width = 280)
+    const nodeC: CanonicalNode = {
+      id: 'nodeC',
+      text: 'Short',
+      parentId: 'root',
+      geometry: { x: 0, y: 0, width: 280, height: 44 },
+      manualSize: { width: 280 },
+    };
+
+    doc.nodes = [root, nodeA, nodeB, nodeC];
+    doc.edges = [
+      { id: 'eA', source: 'root', target: 'nodeA' },
+      { id: 'eB', source: 'root', target: 'nodeB' },
+      { id: 'eC', source: 'root', target: 'nodeC' },
+    ];
+
+    const laidOut = autoLayoutDocument(doc);
+    const laidOutA = laidOut.nodes.find((n) => n.id === 'nodeA')!;
+    const laidOutB = laidOut.nodes.find((n) => n.id === 'nodeB')!;
+    const laidOutC = laidOut.nodes.find((n) => n.id === 'nodeC')!;
+
+    // nodeA should recompute to compact 90px instead of retaining stale 150px
+    expect(laidOutA.geometry.width).toBe(90);
+
+    // nodeB should dynamically expand to text-aware width (> 150px)
+    expect(laidOutB.geometry.width).toBeGreaterThan(150);
+    expect(laidOutB.geometry.width).toBeLessThanOrEqual(360);
+
+    // nodeC must preserve its authoritative manualSize.width (280px)
+    expect(laidOutC.geometry.width).toBe(280);
+    expect(laidOutC.manualSize?.width).toBe(280);
+  });
+
+  it('merely opening/loading a document does not mutate existing geometry', () => {
+    const rawSavedDoc: CanonicalDocument = {
+      schemaVersion: '1.0',
+      id: 'saved-doc',
+      title: 'Saved Document',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      mode: 'mindmap',
+      viewport: { x: 0, y: 0, zoom: 1 },
+      theme: {
+        paletteId: 'nordic-slate',
+        name: 'Nordic Slate',
+        canvasBackground: 'dots',
+        fontFamily: 'sans',
+        defaultEdgeRouting: 'smoothstep',
+      },
+      groups: [],
+      nodes: [
+        {
+          id: 'root',
+          text: 'Central Topic',
+          type: 'root',
+          geometry: { x: 200, y: 300, width: 180, height: 50 },
+        },
+        {
+          id: 'topic-1',
+          text: 'Custom Positioned Topic',
+          parentId: 'root',
+          geometry: { x: 450, y: 320, width: 210, height: 48 },
+        },
+      ],
+      edges: [{ id: 'e1', source: 'root', target: 'topic-1' }],
+    };
+
+    // Verify raw document geometry matches verbatim before any user-initiated Auto Layout
+    expect(rawSavedDoc.nodes[0].geometry).toEqual({ x: 200, y: 300, width: 180, height: 50 });
+    expect(rawSavedDoc.nodes[1].geometry).toEqual({ x: 450, y: 320, width: 210, height: 48 });
+  });
+});
+
+describe('V2 M3: Independent Node Icon Lifecycle', () => {
+  it('applies, updates, and removes icon without mutating node.text', async () => {
+    const { canonicalToReactFlow, reactFlowToCanonical } = await import('../model/adapter');
+
+    const originalDoc = createEmptyDocument('Icon Test', 'mindmap');
+    const root = originalDoc.nodes[0];
+    root.id = 'root';
+    root.text = 'Core Architecture';
+
+    // Step 1: Set icon to '🚀'
+    const docWithIcon: CanonicalDocument = {
+      ...originalDoc,
+      nodes: [{ ...root, icon: '🚀' }],
+    };
+
+    expect(docWithIcon.nodes[0].icon).toBe('🚀');
+    expect(docWithIcon.nodes[0].text).toBe('Core Architecture'); // Text remains pure!
+
+    // Step 2: Project through ReactFlow adapter and verify CustomNodeData
+    const projected = canonicalToReactFlow(docWithIcon, {
+      selectedNodeId: null,
+    });
+    const rfNode = projected.nodes.find((n) => n.id === 'root')!;
+    expect(rfNode.data.icon).toBe('🚀');
+    expect(rfNode.data.label).toBe('Core Architecture');
+
+    // Step 3: Round-trip back from ReactFlow to CanonicalDocument
+    const restoredDoc = reactFlowToCanonical(projected.nodes, projected.edges, docWithIcon);
+    expect(restoredDoc.nodes[0].icon).toBe('🚀');
+    expect(restoredDoc.nodes[0].text).toBe('Core Architecture');
+
+    // Step 4: Change icon to '💡'
+    const updatedDoc: CanonicalDocument = {
+      ...restoredDoc,
+      nodes: [{ ...restoredDoc.nodes[0], icon: '💡' }],
+    };
+    expect(updatedDoc.nodes[0].icon).toBe('💡');
+    expect(updatedDoc.nodes[0].text).toBe('Core Architecture');
+
+    // Step 5: Remove icon
+    const clearedDoc: CanonicalDocument = {
+      ...updatedDoc,
+      nodes: [{ ...updatedDoc.nodes[0], icon: undefined }],
+    };
+    expect(clearedDoc.nodes[0].icon).toBeUndefined();
+    expect(clearedDoc.nodes[0].text).toBe('Core Architecture');
+  });
+});
+

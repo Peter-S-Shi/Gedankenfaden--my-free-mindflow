@@ -91,11 +91,11 @@ describe('Manual Node Sizing -- Mind Map (width-only, text-aware height)', () =>
     expect(a.manualSize).toEqual({ width: 320 });
   });
 
-  it('defaults to the natural width (150) when manualSize is absent', () => {
+  it('defaults to text-first auto width when manualSize is absent', () => {
     const doc = buildMindMapDoc();
     const laidOut = layoutMindMapEngineV2(doc, { preset: 'balanced' });
     const a = byId(laidOut).get('a')!;
-    expect(a.geometry.width).toBe(150);
+    expect(a.geometry.width).toBe(computeTextAwareNodeSize('Branch A').width);
   });
 
   it('ignores any manualSize.height on a Mind Map node -- height stays text-aware', () => {

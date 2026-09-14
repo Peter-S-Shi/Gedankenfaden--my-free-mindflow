@@ -66,6 +66,7 @@ export interface CanonicalNode {
   parentId?: string; // Hierarchical parent in Mind Map mode
   shape?: NodeShape; // Top-level convenience shape accessor
   assetRef?: string; // Internal URI: "asset://img_<id>.<ext>"
+  icon?: string; // Independent node icon representation (e.g. "💡", "⭐", "🎯")
   style?: NodeStyle; // Local property overrides
   numbering?: NodeNumberingRule;
   collapsed?: boolean; // Gather child branches

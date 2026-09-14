@@ -278,6 +278,17 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
             </span>
           )}
 
+          {/* Independent Node Icon */}
+          {nodeData.icon && (
+            <span
+              data-testid={`node-icon-${id}`}
+              className="text-base leading-none select-none shrink-0"
+              title="Topic Icon"
+            >
+              {nodeData.icon}
+            </span>
+          )}
+
           {isEditing ? (
             <input
               ref={inputRef}

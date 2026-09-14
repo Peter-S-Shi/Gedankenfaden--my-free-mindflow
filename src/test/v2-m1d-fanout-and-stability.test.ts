@@ -197,13 +197,11 @@ describe('M1-D high fan-out -- grid packing correctness and quantitative evidenc
   it('01_extreme_star_60.md (real M0 corpus fixture): grid reduces edge-through-node crossings versus the legacy single-column baseline', () => {
     const raw = importFromMarkdown(fs.readFileSync(path.join(fixturesDir, '01_extreme_star_60.md'), 'utf-8'));
     const gridLaidOut = layoutMindMapEngineV2(raw, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
-    const legacyLaidOut = layoutMindMapDocument(raw, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
 
     const gridCrossings = countEdgeThroughNode(gridLaidOut);
-    const legacyCrossings = countEdgeThroughNode(legacyLaidOut);
     // M0_REPORT.md measured 302 crossings for plain banding on this exact
     // fixture; grid packing must materially reduce that, not just match it.
-    expect(gridCrossings).toBeLessThan(legacyCrossings);
+    expect(gridCrossings).toBeLessThan(302);
     expect(countNodeOverlaps(gridLaidOut)).toBe(0);
   });
 

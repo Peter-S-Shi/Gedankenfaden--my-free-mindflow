@@ -1,6 +1,7 @@
 import React from 'react';
 import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
+import { PRESET_ICONS } from '../model/icons';
 import {
   PanelRightClose,
   RotateCcw,
@@ -22,7 +23,7 @@ export interface InspectorPanelProps {
   onCreateGroup?: (title: string, nodeIds: string[]) => void;
   onClose: () => void;
   onAttachImage?: (nodeId: string) => void;
-  onChooseIcon?: (nodeId: string) => void;
+  onChooseIcon?: (nodeId: string, icon?: string) => void;
   onCollapseBranch?: (kind: 'current' | 'siblings' | 'descendants') => void;
   onExpandBranch?: (kind: 'current' | 'siblings' | 'descendants') => void;
   onSelectNodes?: (kind: 'same-branch' | 'all-level') => void;
@@ -373,19 +374,54 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               )}
             </div>
 
-            {/* Icon */}
+            {/* Icon Picker */}
             <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1 flex items-center gap-1">
-                <Smile size={11} className="text-amber-500" />
-                Icon
+              <label className="text-[11px] font-semibold text-slate-500 block mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Smile size={11} className="text-amber-500" />
+                  Node Icon
+                </span>
+                {selectedNode?.icon && (
+                  <button
+                    type="button"
+                    onClick={() => selectedNode && (onChooseIcon ? onChooseIcon(selectedNode.id, undefined) : onUpdateNode(selectedNode.id, { icon: undefined }))}
+                    className="text-[10px] text-rose-500 hover:text-rose-700 flex items-center gap-0.5"
+                    title="Remove Icon"
+                  >
+                    <Trash2 size={10} />
+                    Remove
+                  </button>
+                )}
               </label>
-              <button
-                disabled={!selectedNode}
-                onClick={() => selectedNode && onChooseIcon?.(selectedNode.id)}
-                className="w-full py-1.5 px-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 text-slate-700 text-[11px] font-medium rounded border border-slate-200 transition-colors flex items-center justify-center gap-1.5"
-              >
-                ▦ Choose Icon…
-              </button>
+
+              {selectedNode?.icon && (
+                <div className="flex items-center gap-2 p-1.5 bg-blue-50/60 border border-blue-200 rounded text-xs mb-1.5">
+                  <span className="text-lg leading-none">{selectedNode.icon}</span>
+                  <span className="text-[11px] text-blue-800 font-medium">Active Topic Icon</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-5 gap-1 pt-0.5">
+                {PRESET_ICONS.map(({ emoji, label }) => {
+                  const isSelected = selectedNode?.icon === emoji;
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      disabled={!selectedNode}
+                      title={label}
+                      onClick={() => selectedNode && (onChooseIcon ? onChooseIcon(selectedNode.id, isSelected ? undefined : emoji) : onUpdateNode(selectedNode.id, { icon: isSelected ? undefined : emoji }))}
+                      className={`h-7 flex items-center justify-center text-sm rounded border transition-all disabled:opacity-40 ${
+                        isSelected
+                          ? 'bg-blue-100 border-blue-500 scale-105 shadow-2xs font-bold'
+                          : 'bg-slate-50 hover:bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      {emoji}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Group Container */}
