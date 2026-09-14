@@ -404,44 +404,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                     {ann.label}
                   </text>
                 </g>
-              ) : (
-                /* Empty Label Button / Pill */
-                <g
-                  transform={`translate(${curve.midPoint.x - 24}, ${curve.midPoint.y - 11})`}
-                  className="pointer-events-auto cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectAnnotation(ann.id);
-                    setEditingLineId(ann.id);
-                    setEditingText('');
-                  }}
-                >
-                  <title>Click to write label on line</title>
-                  <rect
-                    x={0}
-                    y={0}
-                    width={48}
-                    height={22}
-                    rx={11}
-                    fill="#ffffff"
-                    stroke={isSelected ? '#2563eb' : '#cbd5e1'}
-                    strokeWidth={isSelected ? 1.5 : 1}
-                    strokeDasharray={isSelected ? undefined : '3,2'}
-                    className="shadow-sm hover:border-blue-400"
-                  />
-                  <text
-                    x={24}
-                    y={15}
-                    textAnchor="middle"
-                    fill={isSelected ? '#2563eb' : '#94a3b8'}
-                    fontSize={11}
-                    fontWeight={500}
-                    style={{ userSelect: 'none' }}
-                  >
-                    {isSelected ? '+ Text' : '...'}
-                  </text>
-                </g>
-              )}
+              ) : null}
 
               {/* Floating Quick Action Toolbar when Selected */}
               {isSelected && (
