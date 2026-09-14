@@ -3,6 +3,7 @@ import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentMode, NodeShap
 import { cloneDocument } from './document';
 import { resolveNodeVisuals, BUILTIN_THEMES, ResolvedNodeVisuals } from './theme';
 import { computeDocumentNumbering } from './numbering';
+import { edgeInteractionFlags } from './connectionPolicy';
 
 export interface CustomNodeData extends Record<string, unknown> {
   label: string;
@@ -215,6 +216,9 @@ export function canonicalToReactFlow(
         stroke: e.style?.stroke || defaultEdgeColor,
         strokeWidth: e.style?.strokeWidth || 2,
       },
+      // M3 Behavior Correction Contract: Mind Map hierarchy edges are not
+      // interaction objects -- locked off entirely; Flowchart is unaffected.
+      ...edgeInteractionFlags(doc.mode),
     };
   });
 

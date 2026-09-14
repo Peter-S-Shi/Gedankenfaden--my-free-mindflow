@@ -2,6 +2,7 @@ import React from 'react';
 import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
 import { canApplyNumbering } from '../model/numbering';
+import { allowsManualConnections } from '../model/connectionPolicy';
 import { PRESET_ICONS } from '../model/icons';
 import {
   PanelRightClose,
@@ -641,27 +642,34 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
             </div>
 
-            {/* Default Edge Routing */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">
-                Default Edge Routing
-              </label>
-              <div className="grid grid-cols-3 gap-1">
-                {(['smoothstep', 'orthogonal', 'bezier'] as const).map((routing) => (
-                  <button
-                    key={routing}
-                    onClick={() => onUpdateTheme({ ...currentTheme, defaultEdgeRouting: routing })}
-                    className={`text-[11px] py-1 px-1 rounded border capitalize ${
-                      (currentTheme.defaultEdgeRouting || 'smoothstep') === routing
-                        ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {routing === 'smoothstep' ? 'Smooth' : routing === 'orthogonal' ? 'Ortho' : 'Curved'}
-                  </button>
-                ))}
+            {/* Default Edge Routing -- M3 Behavior Correction Contract:
+                hierarchy edges aren't individually editable entities in
+                Mind Map (they already ignore this setting entirely --
+                adapter.ts hardcodes 'smoothstep' there regardless), so the
+                control is Flowchart-only rather than presenting an
+                ambiguous no-op. */}
+            {allowsManualConnections(document.mode) && (
+              <div>
+                <label className="text-[11px] font-semibold text-slate-500 block mb-1">
+                  Default Edge Routing
+                </label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['smoothstep', 'orthogonal', 'bezier'] as const).map((routing) => (
+                    <button
+                      key={routing}
+                      onClick={() => onUpdateTheme({ ...currentTheme, defaultEdgeRouting: routing })}
+                      className={`text-[11px] py-1 px-1 rounded border capitalize ${
+                        (currentTheme.defaultEdgeRouting || 'smoothstep') === routing
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {routing === 'smoothstep' ? 'Smooth' : routing === 'orthogonal' ? 'Ortho' : 'Curved'}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Large-map Edge Legibility */}
             <div>

@@ -58,7 +58,7 @@ import {
   expandToLevel,
 } from '../model/hierarchyVisibility';
 import { canApplyNumbering } from '../model/numbering';
-import { allowsManualConnections } from '../model/connectionPolicy';
+import { allowsManualConnections, filterEdgeChangesForMode } from '../model/connectionPolicy';
 import {
   ArrowLeft,
   Plus,
@@ -464,13 +464,21 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) => {
+      // M3 Behavior Correction Contract: Mind Map hierarchy edges are not
+      // interaction objects -- per-edge `selectable`/`deletable` flags
+      // (set in canonicalToReactFlow) already stop React Flow's own UI
+      // from ever emitting a select/remove change for one; this filter is
+      // defense in depth against any other path that might still dispatch
+      // one. Flowchart passes every change through unchanged.
+      const effectiveChanges = filterEdgeChangesForMode(changes, doc.mode);
+      if (effectiveChanges.length === 0) return;
       setEdges((eds) => {
-        const next = applyEdgeChanges(changes, eds);
+        const next = applyEdgeChanges(effectiveChanges, eds);
         syncToCanonical(nodes, next, true);
         return next;
       });
     },
-    [nodes, syncToCanonical]
+    [nodes, syncToCanonical, doc.mode]
   );
 
   const onConnect = useCallback(
