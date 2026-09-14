@@ -39,18 +39,30 @@
 
 /* 2. Connect -> Draw */
 @keyframes edgeDraw {
-  from {
+  0% {
+    stroke-dasharray: 1000;
     stroke-dashoffset: 1000;
   }
-  to {
+  99.9% {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dasharray: none;
     stroke-dashoffset: 0;
   }
 }
 
 .signature-connect-draw {
-  stroke-dasharray: 1000;
+  stroke-dasharray: none;
   stroke-dashoffset: 0;
-  animation: edgeDraw 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: edgeDraw 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Settled Mind Map hierarchy edges: always continuous solid stroke at arbitrary path length */
+.mindmap-hierarchy-edge,
+.mindmap-hierarchy-edge .react-flow__edge-path {
+  stroke-dasharray: none;
 }
 
 /* 3. Select -> Breathe */

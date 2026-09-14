@@ -90,6 +90,7 @@ export interface CanonicalEdge {
     strokeWidth?: number;
     dashed?: boolean;
     arrowEnd?: boolean;
+    strokeDasharray?: string;
   };
 }
 

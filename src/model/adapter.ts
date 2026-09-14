@@ -214,10 +214,15 @@ export function canonicalToReactFlow(
               height: 16,
             }
           : undefined,
-      className: 'signature-connect-draw',
+      className: isFlowchart
+        ? 'signature-connect-draw'
+        : 'signature-connect-draw mindmap-hierarchy-edge',
       style: {
         stroke: e.style?.stroke || defaultEdgeColor,
         strokeWidth: e.style?.strokeWidth || 2,
+        strokeDasharray: isFlowchart
+          ? (e.style?.strokeDasharray || (e.style?.dashed ? '6 4' : undefined))
+          : 'none',
       },
       // M3 Behavior Correction Contract: Mind Map hierarchy edges are not
       // interaction objects -- locked off entirely; Flowchart is unaffected.
