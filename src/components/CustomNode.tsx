@@ -111,7 +111,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   return (
     <div
       data-testid={`custom-node-${id}`}
-      className={`relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center signature-move-glide ${
+      className={`w-full h-full relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center signature-move-glide ${
         isNewBorn ? 'signature-create-grow animate-node-birth' : ''
       } ${
         selected ? 'signature-select-breathe' : ''
@@ -119,7 +119,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         nodeData.isDeleting ? 'signature-delete-dissolve' : ''
       }`}
       style={{
-        minWidth: shape === 'diamond' ? 140 : 120,
+        minWidth: shape === 'diamond' ? 140 : 90,
         minHeight: shape === 'diamond' ? 60 : 44,
         backgroundColor: isSvgShape ? 'transparent' : visuals.backgroundColor,
         color: visuals.textColor,

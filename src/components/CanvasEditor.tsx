@@ -480,7 +480,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           childrenIdsByParent
         );
 
-        if (hasResizeDimensionChange || skipCanonicalSync) {
+        const isOnlySelectionChange = changes.length > 0 && changes.every((c) => c.type === 'select');
+        if (hasResizeDimensionChange || skipCanonicalSync || isOnlySelectionChange) {
           return next;
         }
 
@@ -1118,7 +1119,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       const combined = new Set([...flowSelected, ...Array.from(multiSelectedNodeIds)]);
       
       let candidateIds: string[] = [];
-      if (targetNodeId && combined.has(targetNodeId)) {
+      if (targetNodeId && combined.has(targetNodeId) && combined.size > 1) {
+        candidateIds = Array.from(combined);
+      } else if (combined.size > 1) {
         candidateIds = Array.from(combined);
       } else if (targetNodeId) {
         candidateIds = [targetNodeId];
@@ -1154,7 +1157,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       const combined = new Set([...flowSelected, ...Array.from(multiSelectedNodeIds)]);
       
       let candidateIds: string[] = [];
-      if (targetNodeId && combined.has(targetNodeId)) {
+      if (targetNodeId && combined.has(targetNodeId) && combined.size > 1) {
+        candidateIds = Array.from(combined);
+      } else if (combined.size > 1) {
         candidateIds = Array.from(combined);
       } else if (targetNodeId) {
         candidateIds = [targetNodeId];
@@ -1963,6 +1968,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       event.preventDefault();
       event.stopPropagation();
       setSelectedNodeId(node.id);
+      setMultiSelectedNodeIds((prev) => {
+        if (prev.has(node.id)) {
+          return prev;
+        }
+        return new Set([node.id]);
+      });
 
       const x = Math.min(event.clientX, window.innerWidth - 250);
       const y = Math.min(event.clientY, window.innerHeight - 440);
@@ -2495,6 +2506,31 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     return base;
   }, [edges, focusedBranchNodeIds, adaptiveEdges, currentZoom, reparentPreview, nodes]);
 
+  // Live effective node geometry for annotations (boundaries, braces, relationship lines)
+  // Keeps full canonical node data (parentId, collapsed, mindMapSide) while tracking live dimensions and coordinates
+  const effectiveNodes = useMemo((): CanonicalNode[] => {
+    const rfNodeMap = new Map(nodes.map((rn) => [rn.id, rn]));
+    return doc.nodes.map((dn) => {
+      const rn = rfNodeMap.get(dn.id);
+      if (!rn) return dn;
+      const width =
+        rn.measured?.width ??
+        (typeof (rn.style as any)?.width === 'number' ? (rn.style as any).width : dn.geometry.width);
+      const height =
+        rn.measured?.height ??
+        (typeof (rn.style as any)?.height === 'number' ? (rn.style as any).height : dn.geometry.height);
+      return {
+        ...dn,
+        geometry: {
+          x: rn.position.x,
+          y: rn.position.y,
+          width: width || 120,
+          height: height || 44,
+        },
+      };
+    });
+  }, [doc.nodes, nodes]);
+
   return (
     <div
       ref={containerRef}
@@ -2837,16 +2873,40 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             nodes={displayedNodes}
             edges={displayedEdges}
             onNodesChange={onNodesChange}
+            onSelectionChange={({ nodes: selectedNodes }) => {
+              if (selectedNodes.length > 1) {
+                setMultiSelectedNodeIds(new Set(selectedNodes.map((n) => n.id)));
+              }
+            }}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeClick={(_event, node) => {
+            onNodeClick={(event, node) => {
               if (targetingLineSourceId) {
                 handleCommitRelationshipLine(node.id);
+                return;
+              }
+              setSelectedAnnotationId(null);
+              if (event.shiftKey || event.ctrlKey || event.metaKey) {
+                setMultiSelectedNodeIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(node.id)) {
+                    next.delete(node.id);
+                  } else {
+                    next.add(node.id);
+                  }
+                  return next;
+                });
+                setNodes((nds) =>
+                  nds.map((n) => (n.id === node.id ? { ...n, selected: !n.selected } : n))
+                );
               } else {
                 setSelectedNodeId(node.id);
-                setSelectedAnnotationId(null);
+                setMultiSelectedNodeIds(new Set([node.id]));
+                setNodes((nds) =>
+                  nds.map((n) => ({ ...n, selected: n.id === node.id }))
+                );
               }
             }}
             onNodeContextMenu={handleNodeContextMenu}
@@ -2893,18 +2953,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             <ViewportPortal>
               <AnnotationLayer
                 annotations={doc.annotations}
-                nodes={nodes.map(n => ({
-                  id: n.id,
-                  text: n.data?.label || '',
-                  geometry: {
-                    x: n.position.x,
-                    y: n.position.y,
-                    width: n.measured?.width ?? n.width ?? (doc.nodes.find(dn => dn.id === n.id)?.geometry.width || 120),
-                    height: n.measured?.height ?? n.height ?? (doc.nodes.find(dn => dn.id === n.id)?.geometry.height || 40)
-                  },
-                  parentId: n.data?.parentId,
-                  mindMapSide: n.data?.mindMapSide,
-                }) as any)}
+                nodes={effectiveNodes}
                 selectedAnnotationId={selectedAnnotationId}
                 onSelectAnnotation={(id) => {
                   setSelectedAnnotationId(id);
