@@ -83,6 +83,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const hasChildren = Boolean(nodeData.hasChildren);
   const isCollapsed = Boolean(nodeData.collapsed);
   const childCount = nodeData.childCount || 0;
+  const hiddenDescendantCount = nodeData.hiddenDescendantCount ?? childCount;
   const numberingBadge = nodeData.numberingBadge;
   const isFlowchart = nodeData.mode === 'flowchart';
 
@@ -312,14 +313,14 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       {hasChildren && (
         <button
           onClick={handleToggleFold}
-          title={isCollapsed ? `Expand branch (${childCount} children)` : 'Collapse branch'}
+          title={isCollapsed ? `Reveal next level (${hiddenDescendantCount} hidden descendants)` : 'Collapse branch'}
           className={`absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full text-[10px] font-bold shadow-xs transition-all ${
             isCollapsed
               ? 'w-6 h-5 bg-blue-600 hover:bg-blue-700 text-white px-1 signature-collapse-gather'
               : 'w-4 h-4 bg-slate-200 hover:bg-slate-300 text-slate-600 opacity-0 group-hover:opacity-100 signature-expand-unfold'
           }`}
         >
-          {isCollapsed ? `+${childCount}` : '−'}
+          {isCollapsed ? `+${hiddenDescendantCount}` : '−'}
         </button>
       )}
     </div>

@@ -28,6 +28,8 @@ export const CONTEXT_SUBMENU_SIZES = {
   expand: { width: 192, height: 96 },
   selection: { width: 208, height: 96 },
   delete: { width: 208, height: 96 },
+  canvasSelect: { width: 176, height: 48 },
+  expandTo: { width: 176, height: 216 },
 } as const;
 
 export type ContextSubmenuKey = keyof typeof CONTEXT_SUBMENU_SIZES;

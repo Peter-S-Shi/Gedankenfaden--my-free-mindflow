@@ -19,6 +19,14 @@ export interface CustomNodeData extends Record<string, unknown> {
   icon?: string;
   hasChildren?: boolean;
   childCount?: number;
+  /**
+   * Total recursive descendant count (M3 Behavior Correction Contract 3.7)
+   * -- what the collapsed-node count badge must show, distinct from
+   * `childCount` (direct children only). Computed regardless of nested
+   * collapse state further down, since a collapsed node hides its whole
+   * subtree either way.
+   */
+  hiddenDescendantCount?: number;
   /** Document mode -- decides which resize affordance CustomNode renders: width-only for Mind Map, width+height for Flowchart. */
   mode?: DocumentMode;
   onToggleFold?: (nodeId: string) => void;
@@ -56,6 +64,7 @@ const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
   'numberingBadge',
   'hasChildren',
   'childCount',
+  'hiddenDescendantCount',
   'mode',
   'onToggleFold',
   'onUpdateLabel',
@@ -118,6 +127,18 @@ export function canonicalToReactFlow(
     }
   }
 
+  const descendantCountCache = new Map<string, number>();
+  const countDescendants = (id: string, visited: Set<string> = new Set()): number => {
+    const cached = descendantCountCache.get(id);
+    if (cached !== undefined) return cached;
+    if (visited.has(id)) return 0; // malformed/cyclic parentId graph -- don't recurse forever
+    visited.add(id);
+    const direct = childrenMap.get(id) || [];
+    const total = direct.reduce((sum, childId) => sum + 1 + countDescendants(childId, visited), 0);
+    descendantCountCache.set(id, total);
+    return total;
+  };
+
   const nodes: Node<CustomNodeData>[] = doc.nodes.map((n) => {
     const visuals = resolveNodeVisuals(n, theme);
     const directChildren = childrenMap.get(n.id) || [];
@@ -146,6 +167,7 @@ export function canonicalToReactFlow(
         numberingBadge: numberingMap.get(n.id),
         hasChildren,
         childCount: directChildren.length,
+        hiddenDescendantCount: countDescendants(n.id),
         mode: doc.mode,
         onToggleFold: callbacks?.onToggleFold,
         onUpdateLabel: callbacks?.onUpdateLabel,
@@ -248,6 +270,7 @@ export function reactFlowToCanonical(
       collapsed: typeof rn.data?.collapsed === 'boolean' ? rn.data.collapsed : existing?.collapsed,
       manualSize: existing?.manualSize,
       manualOffset: rn.data?.manualOffset || existing?.manualOffset,
+      numbering: existing?.numbering,
       style: rn.data?.style || existing?.style,
       data: preserveDomainNodeData(rn.data),
     };

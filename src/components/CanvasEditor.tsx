@@ -52,6 +52,12 @@ import { buildChildrenIdsByParent, carryDescendantsWithDraggedParents } from '..
 import { computeTextAwareNodeSize } from '../model/textMeasurement';
 import { selectSameLevelInTopLevelBranch } from '../model/hierarchySelection';
 import {
+  toggleNodeFold,
+  collapseAllTopLevelTopics,
+  expandAllTopics,
+  expandToLevel,
+} from '../model/hierarchyVisibility';
+import {
   ArrowLeft,
   Plus,
   Trash2,
@@ -157,7 +163,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    nodeId: string;
+    // `null` = blank-canvas context menu (document-level structure
+    // commands, M3 Behavior Correction Contract 3.6), not anchored to any
+    // particular node.
+    nodeId: string | null;
   } | null>(null);
   const [submenuPlacements, setSubmenuPlacements] = useState<
     Partial<Record<ContextSubmenuKey, SubmenuPlacement>>
@@ -185,15 +194,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const handleToggleFold = useCallback(
     (nodeId: string) => {
       setDoc((prevDoc) => {
-        const nextNodes = prevDoc.nodes.map((n) =>
-          n.id === nodeId ? { ...n, collapsed: !n.collapsed } : n
-        );
+        // Progressive one-level reveal (M3 Behavior Correction Contract
+        // 3.2/3.7): see `toggleNodeFold`'s doc comment.
+        const nextNodes = toggleNodeFold(prevDoc.nodes, nodeId);
         const updatedDoc: CanonicalDocument = {
           ...prevDoc,
           nodes: nextNodes,
           updatedAt: new Date().toISOString(),
         };
-        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset, stabilizeAgainst: prevDoc });
+        // Visibility-changing: intentionally NOT stabilized against prevDoc.
+        // Collapse/expand must reclaim/re-pack the visible tree from scratch
+        // (M3 Behavior Correction Contract 2.1) rather than pinning siblings
+        // at their historical positions, which is what left stale gaps and
+        // long edges behind (contract evidence 01/02/03).
+        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset });
         const projected = canonicalToReactFlow(layouted, {
           onToggleFold: handleToggleFold,
           onLiveResizeWidth: handleLiveResizeWidth,
@@ -1271,7 +1285,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+      // Visibility-changing: not stabilized -- see handleToggleFold's comment.
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
       const projected = canonicalToReactFlow(layouted, {
         onToggleFold: handleToggleFold,
         selectedNodeId,
@@ -1336,7 +1351,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+      // Visibility-changing: not stabilized -- see handleToggleFold's comment.
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
       const projected = canonicalToReactFlow(layouted, {
         onToggleFold: handleToggleFold,
         selectedNodeId,
@@ -1355,6 +1371,57 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     },
     [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
+
+  // M3 Behavior Correction Contract 3.3-3.6: blank-canvas, document-level
+  // structure commands. Mind Map only (numbering follows the same guard).
+  // All are visibility-changing, so -- like handleToggleFold above -- none
+  // pass `stabilizeAgainst`.
+  const applyDocumentStructureChange = useCallback(
+    (nextNodes: CanonicalNode[], statusMessage: string) => {
+      if (doc.mode !== 'mindmap') return;
+      const nextDoc: CanonicalDocument = { ...doc, nodes: nextNodes, updatedAt: new Date().toISOString() };
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset });
+      const projected = canonicalToReactFlow(layouted, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
+      setDoc(layouted);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      setStatusMessage(statusMessage);
+      setContextMenu(null);
+    },
+    [doc, layoutPreset, selectedNodeId, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
+  );
+
+  const handleCollapseAllTopics = useCallback(() => {
+    applyDocumentStructureChange(collapseAllTopLevelTopics(doc.nodes), 'Collapsed all topics');
+  }, [doc, applyDocumentStructureChange]);
+
+  const handleExpandAllTopics = useCallback(() => {
+    applyDocumentStructureChange(expandAllTopics(doc.nodes), 'Expanded all topics');
+  }, [doc, applyDocumentStructureChange]);
+
+  const handleExpandToLevel = useCallback(
+    (level: number) => {
+      applyDocumentStructureChange(expandToLevel(doc.nodes, level), `Expanded to level ${level}`);
+    },
+    [doc, applyDocumentStructureChange]
+  );
+
+  const handleSelectAllTopics = useCallback(() => {
+    if (doc.mode !== 'mindmap') return;
+    const allIds = new Set(doc.nodes.map((n) => n.id));
+    setMultiSelectedNodeIds(allIds);
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
+    setStatusMessage(`Selected all topics (${allIds.size})`);
+    setContextMenu(null);
+  }, [doc]);
 
   // M3: Selection submenus
   const handleSelectHierarchy = useCallback(
@@ -1522,14 +1589,16 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const handlePaneContextMenu = useCallback(
     (event: any) => {
       event.preventDefault();
-      if (selectedNodeId) {
-        const x = Math.min(event.clientX, window.innerWidth - 250);
-        const y = Math.min(event.clientY, window.innerHeight - 440);
-        setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: selectedNodeId });
-        setSubmenuPlacements({});
-      }
+      const x = Math.min(event.clientX, window.innerWidth - 250);
+      const y = Math.min(event.clientY, window.innerHeight - 440);
+      // Blank canvas -- M3 Behavior Correction Contract 3.6: expose
+      // document-level structure controls (`nodeId: null`), independent of
+      // whatever node happens to be selected, rather than reopening the
+      // per-node menu (or doing nothing when nothing is selected).
+      setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: null });
+      setSubmenuPlacements({});
     },
-    [selectedNodeId]
+    []
   );
 
   const positionContextSubmenu = useCallback(
@@ -2427,7 +2496,89 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 },
               };
             };
-            const targetNode = doc.nodes.find((n) => n.id === contextMenu.nodeId);
+            if (contextMenu.nodeId === null) {
+              // Blank-canvas menu: document-level structure commands only
+              // (M3 Behavior Correction Contract 3.6), no node-specific
+              // items (clipboard, asset, icon, delete, etc). Mind Map only
+              // -- every command it offers (collapse/expand/select topics)
+              // is mind-map hierarchy semantics with no flowchart
+              // equivalent, so render nothing rather than a menu full of
+              // buttons that silently no-op.
+              if (doc.mode !== 'mindmap') return null;
+              return (
+                <div
+                  data-testid="canvas-context-menu"
+                  onClick={(e) => e.stopPropagation()}
+                  className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl py-1.5 z-50 text-xs w-[210px] select-none animate-fadeIn"
+                  style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+                >
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Document Structure
+                  </div>
+
+                  <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('canvasSelect', event.currentTarget)}>
+                    <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <CheckSquare size={13} className="text-slate-400" />
+                        <span>Select Topics</span>
+                      </div>
+                      <ChevronRight size={12} className="text-slate-400" />
+                    </div>
+                    <div {...getSubmenuProps('canvasSelect')}>
+                      <button
+                        onClick={handleSelectAllTopics}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        All Topics
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('expandTo', event.currentTarget)}>
+                    <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <Eye size={13} className="text-slate-400" />
+                        <span>Expand To</span>
+                      </div>
+                      <ChevronRight size={12} className="text-slate-400" />
+                    </div>
+                    <div {...getSubmenuProps('expandTo')}>
+                      {[1, 2, 3, 4, 5, 6].map((level) => (
+                        <button
+                          key={level}
+                          onClick={() => handleExpandToLevel(level)}
+                          className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                        >
+                          Level {level}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleExpandAllTopics}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <Eye size={13} className="text-slate-400" />
+                    <span>Expand All Topics</span>
+                  </button>
+                  <button
+                    onClick={handleCollapseAllTopics}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <ChevronDown size={13} className="text-slate-400" />
+                    <span>Collapse All Topics</span>
+                  </button>
+                </div>
+              );
+            }
+
+            // Narrowed once here for the nested onClick closures below --
+            // TS doesn't carry the `contextMenu.nodeId === null` early
+            // return's narrowing into a separately-typechecked arrow
+            // function literal.
+            const targetNodeId: string = contextMenu.nodeId;
+            const targetNode = doc.nodes.find((n) => n.id === targetNodeId);
 
             return (
               <div
@@ -2544,11 +2695,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                         className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (!file || !contextMenu.nodeId) return;
+                          if (!file || !targetNodeId) return;
                           const reader = new FileReader();
                           reader.onload = (ev) => {
                             const dataUrl = ev.target?.result as string;
-                            handleUpdateNode(contextMenu.nodeId, { assetRef: dataUrl });
+                            handleUpdateNode(targetNodeId, { assetRef: dataUrl });
                           };
                           reader.readAsDataURL(file);
                           setContextMenu(null);
@@ -2566,7 +2717,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                           type="button"
                           title={label}
                           onClick={() => {
-                            handleChooseIcon(contextMenu.nodeId, emoji);
+                            handleChooseIcon(targetNodeId, emoji);
                             setContextMenu(null);
                           }}
                           className={`h-7 w-7 flex items-center justify-center text-sm rounded hover:bg-slate-100 transition-all ${
@@ -2581,7 +2732,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          handleChooseIcon(contextMenu.nodeId, undefined);
+                          handleChooseIcon(targetNodeId, undefined);
                           setContextMenu(null);
                         }}
                         className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50 border-t border-slate-100"
