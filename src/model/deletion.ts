@@ -1,10 +1,28 @@
 import { CanonicalDocument, CanonicalEdge } from './types';
 
 export interface DeletionPlan {
-  kind: 'delete-node' | 'delete-subtree' | 'clear-root-branches';
+  kind: 'delete-node' | 'delete-subtree' | 'delete-node-preserve-children' | 'clear-root-branches';
   nodeIds: string[];
   title: string;
   message: string;
+}
+
+export function planDeleteNodePreservingChildren(
+  doc: CanonicalDocument,
+  selectedNodeId: string
+): DeletionPlan | null {
+  const target = doc.nodes.find((node) => node.id === selectedNodeId);
+  if (!target?.parentId) return null;
+
+  const childCount = doc.nodes.filter((node) => node.parentId === selectedNodeId).length;
+  return {
+    kind: 'delete-node-preserve-children',
+    nodeIds: [selectedNodeId],
+    title: 'Delete this topic and keep its children?',
+    message: childCount > 0
+      ? `${childCount} direct child${childCount === 1 ? '' : 'ren'} will be reattached to this topic's parent.`
+      : 'This topic will be removed. It has no children to reattach.',
+  };
 }
 
 export function planCanvasDeletion(doc: CanonicalDocument, selectedNodeId: string): DeletionPlan | null {

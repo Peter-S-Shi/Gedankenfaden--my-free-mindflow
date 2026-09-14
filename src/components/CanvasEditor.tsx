@@ -30,15 +30,27 @@ import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { PRESET_ICONS } from '../model/icons';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, computeGroupBounds, translateGroup } from '../model/groups';
-import { DeletionPlan, planCanvasDeletion, deleteNodePreservingChildren } from '../model/deletion';
+import {
+  DeletionPlan,
+  planCanvasDeletion,
+  planDeleteNodePreservingChildren,
+  deleteNodePreservingChildren,
+} from '../model/deletion';
 import { getNativeBridge } from '../platform/tauriBridge';
 import { dispatchCanvasKeyDown } from '../interaction/keyboardDispatcher';
+import {
+  computeSubmenuPlacement,
+  CONTEXT_SUBMENU_SIZES,
+  ContextSubmenuKey,
+  SubmenuPlacement,
+} from '../interaction/submenuPlacement';
 import { CustomNode } from './CustomNode';
 import { OutlinePanel } from './OutlinePanel';
 import { InspectorPanel } from './InspectorPanel';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { buildChildrenIdsByParent, carryDescendantsWithDraggedParents } from '../model/dragSubtree';
 import { computeTextAwareNodeSize } from '../model/textMeasurement';
+import { selectSameLevelInTopLevelBranch } from '../model/hierarchySelection';
 import {
   ArrowLeft,
   Plus,
@@ -147,6 +159,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     y: number;
     nodeId: string;
   } | null>(null);
+  const [submenuPlacements, setSubmenuPlacements] = useState<
+    Partial<Record<ContextSubmenuKey, SubmenuPlacement>>
+  >({});
 
   const focusNodeOnCanvas = useCallback(
     (nodeId: string, customNodes?: Node<CustomNodeData>[]) => {
@@ -888,6 +903,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setPendingDeletion(planCanvasDeletion(doc, selectedNodeId));
   }, [doc, selectedNodeId]);
 
+  const handleRequestDeleteOnlyKeepChildren = useCallback(() => {
+    if (!selectedNodeId) return;
+    setPendingDeletion(planDeleteNodePreservingChildren(doc, selectedNodeId));
+  }, [doc, selectedNodeId]);
+
   const confirmPendingDeletion = useCallback(() => {
     if (!pendingDeletion || !selectedNodeId) return;
     const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
@@ -1370,12 +1390,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       const selectedIds = new Set<string>();
 
       if (kind === 'same-branch') {
-        doc.nodes.forEach((n) => {
-          if (n.parentId === target.parentId) {
-            selectedIds.add(n.id);
-          }
-        });
-        setStatusMessage(`Selected ${selectedIds.size} peers in current branch`);
+        const branchLevelIds = selectSameLevelInTopLevelBranch(doc.nodes, selectedNodeId);
+        branchLevelIds.forEach((id) => selectedIds.add(id));
+        setStatusMessage(`Selected ${selectedIds.size} same-level topics in current branch`);
       } else if (kind === 'all-level') {
         doc.nodes.forEach((n) => {
           if (getDepth(n.id) === targetDepth) {
@@ -1493,6 +1510,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       const x = Math.min(event.clientX, window.innerWidth - 250);
       const y = Math.min(event.clientY, window.innerHeight - 440);
       setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: node.id });
+      // A placement computed for the previous menu's trigger rects must not
+      // leak into this one -- otherwise a submenu that isn't re-hovered at
+      // the new position keeps showing yesterday's (possibly overflowing)
+      // placement indefinitely, not just for one measurement frame.
+      setSubmenuPlacements({});
     },
     []
   );
@@ -1504,9 +1526,31 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const x = Math.min(event.clientX, window.innerWidth - 250);
         const y = Math.min(event.clientY, window.innerHeight - 440);
         setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: selectedNodeId });
+        setSubmenuPlacements({});
       }
     },
     [selectedNodeId]
+  );
+
+  const positionContextSubmenu = useCallback(
+    (key: ContextSubmenuKey, triggerRow: HTMLElement) => {
+      window.requestAnimationFrame(() => {
+        const rect = triggerRow.getBoundingClientRect();
+        const renderedSubmenu = triggerRow.querySelector<HTMLElement>('[data-context-submenu]');
+        const submenuRect = renderedSubmenu?.getBoundingClientRect();
+        const fallbackSize = CONTEXT_SUBMENU_SIZES[key];
+        const placement = computeSubmenuPlacement(
+          { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+          {
+            width: submenuRect?.width || fallbackSize.width,
+            height: submenuRect?.height || fallbackSize.height,
+          },
+          { width: window.innerWidth, height: window.innerHeight }
+        );
+        setSubmenuPlacements((current) => ({ ...current, [key]: placement }));
+      });
+    },
+    []
   );
 
   // Close menus on outside click
@@ -2368,12 +2412,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
           {/* M3: Right-Click Context Menu with Frozen 8 Feature Families + Submenus */}
           {contextMenu && (() => {
-            const flipSubmenuLeft = typeof window !== 'undefined' && contextMenu.x + 230 + 220 > window.innerWidth;
-            const flipSubmenuUp = typeof window !== 'undefined' && contextMenu.y > window.innerHeight - 320;
-            const getSubmenuClass = (widthClass: string, preferBottom: boolean = false) => {
-              const horizontalClass = flipSubmenuLeft ? 'right-[calc(100%-4px)] left-auto' : 'left-[calc(100%-4px)] right-auto';
-              const verticalClass = flipSubmenuUp || preferBottom ? 'bottom-0 top-auto' : 'top-0 bottom-auto';
-              return `hidden group-hover/sub:block absolute ${horizontalClass} ${verticalClass} ${widthClass} bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs`;
+            const getSubmenuProps = (key: ContextSubmenuKey) => {
+              const placement = submenuPlacements[key] || { horizontal: 'right', topOffset: 0 };
+              return {
+                'data-testid': `context-submenu-${key}`,
+                'data-context-submenu': key,
+                'data-horizontal': placement.horizontal,
+                className: 'hidden group-hover/sub:block absolute bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs',
+                style: {
+                  width: `${CONTEXT_SUBMENU_SIZES[key].width}px`,
+                  left: placement.horizontal === 'right' ? 'calc(100% - 4px)' : 'auto',
+                  right: placement.horizontal === 'left' ? 'calc(100% - 4px)' : 'auto',
+                  top: `${placement.topOffset}px`,
+                },
+              };
             };
             const targetNode = doc.nodes.find((n) => n.id === contextMenu.nodeId);
 
@@ -2431,7 +2483,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 <div className="my-1 border-t border-slate-100" />
 
                 {/* 2. Topic Creation Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('topic', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <Plus size={13} className="text-slate-400" />
@@ -2439,7 +2491,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-44', false)}>
+                  <div {...getSubmenuProps('topic')}>
                     <button
                       onClick={() => {
                         handleAddChildNode();
@@ -2474,7 +2526,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 </div>
 
                 {/* 3. Media Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('media', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <ImageIcon size={13} className="text-slate-400" />
@@ -2482,7 +2534,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-56', false)}>
+                  <div {...getSubmenuProps('media')}>
                     <label className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center gap-2 cursor-pointer">
                       <Paperclip size={12} className="text-slate-400" />
                       <span>Attach Image…</span>
@@ -2541,7 +2593,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 </div>
 
                 {/* 4. Numbering Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('numbering', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <ListOrdered size={13} className="text-slate-400" />
@@ -2549,7 +2601,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-48', false)}>
+                  <div {...getSubmenuProps('numbering')}>
                     <button
                       onClick={() => handleApplyNumbering('none')}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
@@ -2597,7 +2649,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 </div>
 
                 {/* 5. Separate Collapse Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('collapse', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <ChevronDown size={13} className="text-slate-400" />
@@ -2605,7 +2657,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-48', true)}>
+                  <div {...getSubmenuProps('collapse')}>
                     <button
                       onClick={() => handleCollapseBranch('current')}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
@@ -2628,7 +2680,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 </div>
 
                 {/* 6. Separate Expand Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('expand', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <Eye size={13} className="text-slate-400" />
@@ -2636,7 +2688,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-48', true)}>
+                  <div {...getSubmenuProps('expand')}>
                     <button
                       onClick={() => handleExpandBranch('current')}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
@@ -2659,7 +2711,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 </div>
 
                 {/* 7. Selection Submenu */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('selection', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <CheckSquare size={13} className="text-slate-400" />
@@ -2667,7 +2719,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-slate-400" />
                   </div>
-                  <div className={getSubmenuClass('w-52', true)}>
+                  <div {...getSubmenuProps('selection')}>
                     <button
                       onClick={() => handleSelectHierarchy('same-branch')}
                       className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
@@ -2692,7 +2744,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 <div className="my-1 border-t border-slate-100" />
 
                 {/* 8. Delete Submenu (Danger) */}
-                <div className="relative group/sub">
+                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('delete', event.currentTarget)}>
                   <div className="w-full px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center justify-between cursor-pointer">
                     <div className="flex items-center gap-2">
                       <Trash2 size={13} className="text-rose-500" />
@@ -2700,7 +2752,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </div>
                     <ChevronRight size={12} className="text-rose-400" />
                   </div>
-                  <div className={getSubmenuClass('w-52', true)}>
+                  <div {...getSubmenuProps('delete')}>
                     <button
                       onClick={() => {
                         handleDeleteSelectedSubtree();
@@ -2712,7 +2764,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                     </button>
                     <button
                       onClick={() => {
-                        confirmDeleteOnlyKeepChildren();
+                        handleRequestDeleteOnlyKeepChildren();
                         setContextMenu(null);
                       }}
                       className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
@@ -2822,11 +2874,13 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           confirmLabel={
             pendingDeletion.kind === 'clear-root-branches'
               ? 'Clear branches'
+              : pendingDeletion.kind === 'delete-node-preserve-children'
+                ? 'Delete only'
               : pendingDeletion.kind === 'delete-subtree'
                 ? 'Delete subtree'
                 : 'Delete'
           }
-          onConfirm={confirmPendingDeletion}
+          onConfirm={pendingDeletion.kind === 'delete-node-preserve-children' ? confirmDeleteOnlyKeepChildren : confirmPendingDeletion}
           onCancel={() => setPendingDeletion(null)}
           secondaryLabel={pendingDeletion.kind === 'delete-subtree' ? 'Delete only (keep children)' : undefined}
           onSecondary={pendingDeletion.kind === 'delete-subtree' ? confirmDeleteOnlyKeepChildren : undefined}
