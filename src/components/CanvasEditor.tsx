@@ -71,14 +71,20 @@ interface CanvasEditorProps {
   initialDocument: CanonicalDocument;
   onBackToLibrary: () => void;
   onSaveDocument: (doc: CanonicalDocument) => Promise<SaveResult>;
+  onDocumentChange?: (doc: CanonicalDocument) => void;
 }
 
 export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   initialDocument,
   onBackToLibrary,
   onSaveDocument,
+  onDocumentChange,
 }) => {
   const [doc, setDoc] = useState<CanonicalDocument>(initialDocument);
+
+  useEffect(() => {
+    onDocumentChange?.(doc);
+  }, [doc, onDocumentChange]);
   const historyRef = useRef<HistoryManager>(new HistoryManager(initialDocument));
   const assetStoreRef = useRef<AssetStore>(new AssetStore());
   const [canUndo, setCanUndo] = useState(false);

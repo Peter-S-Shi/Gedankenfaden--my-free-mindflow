@@ -8,7 +8,7 @@
  * prompt even though the user closed normally.
  */
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { isRunningInTauri } from './tauriBridge';
+import { getNativeBridge, isRunningInTauri } from './tauriBridge';
 
 export interface CloseGuardDeps {
   /** Flushes any pending debounced autosave so the close does not silently drop it. */
@@ -19,10 +19,10 @@ export interface CloseGuardDeps {
 
 /**
  * Intercepts the native window close request, runs the same flush + mark-clean
- * sequence a normal "back to Library" navigation performs, then destroys the
- * window (bypassing `onCloseRequested` so this does not loop). A genuine crash,
- * kill, or power loss never reaches this handler, so the journal is left dirty
- * and recovery on relaunch is preserved.
+ * sequence a normal "back to Library" navigation performs, then truly terminates
+ * the native application process via Rust `app.exit(0)` (releasing the terminal
+ * and ending the app lifecycle). A genuine crash, kill, or power loss never reaches
+ * this handler, so the journal is left dirty and recovery on relaunch is preserved.
  *
  * No-op outside Tauri (browser/test environments). Returns an unregister function.
  */
@@ -42,7 +42,8 @@ export function registerNativeCloseGuard(deps: CloseGuardDeps): () => void {
         await deps.flushPendingAutosave();
         await deps.markClean();
       } finally {
-        await appWindow.destroy();
+        const bridge = getNativeBridge();
+        await bridge.closeAppWindow();
       }
     })
     .then((fn) => {

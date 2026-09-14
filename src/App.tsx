@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CanonicalDocument } from './model/types';
 import { createEmptyDocument } from './model/document';
 import { getDefaultTheme } from './model/theme';
@@ -252,13 +252,26 @@ export const App: React.FC = () => {
   }, []);
 
   // Keep the selected Library in sync with external filesystem changes (Ledger F09):
-  // watches the current folder and rescans on external create/rename/delete. Changing
-  // folders or unmounting tears down the previous watcher before anything else runs.
+  // hydrates the folder on establish/change, then watches for external create/rename/delete.
+  // Changing folders or unmounting tears down the previous watcher before anything else runs.
   useEffect(() => {
     if (!currentFolder) return undefined;
+    let active = true;
     const bridge = getNativeBridge();
+
+    syncLibraryWithDisk([currentFolder], bridge)
+      .then((entries) => {
+        if (active) setLibraryEntries(entries);
+      })
+      .catch((err) => {
+        console.error('Failed to sync library folder on establish:', err);
+      });
+
     const handle = watchLibraryFolder(currentFolder, bridge, setLibraryEntries);
-    return () => handle.stop();
+    return () => {
+      active = false;
+      handle.stop();
+    };
   }, [currentFolder]);
 
   useEffect(() => {
@@ -278,6 +291,7 @@ export const App: React.FC = () => {
       if (loaded) {
         setActiveDoc(loaded);
         setActiveDocPath(targetPath);
+        await saveRollingSnapshot(loaded, 'autosave', undefined, bridge);
         await markSessionActive(loaded.id, loaded.title);
         return;
       }
@@ -288,6 +302,7 @@ export const App: React.FC = () => {
     if (doc) {
       setActiveDoc(doc);
       setActiveDocPath(targetPath || null);
+      await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
       await markSessionActive(doc.id, doc.title);
     }
   };
@@ -303,15 +318,45 @@ export const App: React.FC = () => {
       setDocuments((prev) => [doc, ...prev]);
       setActiveDoc(doc);
       setActiveDocPath(entry.filePath);
+      await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
       await markSessionActive(doc.id, doc.title);
     } catch {
       const newDoc = createEmptyDocument(title, mode);
       setDocuments((prev) => [newDoc, ...prev]);
+      await saveRollingSnapshot(newDoc, 'autosave', undefined, bridge);
       await markSessionActive(newDoc.id, newDoc.title);
       setActiveDoc(newDoc);
       setActiveDocPath(null);
     }
   };
+
+  const handleDocumentChange = useCallback(
+    (updatedDoc: CanonicalDocument) => {
+      setActiveDoc(updatedDoc);
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
+      );
+
+      const bridge = getNativeBridge();
+      autoSaveEngineRef.current.scheduleSave(updatedDoc, async (doc) => {
+        await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
+        if (activeDocPath) {
+          try {
+            if (activeDocPath.toLowerCase().endsWith('.mflow')) {
+              const bytes = await packageDocumentToMflow(doc);
+              await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
+            } else if (activeDocPath.toLowerCase().endsWith('.json')) {
+              await atomicWriteTextFile(activeDocPath, JSON.stringify(doc, null, 2), bridge);
+            }
+          } catch {
+            // The debounced rolling snapshot above already preserved this edit for
+            // recovery; the explicit save path is what reports failure to the user.
+          }
+        }
+      });
+    },
+    [activeDocPath]
+  );
 
   const handleSaveDoc = async (updatedDoc: CanonicalDocument): Promise<SaveResult> => {
     setDocuments((prev) =>
@@ -347,24 +392,8 @@ export const App: React.FC = () => {
       }
     }
 
-    // Schedule debounced autosave snapshot
-    autoSaveEngineRef.current.scheduleSave(updatedDoc, async (doc) => {
-      await saveRollingSnapshot(doc, 'autosave');
-      if (activeDocPath) {
-        try {
-          if (activeDocPath.toLowerCase().endsWith('.mflow')) {
-            const bytes = await packageDocumentToMflow(doc);
-            await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
-          } else if (activeDocPath.toLowerCase().endsWith('.json')) {
-            await atomicWriteTextFile(activeDocPath, JSON.stringify(doc, null, 2), bridge);
-          }
-        } catch {
-          // The debounced rolling snapshot above already preserved this edit for
-          // recovery; the explicit save path (above) is what reports failure to
-          // the user, so a background autosave write failure does not need to.
-        }
-      }
-    });
+    // Also persist a manual snapshot immediately on explicit save
+    await saveRollingSnapshot(updatedDoc, 'manual', undefined, bridge);
 
     return { success: true };
   };
@@ -407,6 +436,7 @@ export const App: React.FC = () => {
         setLibraryEntries(imported.entries);
         setActiveDoc(imported.document);
         setActiveDocPath(imported.filePath);
+        await saveRollingSnapshot(imported.document, 'autosave', undefined, bridge);
         await markSessionActive(imported.document.id, imported.document.title);
       }
     }
@@ -428,6 +458,8 @@ export const App: React.FC = () => {
           const exists = prev.some((d) => d.id === restored.id);
           return exists ? prev.map((d) => (d.id === restored.id ? restored : d)) : [restored, ...prev];
         });
+        const bridge = getNativeBridge();
+        await saveRollingSnapshot(restored, 'autosave', undefined, bridge);
         await markSessionActive(restored.id, restored.title);
         setActiveDoc(restored);
         setActiveDocPath(null);
@@ -451,6 +483,7 @@ export const App: React.FC = () => {
           initialDocument={activeDoc}
           onBackToLibrary={handleBackToLibrary}
           onSaveDocument={handleSaveDoc}
+          onDocumentChange={handleDocumentChange}
         />
       ) : (
         <LibraryHome

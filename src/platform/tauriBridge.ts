@@ -42,6 +42,8 @@ export interface INativeBridge {
   unwatchLibraryRoot(): Promise<void>;
   /** Subscribes to external Library filesystem change notifications; returns an unsubscribe function. */
   onLibraryChanged(callback: () => void): () => void;
+  /** Terminates the native application lifecycle cleanly via Rust app.exit(0). */
+  closeAppWindow(): Promise<void>;
 }
 
 export function isRunningInTauri(): boolean {
@@ -169,6 +171,19 @@ export class TauriNativeBridge implements INativeBridge {
       cancelled = true;
       if (unlisten) unlisten();
     };
+  }
+
+  async closeAppWindow(): Promise<void> {
+    try {
+      await invoke('close_app_window');
+    } catch {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().destroy();
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -392,6 +407,10 @@ export class MemoryMockNativeBridge implements INativeBridge {
     }
 
     return entries;
+  }
+
+  async closeAppWindow(): Promise<void> {
+    // In-memory mock lifecycle termination
   }
 }
 
