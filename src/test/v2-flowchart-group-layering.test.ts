@@ -82,15 +82,38 @@ describe('Flowchart PH Bug F1: Group Background Container Layering & Visibility'
     }
   });
 
-  it('proves real acceptance flowchart sample member and non-member nodes all render above group container', () => {
-    const sampleJson = readFileSync(
-      new URL('../../grill/M7b/Gedankenfaden_M7B_Sample_B_Flowchart.json', import.meta.url),
-      'utf8'
-    );
-    const doc = JSON.parse(sampleJson);
-    expect(doc.groups.length).toBeGreaterThan(0);
+  it('proves flowchart acceptance graph member and non-member nodes all render above group container', () => {
+    const doc = createEmptyDocument('Flowchart Acceptance Sample', 'flowchart');
+    doc.nodes = [
+      { id: 'fc_start', text: 'Start review', type: 'terminal', shape: 'pill', geometry: { x: 80, y: 220, width: 150, height: 48 } },
+      { id: 'fc_collect', text: 'Collect evidence', type: 'data', shape: 'parallelogram', geometry: { x: 300, y: 220, width: 160, height: 52 } },
+      { id: 'fc_sufficient', text: 'Evidence sufficient?', type: 'decision', shape: 'diamond', geometry: { x: 540, y: 210, width: 180, height: 80 } },
+      { id: 'fc_confirm', text: 'Confirm publication', type: 'process', shape: 'rectangle', geometry: { x: 800, y: 220, width: 160, height: 48 } },
+      { id: 'fc_request', text: 'Request revision', type: 'process', shape: 'rectangle', geometry: { x: 550, y: 380, width: 160, height: 48 } },
+      { id: 'fc_publish', text: 'Publish release', type: 'terminal', shape: 'pill', geometry: { x: 1040, y: 220, width: 150, height: 48 } },
+    ];
+    doc.edges = [
+      { id: 'e1', source: 'fc_start', target: 'fc_collect' },
+      { id: 'e2', source: 'fc_collect', target: 'fc_sufficient' },
+      { id: 'e3', source: 'fc_sufficient', target: 'fc_confirm', label: 'Yes' },
+      { id: 'e4', source: 'fc_sufficient', target: 'fc_request', label: 'No' },
+      { id: 'e5', source: 'fc_confirm', target: 'fc_publish', label: 'Approved' },
+    ];
+    doc.groups = [
+      {
+        id: 'group_evidence_loop',
+        title: 'Evidence Loop',
+        nodeIds: ['fc_collect', 'fc_sufficient', 'fc_request'],
+        style: {
+          backgroundColor: 'rgba(246,248,246,0.55)',
+          borderColor: '#84a98c',
+        },
+      },
+    ];
+
+    expect(doc.groups.length).toBe(1);
     const group = doc.groups[0];
-    expect(group.nodeIds.length).toBeGreaterThan(0);
+    expect(group.nodeIds.length).toBe(3);
 
     const projection = canonicalToReactFlow(doc);
     for (const memberId of group.nodeIds) {
