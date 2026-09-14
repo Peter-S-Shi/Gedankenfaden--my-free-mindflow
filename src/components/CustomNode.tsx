@@ -3,6 +3,8 @@ import { Handle, Position, NodeProps, NodeResizeControl, NodeResizer } from '@xy
 import { CustomNodeData } from '../model/adapter';
 import { NodeShape } from '../model/types';
 import { computeTextAwareNodeSize } from '../model/textMeasurement';
+import { formatNumberedLabel } from '../model/numbering';
+import { allowsManualConnections } from '../model/connectionPolicy';
 
 export const MINDMAP_HANDLE_IDS = {
   source: ['left', 'right'],
@@ -86,6 +88,10 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const hiddenDescendantCount = nodeData.hiddenDescendantCount ?? childCount;
   const numberingBadge = nodeData.numberingBadge;
   const isFlowchart = nodeData.mode === 'flowchart';
+  // M3 Behavior Correction Contract: connection-handle interactivity is
+  // driven by the same policy CanvasEditor's onConnect gate uses, not a
+  // locally-redefined mode check, so the two can't drift apart.
+  const handlesInteractive = allowsManualConnections(nodeData.mode || 'mindmap');
 
   // Product Hardening: Persistent Manual Node Sizing. Mind Map nodes (root
   // and ordinary topics) get a width-only "topic width" control -- height
@@ -153,42 +159,79 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         </svg>
       )}
 
-      {/* Connection Handles */}
+      {/* Connection Handles.
+          M3 Behavior Correction Contract: normal Mind Map parent-child
+          edges are algorithm-owned -- Mind Map nodes must not expose
+          user-facing connection handles at all (no drag-to-connect, no
+          reconnect). The handle elements stay in the DOM (React Flow uses
+          their position to anchor edge endpoints) but are made fully
+          non-interactive and invisible. Flowchart keeps the original
+          visible, connectable handles unchanged. */}
       <Handle
         type="target"
         position={Position.Left}
         id={MINDMAP_HANDLE_IDS.target[0]}
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="source"
         position={Position.Right}
         id={MINDMAP_HANDLE_IDS.source[1]}
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="source"
         position={Position.Left}
         id={MINDMAP_HANDLE_IDS.source[0]}
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="target"
         position={Position.Right}
         id={MINDMAP_HANDLE_IDS.target[1]}
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
 
       {/* Manual size resize affordance.
@@ -269,16 +312,6 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         )}
 
         <div className="flex items-center justify-center text-center w-full gap-1.5">
-          {/* Dynamic Branch Numbering Badge */}
-          {numberingBadge && (
-            <span
-              className="text-[11px] font-bold text-slate-500 bg-slate-100/90 dark:bg-slate-800/80 px-1 py-0.5 rounded select-none shrink-0"
-              title="Structural Presentation Numbering"
-            >
-              {numberingBadge}
-            </span>
-          )}
-
           {/* Independent Node Icon */}
           {nodeData.icon && (
             <span
@@ -302,8 +335,11 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
               style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
             />
           ) : (
+            // M3 Behavior Correction Contract: numbering renders as an
+            // ordinary inline text prefix, same font size/color/weight as
+            // the node text -- not a separate badge/pill treatment.
             <span className="font-medium tracking-tight select-none break-words">
-              {text}
+              {formatNumberedLabel(numberingBadge, text)}
             </span>
           )}
         </div>

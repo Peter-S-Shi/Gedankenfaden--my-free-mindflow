@@ -96,6 +96,9 @@ describe('V2 M3: Hierarchical Document Numbering with maxDepth', () => {
 
   it('computes full numbering when maxDepth is undefined or unlimited', () => {
     const doc = createTreeDoc();
+    // M3 Behavior Correction Contract: numbering has no ambient default.
+    const root = doc.nodes.find((n) => n.id === 'root')!;
+    root.numbering = { level1Style: 'decimal', level2Style: 'alpha' };
     const map = computeDocumentNumbering(doc);
 
     expect(map.get('root')).toBeUndefined();

@@ -57,6 +57,8 @@ import {
   expandAllTopics,
   expandToLevel,
 } from '../model/hierarchyVisibility';
+import { canApplyNumbering } from '../model/numbering';
+import { allowsManualConnections } from '../model/connectionPolicy';
 import {
   ArrowLeft,
   Plus,
@@ -473,6 +475,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   const onConnect = useCallback(
     (params: Connection) => {
+      // M3 Behavior Correction Contract: normal Mind Map parent-child edges
+      // are algorithm-owned -- users may not drag-create/reconnect them.
+      // Flowchart keeps full manual connectivity. `CustomNode` also makes
+      // its Mind Map handles non-interactive, so this is defense in depth,
+      // not the only gate.
+      if (!allowsManualConnections(doc.mode)) return;
       const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
       const edgeType = doc.mode === 'flowchart' ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep';
 
@@ -1483,14 +1491,27 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   // M3: Numbering submenu actions
   const handleApplyNumbering = useCallback(
-    (style: NumberingStyle, depth?: number) => {
-      const rootNode = doc.nodes.find((n) => n.type === 'root' || !n.parentId);
-      if (!rootNode) return;
+    // `nodeId` defaults to `selectedNodeId` (the Inspector panel's call
+    // site, which has no other node reference) but the context menu passes
+    // its own `targetNodeId` explicitly -- so the applied node is always
+    // exactly the one the enabled/disabled check and the menu were shown
+    // for, never inferred separately from ambient selection state.
+    (style: NumberingStyle, depth?: number, nodeId: string | null = selectedNodeId) => {
+      // M3 Behavior Correction Contract: numbering is parent-scoped from
+      // the node the menu was opened for (its direct children, and deeper
+      // descendants per `depth`) -- not hardcoded to the document root.
+      // Disabled entirely when that node has no children.
+      if (!canApplyNumbering(doc, nodeId)) {
+        setStatusMessage('Numbering unavailable: selected topic has no children');
+        setContextMenu(null);
+        return;
+      }
+      const targetNodeId = nodeId as string;
 
       const nextDoc: CanonicalDocument = {
         ...doc,
         nodes: doc.nodes.map((n) => {
-          if (n.id === rootNode.id) {
+          if (n.id === targetNodeId) {
             return {
               ...n,
               numbering: {
@@ -2579,6 +2600,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             // function literal.
             const targetNodeId: string = contextMenu.nodeId;
             const targetNode = doc.nodes.find((n) => n.id === targetNodeId);
+            const numberingEnabled = canApplyNumbering(doc, targetNodeId);
 
             return (
               <div
@@ -2743,60 +2765,73 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                   </div>
                 </div>
 
-                {/* 4. Numbering Submenu */}
-                <div className="relative group/sub" onMouseEnter={(event) => positionContextSubmenu('numbering', event.currentTarget)}>
-                  <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                {/* 4. Numbering Submenu -- M3 Behavior Correction Contract:
+                     parent-scoped from this node, disabled when it has no
+                     children (nothing for a rule here to number). */}
+                <div
+                  className="relative group/sub"
+                  onMouseEnter={(event) => numberingEnabled && positionContextSubmenu('numbering', event.currentTarget)}
+                >
+                  <div
+                    data-testid="context-menu-numbering-trigger"
+                    aria-disabled={!numberingEnabled}
+                    className={`w-full px-3 py-1.5 flex items-center justify-between ${
+                      numberingEnabled ? 'text-slate-700 hover:bg-slate-50 cursor-pointer' : 'text-slate-300 cursor-not-allowed'
+                    }`}
+                  >
                     <div className="flex items-center gap-2">
-                      <ListOrdered size={13} className="text-slate-400" />
+                      <ListOrdered size={13} className={numberingEnabled ? 'text-slate-400' : 'text-slate-300'} />
                       <span>Numbering</span>
                     </div>
-                    <ChevronRight size={12} className="text-slate-400" />
+                    <ChevronRight size={12} className={numberingEnabled ? 'text-slate-400' : 'text-slate-300'} />
                   </div>
-                  <div {...getSubmenuProps('numbering')}>
-                    <button
-                      onClick={() => handleApplyNumbering('none')}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      None
-                    </button>
-                    <button
-                      onClick={() => handleApplyNumbering('decimal')}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      1, 2, 3, …
-                    </button>
-                    <button
-                      onClick={() => handleApplyNumbering('roman')}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      I, II, III, …
-                    </button>
-                    <button
-                      onClick={() => handleApplyNumbering('alpha')}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      a, b, c, …
-                    </button>
-                    <div className="my-1 border-t border-slate-100" />
-                    <button
-                      onClick={() => handleApplyNumbering('decimal', 1)}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      Number first level
-                    </button>
-                    <button
-                      onClick={() => handleApplyNumbering('decimal', 2)}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      Number first two levels
-                    </button>
-                    <button
-                      onClick={() => handleApplyNumbering('decimal', 3)}
-                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
-                    >
-                      Number first three levels
-                    </button>
-                  </div>
+                  {numberingEnabled && (
+                    <div {...getSubmenuProps('numbering')}>
+                      <button
+                        onClick={() => handleApplyNumbering('none', undefined, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        None
+                      </button>
+                      <button
+                        onClick={() => handleApplyNumbering('decimal', undefined, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        1, 2, 3, …
+                      </button>
+                      <button
+                        onClick={() => handleApplyNumbering('roman', undefined, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        I, II, III, …
+                      </button>
+                      <button
+                        onClick={() => handleApplyNumbering('alpha', undefined, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        a, b, c, …
+                      </button>
+                      <div className="my-1 border-t border-slate-100" />
+                      <button
+                        onClick={() => handleApplyNumbering('decimal', 1, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        Number first level
+                      </button>
+                      <button
+                        onClick={() => handleApplyNumbering('decimal', 2, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        Number first two levels
+                      </button>
+                      <button
+                        onClick={() => handleApplyNumbering('decimal', 3, targetNodeId)}
+                        className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                      >
+                        Number first three levels
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* 5. Separate Collapse Submenu */}

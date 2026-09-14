@@ -1,6 +1,7 @@
 import React from 'react';
 import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
+import { canApplyNumbering } from '../model/numbering';
 import { PRESET_ICONS } from '../model/icons';
 import {
   PanelRightClose,
@@ -489,21 +490,31 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
               </div>
             </div>
 
-            {/* Numbering */}
+            {/* Numbering -- M3 Behavior Correction Contract: parent-scoped
+                from the selected node, disabled when it has no children. */}
             <div>
               <label className="text-[11px] font-semibold text-slate-500 block mb-1">
                 Numbering
               </label>
               <div className="grid grid-cols-4 gap-1">
-                {(['decimal', 'roman', 'alpha', 'none'] as const).map((style) => (
-                  <button
-                    key={style}
-                    onClick={() => onApplyNumbering?.(style)}
-                    className="text-[11px] py-1 px-1 rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium capitalize"
-                  >
-                    {style === 'decimal' ? '1,2,3' : style === 'roman' ? 'I,II,III' : style === 'alpha' ? 'a,b,c' : 'None'}
-                  </button>
-                ))}
+                {(() => {
+                  const enabled = canApplyNumbering(document, selectedNode?.id);
+                  return (['decimal', 'roman', 'alpha', 'none'] as const).map((style) => (
+                    <button
+                      key={style}
+                      disabled={!enabled}
+                      title={enabled ? undefined : 'This topic has no children to number'}
+                      onClick={() => onApplyNumbering?.(style)}
+                      className={`text-[11px] py-1 px-1 rounded border font-medium capitalize ${
+                        enabled
+                          ? 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                          : 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed'
+                      }`}
+                    >
+                      {style === 'decimal' ? '1,2,3' : style === 'roman' ? 'I,II,III' : style === 'alpha' ? 'a,b,c' : 'None'}
+                    </button>
+                  ));
+                })()}
               </div>
             </div>
           </div>

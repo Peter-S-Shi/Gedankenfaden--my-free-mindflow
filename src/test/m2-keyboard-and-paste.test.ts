@@ -97,6 +97,10 @@ describe('Milestone 2: Dynamic Branch / List Numbering Engine', () => {
   it('computes hierarchical numbering badges dynamically across document levels', () => {
     const doc = createEmptyDocument('Numbering Spec', 'mindmap');
     const rootId = doc.nodes[0].id;
+    // M3 Behavior Correction Contract: numbering has no ambient default --
+    // it only appears once explicitly applied to a node (here, the root,
+    // scoping the rule to root's own children/grandchildren).
+    doc.nodes[0].numbering = { level1Style: 'decimal', level2Style: 'alpha', maxDepth: 3 };
 
     // Add Level 1 children
     const l1_1: CanonicalNode = { id: 'l1_1', text: 'Market Overview', geometry: { x: 0, y: 0 }, parentId: rootId };
@@ -129,6 +133,7 @@ describe('Milestone 2: Dynamic Branch / List Numbering Engine', () => {
   it('dynamically renumbers siblings when a new node is inserted or reordered', () => {
     const doc = createEmptyDocument('Renumbering Spec', 'mindmap');
     const rootId = doc.nodes[0].id;
+    doc.nodes[0].numbering = { level1Style: 'decimal', maxDepth: 3 };
 
     doc.nodes.push(
       { id: 'item_a', text: 'Task A', geometry: { x: 0, y: 0 }, parentId: rootId },
