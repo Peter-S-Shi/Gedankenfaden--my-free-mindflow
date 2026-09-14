@@ -477,16 +477,67 @@ export function computeRelationshipCurve(
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
   const dist = Math.hypot(dx, dy);
-  const curvature = Math.max(25, Math.min(100, dist * 0.3));
 
-  const c1Base = {
-    x: p1.x + bestP1.dir.x * curvature,
-    y: p1.y + bestP1.dir.y * curvature,
+  const curvatureFactor = annotation.style?.curvature ?? 1;
+
+  if (curvatureFactor === 0) {
+    const midPoint = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    return {
+      p1,
+      p2,
+      c1: p1,
+      c2: p2,
+      pathD: `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`,
+      midPoint,
+    };
+  }
+
+  const baseCurvature = Math.max(25, Math.min(100, dist * 0.3));
+
+  let c1Base = {
+    x: p1.x + bestP1.dir.x * baseCurvature,
+    y: p1.y + bestP1.dir.y * baseCurvature,
   };
-  const c2Base = {
-    x: p2.x + bestP2.dir.x * curvature,
-    y: p2.y + bestP2.dir.y * curvature,
+  let c2Base = {
+    x: p2.x + bestP2.dir.x * baseCurvature,
+    y: p2.y + bestP2.dir.y * baseCurvature,
   };
+
+  if (curvatureFactor !== 1 && dist > 0) {
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const nx = -uy;
+    const ny = ux;
+
+    const transformControlPoint = (pt: { x: number; y: number }) => {
+      const vx = pt.x - p1.x;
+      const vy = pt.y - p1.y;
+      const vPara = vx * ux + vy * uy;
+      const vPerp = vx * nx + vy * ny;
+      const basePerp = Math.abs(vPerp) < 1e-3 ? baseCurvature * 0.5 : vPerp;
+      const newPerp = basePerp * curvatureFactor;
+      return {
+        x: p1.x + vPara * ux + newPerp * nx,
+        y: p1.y + vPara * uy + newPerp * ny,
+      };
+    };
+
+    c1Base = transformControlPoint(c1Base);
+    c2Base = transformControlPoint(c2Base);
+  } else if (dist > 0 && Math.hypot(c1Base.x - p1.x, c1Base.y - p1.y) > 0) {
+    // When curvatureFactor === 1 (default), if collinear, also give a clean default subtle bow
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const nx = -uy;
+    const ny = ux;
+    const vx1 = c1Base.x - p1.x;
+    const vy1 = c1Base.y - p1.y;
+    const vPerp1 = vx1 * nx + vy1 * ny;
+    if (Math.abs(vPerp1) < 1e-3) {
+      c1Base = { x: c1Base.x + nx * (baseCurvature * 0.4), y: c1Base.y + ny * (baseCurvature * 0.4) };
+      c2Base = { x: c2Base.x + nx * (baseCurvature * 0.4), y: c2Base.y + ny * (baseCurvature * 0.4) };
+    }
+  }
 
   const c1 = {
     x: c1Base.x + (annotation.route?.c1Offset?.dx || 0),

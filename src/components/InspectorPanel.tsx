@@ -409,10 +409,102 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                       </div>
                     </div>
 
+                    {/* Curvature Mode Presets */}
                     <div>
-                      <label className="text-[11px] font-semibold text-slate-500 block mb-1">
-                        Arrowheads
-                      </label>
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                        <span>Curvature</span>
+                        <span className="font-mono text-[10px]">
+                          {(relStyle.curvature ?? 1) === 0
+                            ? 'Straight'
+                            : (relStyle.curvature ?? 1) === 2
+                            ? 'Deep Arc'
+                            : (relStyle.curvature ?? 1) === -1
+                            ? 'Inverted Arc'
+                            : 'Gentle Arc'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1 mb-1.5">
+                        {[
+                          { label: 'Straight', val: 0 },
+                          { label: 'Gentle', val: 1 },
+                          { label: 'Deep', val: 2 },
+                          { label: 'Invert', val: -1 },
+                        ].map((cv) => {
+                          const isActive = (relStyle.curvature ?? 1) === cv.val;
+                          return (
+                            <button
+                              key={cv.label}
+                              type="button"
+                              onClick={() =>
+                                onUpdateAnnotation?.(rel.id, {
+                                  style: { ...relStyle, curvature: cv.val },
+                                })
+                              }
+                              className={`text-[10px] py-1 rounded border font-medium ${
+                                isActive
+                                  ? 'bg-blue-50 border-blue-400 text-blue-700 font-bold'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {cv.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <input
+                        type="range"
+                        min="-1.5"
+                        max="2.5"
+                        step="0.1"
+                        value={relStyle.curvature ?? 1}
+                        onChange={(e) =>
+                          onUpdateAnnotation?.(rel.id, {
+                            style: { ...relStyle, curvature: parseFloat(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                        <span>Line Thickness</span>
+                        <span>{relStyle.strokeWidth ?? 1.5}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="1"
+                        max="6"
+                        step="0.5"
+                        value={relStyle.strokeWidth ?? 1.5}
+                        onChange={(e) =>
+                          onUpdateAnnotation?.(rel.id, {
+                            style: { ...relStyle, strokeWidth: parseFloat(e.target.value) },
+                          })
+                        }
+                        className="w-full accent-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-[11px] font-semibold text-slate-500">
+                          Arrowheads & Direction
+                        </label>
+                        <button
+                          type="button"
+                          title="Swap source and target nodes"
+                          onClick={() => {
+                            onUpdateAnnotation?.(rel.id, {
+                              sourceNodeId: rel.targetNodeId,
+                              targetNodeId: rel.sourceNodeId,
+                            });
+                          }}
+                          className="text-[10px] px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded font-medium transition-colors"
+                        >
+                          ⇄ Reverse Direction
+                        </button>
+                      </div>
                       <div className="grid grid-cols-2 gap-1">
                         <button
                           type="button"

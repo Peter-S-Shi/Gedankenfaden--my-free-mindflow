@@ -184,9 +184,39 @@ describe('V2 Mind Map Annotations Model & Grouping Algorithms (Ticket 1)', () =>
       // p2 should be at the top face of node b: (380, -140)
       expect(curve?.p2.x).toBe(380);
       expect(curve?.p2.y).toBe(-140);
-      // midPoint should be midway between the nodes
-      expect(curve?.midPoint.x).toBe(380);
+      // midPoint should be midway between the nodes vertically
       expect(curve?.midPoint.y).toBe(-145);
+      expect(curve?.midPoint.x).toBeCloseTo(372.5, 1);
+    });
+
+    it('renders straight line (M ... L ...) when curvature is 0', () => {
+      const line = createRelationshipLineAnnotation('a', 'x')!;
+      line.style = { ...line.style, curvature: 0 };
+      const curve = computeRelationshipCurve(line, mockNodes);
+      expect(curve).not.toBeNull();
+      expect(curve?.pathD).toContain('L');
+      expect(curve?.pathD).not.toContain('C');
+      expect(curve?.c1).toEqual(curve?.p1);
+      expect(curve?.c2).toEqual(curve?.p2);
+    });
+
+    it('modulates Bezier curve geometry for deep arc (curvature = 2) and inverted arc (curvature = -1)', () => {
+      const line = createRelationshipLineAnnotation('a', 'x')!;
+      const defaultCurve = computeRelationshipCurve(line, mockNodes)!;
+
+      const deepLine = { ...line, style: { ...line.style, curvature: 2 } };
+      const deepCurve = computeRelationshipCurve(deepLine, mockNodes)!;
+
+      const invertedLine = { ...line, style: { ...line.style, curvature: -1 } };
+      const invertedCurve = computeRelationshipCurve(invertedLine, mockNodes)!;
+
+      expect(defaultCurve.pathD).toContain('C');
+      expect(deepCurve.pathD).toContain('C');
+      expect(invertedCurve.pathD).toContain('C');
+
+      // Midpoints should diverge based on curvature factor
+      expect(deepCurve.midPoint).not.toEqual(defaultCurve.midPoint);
+      expect(invertedCurve.midPoint).not.toEqual(defaultCurve.midPoint);
     });
 
     it('applies route offset adjustments to Bezier control points', () => {

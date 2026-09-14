@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   CanonicalNode,
   MindMapAnnotation,
@@ -11,6 +11,7 @@ import {
   computeBraceGeometry,
   computeRelationshipCurve,
 } from '../model/annotations';
+import { Trash2, Type } from 'lucide-react';
 
 export interface AnnotationLayerProps {
   annotations?: MindMapAnnotation[];
@@ -31,64 +32,13 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   selectedAnnotationId,
   onSelectAnnotation,
   onUpdateAnnotation,
-  onDeleteAnnotation: _onDeleteAnnotation,
+  onDeleteAnnotation,
   targetingSourceNodeId,
   targetingMousePos,
-  onControlPointDrag,
-  zoom = 1,
+  zoom: _zoom = 1,
 }) => {
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState<string>('');
-
-  const draggingHandleRef = useRef<{
-    annotationId: string;
-    which: 'c1' | 'c2';
-    startX: number;
-    startY: number;
-    initialOffset: { dx: number; dy: number };
-  } | null>(null);
-
-  const handlePointerDownHandle = (
-    e: React.PointerEvent,
-    annotation: RelationshipLineAnnotation,
-    which: 'c1' | 'c2'
-  ) => {
-    e.stopPropagation();
-    (e.target as Element).setPointerCapture(e.pointerId);
-
-    const initialOffset =
-      which === 'c1'
-        ? { dx: annotation.route?.c1Offset?.dx || 0, dy: annotation.route?.c1Offset?.dy || 0 }
-        : { dx: annotation.route?.c2Offset?.dx || 0, dy: annotation.route?.c2Offset?.dy || 0 };
-
-    draggingHandleRef.current = {
-      annotationId: annotation.id,
-      which,
-      startX: e.clientX,
-      startY: e.clientY,
-      initialOffset,
-    };
-  };
-
-  const handlePointerMoveHandle = (e: React.PointerEvent) => {
-    if (!draggingHandleRef.current || !onControlPointDrag) return;
-    const { annotationId, which, startX, startY, initialOffset } = draggingHandleRef.current;
-    const effectiveZoom = zoom > 0 ? zoom : 1;
-    const dx = (e.clientX - startX) / effectiveZoom + initialOffset.dx;
-    const dy = (e.clientY - startY) / effectiveZoom + initialOffset.dy;
-    onControlPointDrag(annotationId, which, { dx, dy });
-  };
-
-  const handlePointerUpHandle = (e: React.PointerEvent) => {
-    if (draggingHandleRef.current) {
-      try {
-        (e.target as Element).releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-      draggingHandleRef.current = null;
-    }
-  };
 
   // Targeting mode preview line
   const targetingPreview = (() => {
@@ -109,19 +59,19 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const dist = Math.hypot(dx, dy);
-    const curvature = Math.max(30, Math.min(140, dist * 0.35));
+    const curvature = Math.max(20, Math.min(100, dist * 0.3));
 
     const c1 = isRightward ? { x: p1.x + curvature, y: p1.y } : { x: p1.x - curvature, y: p1.y };
     const c2 = isRightward ? { x: p2.x - curvature, y: p2.y } : { x: p2.x + curvature, y: p2.y };
     const pathD = `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
 
     return (
-      <g className="targeting-preview-line animate-pulse pointer-events-none">
+      <g className="rel-preview-line pointer-events-none">
         <path
           d={pathD}
           fill="none"
           stroke="#f59e0b"
-          strokeWidth={2.5}
+          strokeWidth={2}
           strokeDasharray="6,4"
           markerEnd="url(#rel-arrow-end-preview)"
         />
@@ -135,8 +85,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       data-testid="annotation-layer"
       className="absolute inset-0 pointer-events-none overflow-visible"
       style={{ width: '100%', height: '100%', zIndex: 0 }}
-      onPointerMove={handlePointerMoveHandle}
-      onPointerUp={handlePointerUpHandle}
     >
       <defs>
         <marker
@@ -495,53 +443,127 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 </g>
               )}
 
-              {/* Interactive Control Points when Selected */}
+              {/* Floating Quick Action Toolbar when Selected */}
               {isSelected && (
-                <g className="rel-line-controls pointer-events-auto">
-                  {/* Guide lines to control points */}
-                  <line
-                    x1={curve.p1.x}
-                    y1={curve.p1.y}
-                    x2={curve.c1.x}
-                    y2={curve.c1.y}
-                    stroke="#94a3b8"
-                    strokeWidth={1}
-                    strokeDasharray="3,3"
-                  />
-                  <line
-                    x1={curve.p2.x}
-                    y1={curve.p2.y}
-                    x2={curve.c2.x}
-                    y2={curve.c2.y}
-                    stroke="#94a3b8"
-                    strokeWidth={1}
-                    strokeDasharray="3,3"
-                  />
+                <foreignObject
+                  x={curve.midPoint.x - 140}
+                  y={curve.midPoint.y - 44}
+                  width={280}
+                  height={38}
+                  className="overflow-visible pointer-events-auto"
+                >
+                  <div
+                    className="w-full h-full flex items-center justify-center"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="inline-flex items-center gap-1 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-lg rounded-full px-2.5 py-1 text-[11px] font-medium text-slate-700 select-none animate-fadeIn">
+                      {/* Curvature Mode Button */}
+                      <button
+                        type="button"
+                        className="px-2 py-0.5 rounded hover:bg-slate-100 flex items-center gap-1 transition-colors text-blue-600 font-semibold cursor-pointer"
+                        title="Toggle Curvature: Gentle / Deep / Inverted / Straight"
+                        onClick={() => {
+                          const cur = ann.style?.curvature ?? 1;
+                          const next = cur === 1 ? 2 : cur === 2 ? -1 : cur === -1 ? 0 : 1;
+                          onUpdateAnnotation?.(ann.id, {
+                            style: { ...(ann.style || {}), curvature: next },
+                          });
+                        }}
+                      >
+                        {(ann.style?.curvature ?? 1) === 0
+                          ? '─ Straight'
+                          : (ann.style?.curvature ?? 1) === 2
+                          ? '⌢ Deep'
+                          : (ann.style?.curvature ?? 1) === -1
+                          ? '⌣ Inverted'
+                          : '⌒ Gentle'}
+                      </button>
 
-                  {/* Handle C1 */}
-                  <circle
-                    cx={curve.c1.x}
-                    cy={curve.c1.y}
-                    r={6}
-                    fill="#ffffff"
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    className="cursor-move hover:scale-125 transition-transform"
-                    onPointerDown={(e) => handlePointerDownHandle(e, ann, 'c1')}
-                  />
+                      <div className="w-[1px] h-3 bg-slate-200" />
 
-                  {/* Handle C2 */}
-                  <circle
-                    cx={curve.c2.x}
-                    cy={curve.c2.y}
-                    r={6}
-                    fill="#ffffff"
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    className="cursor-move hover:scale-125 transition-transform"
-                    onPointerDown={(e) => handlePointerDownHandle(e, ann, 'c2')}
-                  />
-                </g>
+                      {/* Line Style Button */}
+                      <button
+                        type="button"
+                        className="px-1.5 py-0.5 rounded hover:bg-slate-100 transition-colors text-slate-600 cursor-pointer"
+                        title="Toggle Line Style (Solid / Dashed)"
+                        onClick={() => {
+                          const nextStyle =
+                            (ann.style?.lineStyle || 'dashed') === 'dashed' ? 'solid' : 'dashed';
+                          onUpdateAnnotation?.(ann.id, {
+                            style: { ...(ann.style || {}), lineStyle: nextStyle },
+                          });
+                        }}
+                      >
+                        {(ann.style?.lineStyle || 'dashed') === 'dashed' ? 'Dashed' : 'Solid'}
+                      </button>
+
+                      <div className="w-[1px] h-3 bg-slate-200" />
+
+                      {/* Arrowhead Mode Button */}
+                      <button
+                        type="button"
+                        className="px-1.5 py-0.5 rounded hover:bg-slate-100 transition-colors text-slate-600 cursor-pointer"
+                        title="Toggle Arrowheads (Single / Double / None)"
+                        onClick={() => {
+                          const start = Boolean(ann.style?.arrowStart);
+                          const end = ann.style?.arrowEnd !== false;
+                          let nextStart = false;
+                          let nextEnd = true;
+                          if (!start && end) {
+                            nextStart = true;
+                            nextEnd = true;
+                          } else if (start && end) {
+                            nextStart = false;
+                            nextEnd = false;
+                          } else {
+                            nextStart = false;
+                            nextEnd = true;
+                          }
+                          onUpdateAnnotation?.(ann.id, {
+                            style: { ...(ann.style || {}), arrowStart: nextStart, arrowEnd: nextEnd },
+                          });
+                        }}
+                      >
+                        {Boolean(ann.style?.arrowStart) && ann.style?.arrowEnd !== false
+                          ? '↔ Both'
+                          : ann.style?.arrowEnd === false && !ann.style?.arrowStart
+                          ? '─ None'
+                          : '→ Arrow'}
+                      </button>
+
+                      <div className="w-[1px] h-3 bg-slate-200" />
+
+                      {/* Edit Label Button */}
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition-colors cursor-pointer"
+                        title="Edit Label"
+                        onClick={() => {
+                          setEditingLineId(ann.id);
+                          setEditingText(ann.label || '');
+                        }}
+                      >
+                        <Type size={12} />
+                      </button>
+
+                      {/* Delete Button */}
+                      {onDeleteAnnotation && (
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                          title="Delete Line"
+                          onClick={() => {
+                            onDeleteAnnotation(ann.id);
+                            onSelectAnnotation(null);
+                          }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </foreignObject>
               )}
             </g>
           );

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CanonicalDocument,
   BoundaryAnnotation,
+  RelationshipLineAnnotation,
 } from '../model/types';
 import { createEmptyDocument, serializeDocument, deserializeDocument, cloneDocument } from '../model/document';
 import { validateCanonicalDocument } from '../model/validator';
@@ -194,17 +195,22 @@ describe('V2 Mind Map Annotations Integration (Tickets 2, 3, 4, 5)', () => {
       expect(curve.pathD).toContain('C');
     });
 
-    it('supports relationship line label text customization and round-trip persistence', () => {
+    it('supports relationship line label text and curvature customization and round-trip persistence', () => {
       const doc = createTestMindMap();
       const relLine = createRelationshipLineAnnotation('topic_1', 'topic_3')!;
       relLine.label = 'Depends on';
+      relLine.style = { ...relLine.style, curvature: 2, lineStyle: 'solid' };
       doc.annotations = [relLine];
 
       const serialized = serializeDocument(doc);
       expect(serialized).toContain('"label": "Depends on"');
+      expect(serialized).toContain('"curvature": 2');
 
       const restored = deserializeDocument(serialized);
-      expect(restored.annotations?.[0].label).toBe('Depends on');
+      const restoredRel = restored.annotations?.[0] as RelationshipLineAnnotation;
+      expect(restoredRel.label).toBe('Depends on');
+      expect(restoredRel.style?.curvature).toBe(2);
+      expect(restoredRel.style?.lineStyle).toBe('solid');
     });
   });
 });

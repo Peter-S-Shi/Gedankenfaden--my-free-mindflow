@@ -167,6 +167,7 @@ export interface RelationshipLineStyle {
   lineStyle?: 'dashed' | 'solid';
   arrowStart?: boolean;
   arrowEnd?: boolean;
+  curvature?: number;
 }
 
 export interface RelationshipLineAnnotation {
