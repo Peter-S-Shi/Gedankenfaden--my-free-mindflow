@@ -2984,7 +2984,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                       height: `${bounds.height}px`,
                       backgroundColor: group.style?.backgroundColor || 'rgba(241, 245, 249, 0.65)',
                       borderColor: group.style?.borderColor || '#cbd5e1',
-                      zIndex: 0,
+                      zIndex: -1,
                     }}
                   >
                     <div

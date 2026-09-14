@@ -155,6 +155,7 @@ export function canonicalToReactFlow(
       position: { x: n.geometry.x, y: n.geometry.y },
       selected: isSelected,
       hidden: isHidden,
+      zIndex: 1,
       data: {
         ...preserveDomainNodeData(n.data),
         label: n.text,
