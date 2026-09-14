@@ -190,13 +190,10 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
       />
 
-      {/* Manual size resize affordance (Product Hardening: Persistent Manual
-          Node Sizing). Mind Map: topic-width-only control -- dragging only
-          ever changes width; height keeps following the text-aware wrap in
-          real time via onResize below. Flowchart: normal 2D resize. Both
-          render only while selected, at the bottom-right corner, well clear
-          of the left/right/top/bottom connection handles above and the
-          fold badge (right-mid edge) below. */}
+      {/* Manual size resize affordance.
+          Mind Map: border-hover horizontal resize affordances on left and right borders
+          without permanent blue dot; live text-aware height reflow; manual width persistence.
+          Flowchart: standard 2D NodeResizer. */}
       {isFlowchart ? (
         <NodeResizer
           nodeId={id}
@@ -210,26 +207,48 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           }}
         />
       ) : (
-        selected && (
-        <NodeResizeControl
-          nodeId={id}
-          position="right"
-          resizeDirection="horizontal"
-          minWidth={90}
-          maxWidth={640}
-          style={{ ...resizeHandleStyle, top: '78%' }}
-          onResize={(_event, params) => {
-            const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
-              width: params.width,
-              fontSize: visuals.fontSize,
-            }).height;
-            nodeData.onLiveResizeWidth?.(id, nextHeight);
-          }}
-          onResizeEnd={(_event, params) => {
-            nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
-          }}
-        />
-        )
+        <>
+          {/* Right border-hover resize control */}
+          <NodeResizeControl
+            nodeId={id}
+            position="right"
+            resizeDirection="horizontal"
+            minWidth={90}
+            maxWidth={640}
+            className="!w-2 !h-[60%] !top-[20%] !right-[-3px] !bg-transparent hover:!bg-blue-500/30 group-hover:opacity-100 !opacity-0 !border-0 cursor-ew-resize !rounded-full transition-all z-20"
+            style={{ position: 'absolute' }}
+            onResize={(_event, params) => {
+              const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
+                width: params.width,
+                fontSize: visuals.fontSize,
+              }).height;
+              nodeData.onLiveResizeWidth?.(id, nextHeight);
+            }}
+            onResizeEnd={(_event, params) => {
+              nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+            }}
+          />
+          {/* Left border-hover resize control */}
+          <NodeResizeControl
+            nodeId={id}
+            position="left"
+            resizeDirection="horizontal"
+            minWidth={90}
+            maxWidth={640}
+            className="!w-2 !h-[60%] !top-[20%] !left-[-3px] !bg-transparent hover:!bg-blue-500/30 group-hover:opacity-100 !opacity-0 !border-0 cursor-ew-resize !rounded-full transition-all z-20"
+            style={{ position: 'absolute' }}
+            onResize={(_event, params) => {
+              const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
+                width: params.width,
+                fontSize: visuals.fontSize,
+              }).height;
+              nodeData.onLiveResizeWidth?.(id, nextHeight);
+            }}
+            onResizeEnd={(_event, params) => {
+              nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+            }}
+          />
+        </>
       )}
 
       {/* Node Content Container */}

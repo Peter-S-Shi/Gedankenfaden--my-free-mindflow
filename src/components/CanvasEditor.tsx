@@ -18,7 +18,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme } from '../model/types';
+import { CanonicalDocument, CanonicalNode, CanonicalEdge, DocumentTheme, NumberingStyle } from '../model/types';
 import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
@@ -51,10 +51,17 @@ import {
   FolderSync,
   PanelLeft,
   PanelRight,
-  GitFork,
   Layers,
-  CornerDownRight,
   ChevronDown,
+  ChevronRight,
+  Copy,
+  Scissors,
+  Clipboard,
+  Image as ImageIcon,
+  ListOrdered,
+  Eye,
+  CheckSquare,
+  Crosshair,
 } from 'lucide-react';
 
 const nodeTypes = {
@@ -63,7 +70,6 @@ const nodeTypes = {
 
 export interface SaveResult {
   success: boolean;
-  /** User-facing failure reason. Only meaningful when success is false. */
   message?: string;
 }
 
@@ -85,6 +91,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   useEffect(() => {
     onDocumentChange?.(doc);
   }, [doc, onDocumentChange]);
+
   const historyRef = useRef<HistoryManager>(new HistoryManager(initialDocument));
   const assetStoreRef = useRef<AssetStore>(new AssetStore());
   const [canUndo, setCanUndo] = useState(false);
@@ -93,7 +100,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [layoutPreset, setLayoutPreset] = useState<LayoutOptions['preset']>('balanced');
 
-  // Internal clipboard for branch copy/cut/paste
   const clipboardSubtreeRef = useRef<{
     nodes: CanonicalNode[];
     edges: CanonicalEdge[];
@@ -102,7 +108,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const groupDragRef = useRef<{ groupId: string; startX: number; startY: number; dx: number; dy: number } | null>(null);
 
-  // Clean lifecycle unmount: cancel animations and release instances
   useEffect(() => {
     return () => {
       if (containerRef.current) {
@@ -112,7 +117,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             anim.cancel();
           }
         } catch {
-          // Ignored in headless/test environments
+          // Ignored in test environment
         }
       }
       rfInstanceRef.current = null;
@@ -120,13 +125,27 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     };
   }, []);
 
-  // 3-Pane workspace shell visibility
   const [isOutlineOpen, setIsOutlineOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<DeletionPlan | null>(null);
 
-  // Focus node helper
+  // M3: Multi-selection & Focus Mode
+  const [multiSelectedNodeIds, setMultiSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [adaptiveEdges, setAdaptiveEdges] = useState(true);
+  const [currentZoom, setCurrentZoom] = useState(1);
+
+  // M3: Context Menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+  } | null>(null);
+
   const focusNodeOnCanvas = useCallback(
     (nodeId: string, customNodes?: Node<CustomNodeData>[]) => {
       const targetList = customNodes || [];
@@ -142,20 +161,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     []
   );
 
-  // Product Hardening: Persistent Manual Node Sizing -- live per-frame
-  // height follow for Mind Map's width-only resize handle. React Flow's
-  // own resize control only ever changes width for a side ('left'/'right')
-  // control; it never recomputes height. This callback (wired to
-  // `NodeResizeControl`'s `onResize` in CustomNode) keeps the box's height
-  // in sync with the text-aware wrap at the live width, purely as a local
-  // style update -- no canonical/doc write, no history entry, no global
-  // layout. The one-time canonical reconciliation happens once, on resize
-  // end, in `handleResizeEnd`.
   const handleLiveResizeWidth = useCallback((nodeId: string, height: number) => {
     setNodes((nds) => nds.map((n) => (n.id === nodeId ? { ...n, style: { ...n.style, height } } : n)));
   }, []);
 
-  // Fold / Unfold branch callback
   const handleToggleFold = useCallback(
     (nodeId: string) => {
       setDoc((prevDoc) => {
@@ -181,22 +190,68 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       });
       setStatusMessage('Toggled branch fold');
     },
-    [layoutPreset, handleLiveResizeWidth]
+    [layoutPreset]
   );
 
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const handleUpdateNodeLabel = useCallback(
+    (nodeId: string, label: string) => {
+      setDoc((prevDoc) => {
+        const targetNode = prevDoc.nodes.find((n) => n.id === nodeId);
+        const fontSize = targetNode?.style?.fontSize || 14;
+        const newSize = computeTextAwareNodeSize(label, {
+          width: targetNode?.manualSize?.width,
+          fontSize,
+        });
 
-  const selectedCanonicalNode = useMemo(() => {
-    if (!selectedNodeId) return null;
-    return doc.nodes.find((n) => n.id === selectedNodeId) || null;
-  }, [doc.nodes, selectedNodeId]);
+        const nextNodes = prevDoc.nodes.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                text: label,
+                geometry: {
+                  ...n.geometry,
+                  width: targetNode?.manualSize?.width ?? newSize.width,
+                  height: newSize.height,
+                },
+              }
+            : n
+        );
+
+        const updatedDoc: CanonicalDocument = {
+          ...prevDoc,
+          nodes: nextNodes,
+          updatedAt: new Date().toISOString(),
+        };
+
+        const layouted = autoLayoutDocument(updatedDoc, { preset: layoutPreset, stabilizeAgainst: prevDoc });
+        const projected = canonicalToReactFlow(layouted, {
+          onToggleFold: handleToggleFold,
+          selectedNodeId,
+          onUpdateLabel: handleUpdateNodeLabel,
+          onLiveResizeWidth: handleLiveResizeWidth,
+          onResizeEnd: handleResizeEndFromNode,
+        });
+
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        historyRef.current.pushState(layouted);
+        updateHistoryStatus();
+        return layouted;
+      });
+      setStatusMessage('Updated node text');
+    },
+    [layoutPreset]
+  );
+
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
+    initialDocument.nodes[0] ? initialDocument.nodes[0].id : null
+  );
 
   const handleUpdateNodeRef = useRef<((nodeId: string, updates: Partial<CanonicalNode>) => void) | null>(null);
-  const handleUpdateNodeLabel = useCallback((nodeId: string, label: string) => {
-    if (handleUpdateNodeRef.current) {
-      handleUpdateNodeRef.current(nodeId, { text: label });
-    }
-  }, []);
+
+  const selectedCanonicalNode = useMemo(() => {
+    return doc.nodes.find((n) => n.id === selectedNodeId) || null;
+  }, [doc.nodes, selectedNodeId]);
 
   const handleResizeEndRef = useRef<((nodeId: string, dimensions: { width: number; height: number }) => void) | null>(null);
   const handleResizeEndFromNode = useCallback((nodeId: string, dimensions: { width: number; height: number }) => {
@@ -216,7 +271,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   );
   const [nodes, setNodes] = useState<Node<CustomNodeData>[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
-  const rfInstanceRef = useRef<ReactFlowInstance<Node<CustomNodeData>, Edge> | null>(null);
+  const rfInstanceRef = useRef<ReactFlowInstance<any, any> | null>(null);
 
   const updateHistoryStatus = useCallback(() => {
     setCanUndo(historyRef.current.canUndo());
@@ -236,27 +291,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc, updateHistoryStatus]
   );
 
-  // Direct-children lookup from the canonical hierarchy, used to carry a
-  // dragged parent's descendant subtree along with it (Ledger F-new / #17):
-  // React Flow only reports a position change for the node actually
-  // dragged, so without this its children would visibly detach and stay
-  // behind while the parent moves.
   const childrenIdsByParent = useMemo(() => buildChildrenIdsByParent(doc.nodes), [doc.nodes]);
 
-  // Product Hardening: Persistent Manual Node Sizing -- the one canonical
-  // settle pass for a full resize gesture (mousedown-to-mouseup), called from
-  // the resize control's `onResizeEnd`.
-  //
-  // Mind Map: marks `manualSize` (width-only) on the resized node, then runs
-  // exactly one `stabilizeAgainst`-anchored relayout so only that node's own
-  // subtree repositions -- unrelated branches never move (#10c).
-  // Flowchart: marks `manualSize` (width+height) and persists geometry in
-  // place with NO relayout call at all -- a Dagre pass would reposition
-  // other nodes by rank, which a single node's resize must never do.
-  //
-  // Either way, this whole gesture becomes exactly one history entry. The
-  // live React Flow `dimensions` changes below only update transient geometry;
-  // this explicit bridge is what makes the manual size durable.
   const handleResizeEnd = useCallback(
     (nodeId: string, dimensions: { width: number; height: number }) => {
       const preGestureDoc = doc;
@@ -308,20 +344,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     handleResizeEndRef.current = handleResizeEnd;
   }, [handleResizeEnd]);
 
-  // Product Hardening: Persistent Manual Node Sizing -- explicit "Reset
-  // Size" path. Clearing `manualSize` alone would not be enough: `geometry.
-  // width`/`height` are sticky (every layout pass just echoes back whatever
-  // is already there), so the stale manual value would keep being read as
-  // the "declared width" fallback forever. Resetting is therefore an
-  // explicit action that also clears `geometry.width`/`height`, not an
-  // inference from final geometry.
-  //
-  // Mind Map: clearing both lets the next relayout fall through to the
-  // natural default width (150) and recompute text-aware height at that
-  // width -- one stabilized pass so only this node's own subtree moves.
-  // Flowchart: no relayout (a resize/reset must never move other nodes);
-  // this node's geometry is set directly back to the product default
-  // (160x48) in place.
   const handleResetNodeSize = useCallback(() => {
     if (!selectedNodeId) return;
     const target = doc.nodes.find((n) => n.id === selectedNodeId);
@@ -449,7 +471,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc.mode, doc.theme, nodes, syncToCanonical]
   );
 
-  // Focus node on canvas (used by OutlinePanel)
   const handleSelectAndFocusNode = useCallback(
     (nodeId: string) => {
       setSelectedNodeId(nodeId);
@@ -464,16 +485,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [nodes, focusNodeOnCanvas]
   );
 
-  // Apply auto-layout with preset
   const handleAutoLayoutWithPreset = useCallback(
     (preset: LayoutOptions['preset']) => {
       setLayoutPreset(preset);
+      setIsLayoutMenuOpen(false);
       const currentDoc = reactFlowToCanonical(nodes, edges, doc);
-      // Deliberately NOT stabilized (M1-D #10c): this is the user explicitly
-      // asking for a full auto-layout reset, not an incremental edit -- it
-      // should also be able to fix positions a stabilized incremental edit
-      // left untouched (e.g. after a manual drag), so it must recompute
-      // everyone from scratch.
       const layoutedDoc = autoLayoutDocument(currentDoc, { preset });
       const projected = canonicalToReactFlow(layoutedDoc, {
         onToggleFold: handleToggleFold,
@@ -493,7 +509,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [nodes, edges, doc, selectedNodeId, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  // Keyboard Contract: Add Sibling Node (Enter / Shift+Enter for Mind Map)
+  // Keyboard / Context: Add Sibling Node
   const handleAddSiblingNode = useCallback(
     (direction: 'below' | 'above' = 'below') => {
       const selected = doc.nodes.find((n) => n.id === selectedNodeId);
@@ -556,11 +572,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updateHistoryStatus();
       focusNodeOnCanvas(newId, updatedRfNodes);
       setStatusMessage(`Created sibling (${direction})`);
+      setIsAddMenuOpen(false);
     },
     [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  // Keyboard Contract: Add Child Node (Tab for Mind Map)
+  // Keyboard / Context: Add Child Node
   const handleAddChildNode = useCallback(() => {
     const selected = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!selected) return;
@@ -581,7 +598,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       type: 'smoothstep',
     };
 
-    // Unfold parent if it was collapsed
     const nextNodes = doc.nodes.map((n) =>
       n.id === selected.id ? { ...n, collapsed: false } : n
     );
@@ -616,9 +632,74 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     focusNodeOnCanvas(newId, updatedRfNodes);
     setStatusMessage('Created child node (Tab)');
+    setIsAddMenuOpen(false);
   }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]);
 
-  // Flowchart Keyboard Action: Add Downstream Connected Step (Enter)
+  // Keyboard / Context: Add Parent Topic (Shift+Tab)
+  const handleAddParentNode = useCallback(() => {
+    const selected = doc.nodes.find((n) => n.id === selectedNodeId);
+    if (!selected || selected.type === 'root' || !selected.parentId) {
+      setStatusMessage('Root node cannot have a parent topic');
+      setIsAddMenuOpen(false);
+      return;
+    }
+
+    const oldParentId = selected.parentId;
+    const newId = `node_${Date.now()}`;
+    const newNode: CanonicalNode = {
+      id: newId,
+      text: 'Parent Topic',
+      geometry: { x: selected.geometry.x - 80, y: selected.geometry.y, width: 140, height: 44 },
+      type: 'default',
+      parentId: oldParentId,
+    };
+
+    const nextNodes = doc.nodes.map((n) =>
+      n.id === selected.id ? { ...n, parentId: newId } : n
+    );
+    nextNodes.push(newNode);
+
+    const nextEdges = doc.edges.filter(
+      (e) => !(e.source === oldParentId && e.target === selected.id)
+    );
+    nextEdges.push(
+      { id: `edge_${oldParentId}_${newId}`, source: oldParentId, target: newId, type: 'smoothstep' },
+      { id: `edge_${newId}_${selected.id}`, source: newId, target: selected.id, type: 'smoothstep' }
+    );
+
+    const nextDoc: CanonicalDocument = {
+      ...doc,
+      nodes: nextNodes,
+      edges: nextEdges,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+    const projected = canonicalToReactFlow(layouted, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: newId,
+      onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
+    });
+
+    const updatedRfNodes = projected.nodes.map((n) => ({
+      ...n,
+      selected: n.id === newId,
+    }));
+
+    setSelectedNodeId(newId);
+    setDoc(layouted);
+    setNodes(updatedRfNodes);
+    setEdges(projected.edges);
+    historyRef.current.pushState(layouted);
+    updateHistoryStatus();
+    focusNodeOnCanvas(newId, updatedRfNodes);
+    setStatusMessage('Created parent topic (Shift+Tab)');
+    setIsAddMenuOpen(false);
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]);
+
+  // Flowchart steps
   const handleAddFlowchartStep = useCallback(
     (direction: 'downstream' | 'upstream' = 'downstream') => {
       const selected = doc.nodes.find((n) => n.id === selectedNodeId);
@@ -675,11 +756,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       updateHistoryStatus();
       focusNodeOnCanvas(newId, updatedRfNodes);
       setStatusMessage(`Added connected step (${direction})`);
+      setIsAddMenuOpen(false);
     },
     [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  // Flowchart Keyboard Action: Add Decision Branch (Tab)
   const handleAddFlowchartBranch = useCallback(() => {
     const selected = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!selected) return;
@@ -733,6 +814,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     focusNodeOnCanvas(newId, updatedRfNodes);
     setStatusMessage('Added decision branch (Tab)');
+    setIsAddMenuOpen(false);
   }, [doc, selectedNodeId, updateHistoryStatus, focusNodeOnCanvas, handleToggleFold, handleUpdateNodeLabel]);
 
   // Group Container Management
@@ -798,7 +880,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage('Moved group container');
   }, [updateHistoryStatus]);
 
-  // Request explicit confirmation before deleting canvas content.
+  // Deletion handling
   const handleDeleteSelectedSubtree = useCallback(() => {
     if (!selectedNodeId) return;
     setPendingDeletion(planCanvasDeletion(doc, selectedNodeId));
@@ -835,7 +917,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
 
     const deletedIds = new Set(pendingDeletion.nodeIds);
-
     const nextNodes = doc.nodes.filter((n) => !deletedIds.has(n.id));
     const nextEdges = doc.edges.filter(
       (e) => !deletedIds.has(e.source) && !deletedIds.has(e.target)
@@ -874,12 +955,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setPendingDeletion(null);
   }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
 
-  // Delete only the selected node, reparenting its direct children onto its
-  // own parent instead of destroying the whole subtree (Ledger F-new / #16).
   const confirmDeleteOnlyKeepChildren = useCallback(() => {
-    if (!pendingDeletion || !selectedNodeId) return;
-    if (pendingDeletion.kind !== 'delete-subtree') return;
-
+    if (!selectedNodeId) return;
     const nextDoc = deleteNodePreservingChildren(doc, selectedNodeId);
     if (nextDoc === doc) return;
 
@@ -900,101 +977,53 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     updateHistoryStatus();
     setStatusMessage('Deleted node, kept its children');
     setPendingDeletion(null);
-  }, [doc, pendingDeletion, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
+  }, [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]);
 
-  // Spatial / Hierarchical Arrow Navigation
-  const handleArrowNavigation = useCallback(
-    (arrowKey: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') => {
-      if (doc.nodes.length === 0) return;
+  // Batch delete selected topics
+  const handleDeleteSelectedTopics = useCallback(() => {
+    if (multiSelectedNodeIds.size === 0 && selectedNodeId) {
+      handleDeleteSelectedSubtree();
+      return;
+    }
+    const rootNode = doc.nodes.find((n) => n.type === 'root' || !n.parentId);
+    const toDelete = new Set([...multiSelectedNodeIds].filter((id) => id !== rootNode?.id));
+    if (toDelete.size === 0) {
+      setStatusMessage('Cannot delete root node');
+      return;
+    }
 
-      const currentNode = doc.nodes.find((n) => n.id === selectedNodeId) || doc.nodes[0];
-      let targetId: string | null = null;
+    const nextNodes = doc.nodes.filter((n) => !toDelete.has(n.id));
+    const nextEdges = doc.edges.filter((e) => !toDelete.has(e.source) && !toDelete.has(e.target));
 
-      if (doc.mode === 'flowchart') {
-        // Flowchart graph-connectivity navigation
-        const outgoing = doc.edges.filter((e) => e.source === currentNode.id);
-        const incoming = doc.edges.filter((e) => e.target === currentNode.id);
+    const nextDoc: CanonicalDocument = {
+      ...doc,
+      nodes: nextNodes,
+      edges: nextEdges,
+      updatedAt: new Date().toISOString(),
+    };
 
-        if (arrowKey === 'ArrowDown' && outgoing.length > 0) {
-          targetId = outgoing[0].target;
-        } else if (arrowKey === 'ArrowRight' && outgoing.length > 1) {
-          targetId = outgoing[1].target;
-        } else if (arrowKey === 'ArrowUp' && incoming.length > 0) {
-          targetId = incoming[0].source;
-        } else if (arrowKey === 'ArrowLeft' && incoming.length > 1) {
-          targetId = incoming[1].source;
-        }
-      } else {
-        // Mind Map hierarchy navigation
-        const rootNode = doc.nodes.find((n) => n.type === 'root') || doc.nodes[0];
-        const childrenMap = new Map<string, CanonicalNode[]>();
-        for (const n of doc.nodes) {
-          if (n.parentId) {
-            const list = childrenMap.get(n.parentId) || [];
-            list.push(n);
-            childrenMap.set(n.parentId, list);
-          }
-        }
+    const layouted = doc.mode === 'mindmap' ? autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc }) : nextDoc;
+    const projected = canonicalToReactFlow(layouted, {
+      onToggleFold: handleToggleFold,
+      selectedNodeId: null,
+      onUpdateLabel: handleUpdateNodeLabel,
+      onLiveResizeWidth: handleLiveResizeWidth,
+      onResizeEnd: handleResizeEndFromNode,
+    });
 
-        const isRoot = currentNode.id === rootNode.id;
-        const isRightWing = currentNode.geometry.x >= rootNode.geometry.x;
+    setDoc(layouted);
+    setSelectedNodeId(null);
+    setMultiSelectedNodeIds(new Set());
+    setNodes(projected.nodes);
+    setEdges(projected.edges);
+    historyRef.current.pushState(layouted);
+    updateHistoryStatus();
+    setStatusMessage(`Deleted ${toDelete.size} selected topics`);
+  }, [doc, multiSelectedNodeIds, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel, handleDeleteSelectedSubtree]);
 
-        if (arrowKey === 'ArrowUp' || arrowKey === 'ArrowDown') {
-          if (currentNode.parentId) {
-            const siblings = childrenMap.get(currentNode.parentId) || [];
-            const idx = siblings.findIndex((s) => s.id === currentNode.id);
-            if (arrowKey === 'ArrowUp' && idx > 0) {
-              targetId = siblings[idx - 1].id;
-            } else if (arrowKey === 'ArrowDown' && idx < siblings.length - 1) {
-              targetId = siblings[idx + 1].id;
-            }
-          }
-        } else if (arrowKey === 'ArrowRight') {
-          if (isRoot) {
-            const children = childrenMap.get(rootNode.id) || [];
-            const rightChild = children.find((c) => c.geometry.x >= rootNode.geometry.x) || children[0];
-            targetId = rightChild ? rightChild.id : null;
-          } else if (isRightWing) {
-            const children = childrenMap.get(currentNode.id) || [];
-            if (children.length > 0) targetId = children[0].id;
-          } else {
-            targetId = currentNode.parentId || rootNode.id;
-          }
-        } else if (arrowKey === 'ArrowLeft') {
-          if (isRoot) {
-            const children = childrenMap.get(rootNode.id) || [];
-            const leftChild = children.find((c) => c.geometry.x < rootNode.geometry.x) || children[children.length - 1];
-            targetId = leftChild ? leftChild.id : null;
-          } else if (!isRightWing) {
-            const children = childrenMap.get(currentNode.id) || [];
-            if (children.length > 0) targetId = children[0].id;
-          } else {
-            targetId = currentNode.parentId || rootNode.id;
-          }
-        }
-      }
-
-      if (targetId && targetId !== currentNode.id) {
-        setSelectedNodeId(targetId);
-        setNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            selected: n.id === targetId,
-          }))
-        );
-        focusNodeOnCanvas(targetId, nodes);
-      }
-    },
-    [doc.nodes, doc.edges, doc.mode, selectedNodeId, nodes, focusNodeOnCanvas]
-  );
-
-  // Copy branch subtree
+  // Clipboard operations
   const handleCopyBranch = useCallback(() => {
     if (!selectedNodeId) return;
-
-    const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
-    if (!targetNode) return;
-
     const subtreeNodeIds = new Set<string>([selectedNodeId]);
     const childrenMap = new Map<string, string[]>();
     for (const n of doc.nodes) {
@@ -1022,17 +1051,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     setStatusMessage(`Copied branch (${subtreeNodes.length} node${subtreeNodes.length > 1 ? 's' : ''})`);
   }, [doc, selectedNodeId]);
 
-  // Cut branch subtree
   const handleCutBranch = useCallback(() => {
     handleCopyBranch();
     handleDeleteSelectedSubtree();
     setStatusMessage('Cut branch to clipboard');
   }, [handleCopyBranch, handleDeleteSelectedSubtree]);
 
-  // Paste branch or multiline text
   const handlePaste = useCallback(async () => {
     if (!selectedNodeId) return;
-
     const targetNode = doc.nodes.find((n) => n.id === selectedNodeId);
     if (!targetNode) return;
 
@@ -1042,10 +1068,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         clipboardText = await navigator.clipboard.readText();
       }
     } catch {
-      // Browser clipboard read permission
+      // Ignore clipboard permission errors
     }
 
-    // Check if clipboard text has multiple lines
     if (clipboardText && clipboardText.trim().includes('\n')) {
       const parsed = parseMultilineToTree(clipboardText, targetNode.id, targetNode.geometry);
       if (parsed.nodes.length > 0) {
@@ -1076,7 +1101,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       }
     }
 
-    // Otherwise paste from internal branch clipboard
     if (clipboardSubtreeRef.current) {
       const { nodes: subNodes, edges: subEdges } = clipboardSubtreeRef.current;
       const idMap = new Map<string, string>();
@@ -1178,7 +1202,324 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     }
   }, [updateHistoryStatus, handleToggleFold, selectedNodeId, handleUpdateNodeLabel]);
 
-  // Update theme from Inspector
+  // M3: Separate Collapse and Expand submenu handlers
+  const handleCollapseBranch = useCallback(
+    (kind: 'current' | 'siblings' | 'descendants') => {
+      if (!selectedNodeId) return;
+      const target = doc.nodes.find((n) => n.id === selectedNodeId);
+      if (!target) return;
+
+      const childrenMap = new Map<string, string[]>();
+      for (const n of doc.nodes) {
+        if (n.parentId) {
+          const list = childrenMap.get(n.parentId) || [];
+          list.push(n.id);
+          childrenMap.set(n.parentId, list);
+        }
+      }
+
+      let toCollapse = new Set<string>();
+      if (kind === 'current') {
+        toCollapse.add(selectedNodeId);
+      } else if (kind === 'siblings') {
+        if (target.parentId) {
+          const siblings = childrenMap.get(target.parentId) || [];
+          siblings.forEach((sId) => {
+            if (sId !== selectedNodeId) toCollapse.add(sId);
+          });
+        }
+      } else if (kind === 'descendants') {
+        const collect = (pId: string) => {
+          const ch = childrenMap.get(pId) || [];
+          ch.forEach((cId) => {
+            toCollapse.add(cId);
+            collect(cId);
+          });
+        };
+        collect(selectedNodeId);
+      }
+
+      const nextNodes = doc.nodes.map((n) =>
+        toCollapse.has(n.id) ? { ...n, collapsed: true } : n
+      );
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: nextNodes,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+      const projected = canonicalToReactFlow(layouted, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
+
+      setDoc(layouted);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      setStatusMessage(`Collapsed: ${kind}`);
+      setContextMenu(null);
+    },
+    [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
+  );
+
+  const handleExpandBranch = useCallback(
+    (kind: 'current' | 'siblings' | 'descendants') => {
+      if (!selectedNodeId) return;
+      const target = doc.nodes.find((n) => n.id === selectedNodeId);
+      if (!target) return;
+
+      const childrenMap = new Map<string, string[]>();
+      for (const n of doc.nodes) {
+        if (n.parentId) {
+          const list = childrenMap.get(n.parentId) || [];
+          list.push(n.id);
+          childrenMap.set(n.parentId, list);
+        }
+      }
+
+      let toExpand = new Set<string>();
+      if (kind === 'current') {
+        toExpand.add(selectedNodeId);
+      } else if (kind === 'siblings') {
+        if (target.parentId) {
+          const siblings = childrenMap.get(target.parentId) || [];
+          siblings.forEach((sId) => toExpand.add(sId));
+        }
+      } else if (kind === 'descendants') {
+        toExpand.add(selectedNodeId);
+        const collect = (pId: string) => {
+          const ch = childrenMap.get(pId) || [];
+          ch.forEach((cId) => {
+            toExpand.add(cId);
+            collect(cId);
+          });
+        };
+        collect(selectedNodeId);
+      }
+
+      const nextNodes = doc.nodes.map((n) =>
+        toExpand.has(n.id) ? { ...n, collapsed: false } : n
+      );
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: nextNodes,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+      const projected = canonicalToReactFlow(layouted, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
+
+      setDoc(layouted);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      setStatusMessage(`Expanded: ${kind}`);
+      setContextMenu(null);
+    },
+    [doc, selectedNodeId, layoutPreset, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
+  );
+
+  // M3: Selection submenus
+  const handleSelectHierarchy = useCallback(
+    (kind: 'same-branch' | 'all-level' | 'clear') => {
+      if (kind === 'clear') {
+        setMultiSelectedNodeIds(new Set());
+        setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === selectedNodeId })));
+        setStatusMessage('Cleared multi-selection');
+        setContextMenu(null);
+        return;
+      }
+
+      if (!selectedNodeId) return;
+      const target = doc.nodes.find((n) => n.id === selectedNodeId);
+      if (!target) return;
+
+      // Compute tree depth for each node
+      const depthMap = new Map<string, number>();
+      const nodeById = new Map(doc.nodes.map((n) => [n.id, n]));
+      const getDepth = (id: string): number => {
+        if (depthMap.has(id)) return depthMap.get(id)!;
+        const node = nodeById.get(id);
+        if (!node || node.type === 'root' || !node.parentId) {
+          depthMap.set(id, 0);
+          return 0;
+        }
+        const d = 1 + getDepth(node.parentId);
+        depthMap.set(id, d);
+        return d;
+      };
+
+      const targetDepth = getDepth(selectedNodeId);
+      const selectedIds = new Set<string>();
+
+      if (kind === 'same-branch') {
+        doc.nodes.forEach((n) => {
+          if (n.parentId === target.parentId) {
+            selectedIds.add(n.id);
+          }
+        });
+        setStatusMessage(`Selected ${selectedIds.size} peers in current branch`);
+      } else if (kind === 'all-level') {
+        doc.nodes.forEach((n) => {
+          if (getDepth(n.id) === targetDepth) {
+            selectedIds.add(n.id);
+          }
+        });
+        setStatusMessage(`Selected ${selectedIds.size} topics at same depth`);
+      }
+
+      setMultiSelectedNodeIds(selectedIds);
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          selected: selectedIds.has(n.id) || n.id === selectedNodeId,
+        }))
+      );
+      setContextMenu(null);
+    },
+    [doc.nodes, selectedNodeId]
+  );
+
+  // M3: Numbering submenu actions
+  const handleApplyNumbering = useCallback(
+    (style: NumberingStyle, depth?: number) => {
+      const rootNode = doc.nodes.find((n) => n.type === 'root' || !n.parentId);
+      if (!rootNode) return;
+
+      const nextDoc: CanonicalDocument = {
+        ...doc,
+        nodes: doc.nodes.map((n) => {
+          if (n.id === rootNode.id) {
+            return {
+              ...n,
+              numbering: {
+                level1Style: style,
+                level2Style: style === 'decimal' ? 'decimal' : style === 'roman' ? 'roman' : style === 'alpha' ? 'alpha' : 'none',
+                maxDepth: depth ?? n.numbering?.maxDepth ?? 3,
+              },
+            };
+          }
+          return n;
+        }),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const projected = canonicalToReactFlow(nextDoc, {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      });
+
+      setDoc(nextDoc);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(nextDoc);
+      updateHistoryStatus();
+      setStatusMessage(`Numbering applied: ${style}${depth ? ` (depth ${depth})` : ''}`);
+      setContextMenu(null);
+    },
+    [doc, selectedNodeId, handleToggleFold, handleUpdateNodeLabel, updateHistoryStatus]
+  );
+
+  // M3: Focus Mode Toggle
+  const handleToggleFocusMode = useCallback(() => {
+    if (focusNodeId) {
+      setFocusNodeId(null);
+      setStatusMessage('Exited focus mode');
+    } else if (selectedNodeId) {
+      setFocusNodeId(selectedNodeId);
+      setStatusMessage('Entered focus mode');
+    }
+    setContextMenu(null);
+  }, [focusNodeId, selectedNodeId]);
+
+  // Compute focused branch node IDs
+  const focusedBranchNodeIds = useMemo(() => {
+    if (!focusNodeId) return null;
+    const branchIds = new Set<string>();
+    const rootNode = doc.nodes.find((n) => n.type === 'root' || !n.parentId);
+    if (rootNode) branchIds.add(rootNode.id);
+
+    const childrenMap = new Map<string, string[]>();
+    for (const n of doc.nodes) {
+      if (n.parentId) {
+        const list = childrenMap.get(n.parentId) || [];
+        list.push(n.id);
+        childrenMap.set(n.parentId, list);
+      }
+    }
+
+    const addSubtree = (id: string) => {
+      branchIds.add(id);
+      const ch = childrenMap.get(id) || [];
+      ch.forEach(addSubtree);
+    };
+
+    let cur: CanonicalNode | undefined = doc.nodes.find((n) => n.id === focusNodeId);
+    while (cur) {
+      branchIds.add(cur.id);
+      cur = cur.parentId ? doc.nodes.find((n) => n.id === cur?.parentId) : undefined;
+    }
+    addSubtree(focusNodeId);
+    return branchIds;
+  }, [focusNodeId, doc.nodes]);
+
+  // M3: Context Menu Trigger Handlers
+  const handleNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node<CustomNodeData>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedNodeId(node.id);
+
+      const x = Math.min(event.clientX, window.innerWidth - 250);
+      const y = Math.min(event.clientY, window.innerHeight - 440);
+      setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: node.id });
+    },
+    []
+  );
+
+  const handlePaneContextMenu = useCallback(
+    (event: any) => {
+      event.preventDefault();
+      if (selectedNodeId) {
+        const x = Math.min(event.clientX, window.innerWidth - 250);
+        const y = Math.min(event.clientY, window.innerHeight - 440);
+        setContextMenu({ x: Math.max(10, x), y: Math.max(10, y), nodeId: selectedNodeId });
+      }
+    },
+    [selectedNodeId]
+  );
+
+  // Close menus on outside click
+  useEffect(() => {
+    const handleClick = () => {
+      setContextMenu(null);
+      setIsAddMenuOpen(false);
+      setIsLayoutMenuOpen(false);
+      setIsMoreMenuOpen(false);
+      setIsExportMenuOpen(false);
+    };
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, []);
+
   const handleUpdateTheme = useCallback(
     (theme: DocumentTheme) => {
       const nextDoc: CanonicalDocument = {
@@ -1203,7 +1544,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [doc, selectedNodeId, updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  // Update node style or shape from Inspector
   const handleUpdateNode = useCallback(
     (nodeId: string, updates: Partial<CanonicalNode>) => {
       setSelectedNodeId(nodeId);
@@ -1231,16 +1571,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   );
   handleUpdateNodeRef.current = handleUpdateNode;
 
-  // Reset node to theme defaults
   const handleResetNodeStyle = useCallback(
     (nodeId: string) => {
       const target = doc.nodes.find((n) => n.id === nodeId);
       if (!target) return;
       const resetNode = resetNodeToTheme(target);
       handleUpdateNode(nodeId, resetNode);
+      if (target.manualSize) {
+        handleResetNodeSize();
+      }
       setStatusMessage('Reset node to theme defaults');
     },
-    [doc.nodes, handleUpdateNode]
+    [doc.nodes, handleUpdateNode, handleResetNodeSize]
   );
 
   const handleSaveDocument = useCallback(async () => {
@@ -1266,6 +1608,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         if (bridge.isTauri()) {
           const result = await saveExportWithNativeDialog(artifact, bridge);
           setIsExportMenuOpen(false);
+          setIsMoreMenuOpen(false);
           setStatusMessage(result.status === 'saved' ? `Exported ${format.toUpperCase()} to ${result.path}` : 'Export cancelled');
           return;
         }
@@ -1278,9 +1621,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         a.click();
         URL.revokeObjectURL(url);
         setIsExportMenuOpen(false);
+        setIsMoreMenuOpen(false);
         setStatusMessage(`Exported ${format.toUpperCase()}`);
       } catch (error) {
         setIsExportMenuOpen(false);
+        setIsMoreMenuOpen(false);
         setStatusMessage(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     },
@@ -1298,27 +1643,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
-            const arrayBuffer = event.target?.result as ArrayBuffer;
-            const bytes = new Uint8Array(arrayBuffer);
-            const container = parseMflowFromBytes(bytes);
-            setDoc(container.document);
-            assetStoreRef.current = AssetStore.fromBytesMap(container.assets);
-            const rootId = container.document.nodes.find((n) => n.type === 'root')?.id || container.document.nodes[0]?.id || null;
-            setSelectedNodeId(rootId);
-            const projected = canonicalToReactFlow(container.document, {
+            const buf = new Uint8Array(event.target?.result as ArrayBuffer);
+            const parsed = parseMflowFromBytes(buf);
+            const loadedDoc = parsed.document;
+            setDoc(loadedDoc);
+            const projected = canonicalToReactFlow(loadedDoc, {
               onToggleFold: handleToggleFold,
-              selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
               onLiveResizeWidth: handleLiveResizeWidth,
               onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
-            historyRef.current = new HistoryManager(container.document);
+            historyRef.current.pushState(loadedDoc);
             updateHistoryStatus();
-            setStatusMessage(`Loaded container: ${container.document.title}`);
+            setStatusMessage(`Loaded container: ${loadedDoc.title}`);
           } catch {
-            setStatusMessage('Failed to parse .mflow container');
+            setStatusMessage('Failed to load .mflow package');
           }
         };
         reader.readAsArrayBuffer(file);
@@ -1326,25 +1667,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
-            const content = event.target?.result as string;
-            const imported = importFromMarkdown(content, file.name.replace(/\.(md|markdown)$/i, ''));
-            setDoc(imported);
-            const rootId = imported.nodes.find((n) => n.type === 'root')?.id || imported.nodes[0]?.id || null;
-            setSelectedNodeId(rootId);
-            const projected = canonicalToReactFlow(imported, {
+            const text = event.target?.result as string;
+            const imported = importFromMarkdown(text, file.name.replace(/\.(md|markdown)$/i, ''));
+            const layouted = autoLayoutDocument(imported, { preset: 'balanced' });
+            setDoc(layouted);
+            const projected = canonicalToReactFlow(layouted, {
               onToggleFold: handleToggleFold,
-              selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
               onLiveResizeWidth: handleLiveResizeWidth,
               onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
-            historyRef.current = new HistoryManager(imported);
+            historyRef.current.pushState(layouted);
             updateHistoryStatus();
             setStatusMessage(`Imported Markdown: ${imported.title}`);
           } catch {
-            setStatusMessage('Failed to import Markdown');
+            setStatusMessage('Failed to parse Markdown outline');
           }
         };
         reader.readAsText(file);
@@ -1352,25 +1691,23 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
-            const content = event.target?.result as string;
-            const imported = importFromOPML(content, file.name.replace(/\.opml$/i, ''));
-            setDoc(imported);
-            const rootId = imported.nodes.find((n) => n.type === 'root')?.id || imported.nodes[0]?.id || null;
-            setSelectedNodeId(rootId);
-            const projected = canonicalToReactFlow(imported, {
+            const text = event.target?.result as string;
+            const imported = importFromOPML(text);
+            const layouted = autoLayoutDocument(imported, { preset: 'balanced' });
+            setDoc(layouted);
+            const projected = canonicalToReactFlow(layouted, {
               onToggleFold: handleToggleFold,
-              selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
               onLiveResizeWidth: handleLiveResizeWidth,
               onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
-            historyRef.current = new HistoryManager(imported);
+            historyRef.current.pushState(layouted);
             updateHistoryStatus();
             setStatusMessage(`Imported OPML: ${imported.title}`);
           } catch {
-            setStatusMessage('Failed to import OPML');
+            setStatusMessage('Failed to parse OPML document');
           }
         };
         reader.readAsText(file);
@@ -1378,24 +1715,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
-            const content = event.target?.result as string;
-            const parsed = JSON.parse(content) as CanonicalDocument;
-            if (!parsed.schemaVersion || !parsed.nodes) {
-              throw new Error('Invalid document schema');
-            }
+            const parsed = JSON.parse(event.target?.result as string);
             setDoc(parsed);
-            const rootId = parsed.nodes.find((n) => n.type === 'root')?.id || parsed.nodes[0]?.id || null;
-            setSelectedNodeId(rootId);
             const projected = canonicalToReactFlow(parsed, {
               onToggleFold: handleToggleFold,
-              selectedNodeId: rootId,
               onUpdateLabel: handleUpdateNodeLabel,
               onLiveResizeWidth: handleLiveResizeWidth,
               onResizeEnd: handleResizeEndFromNode,
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
-            historyRef.current = new HistoryManager(parsed);
+            historyRef.current.pushState(parsed);
             updateHistoryStatus();
             setStatusMessage(`Loaded: ${parsed.title}`);
           } catch {
@@ -1408,9 +1738,120 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     [updateHistoryStatus, handleToggleFold, handleUpdateNodeLabel]
   );
 
-  // Global Keyboard Shortcuts (Production-wired via dispatchCanvasKeyDown)
+  const handleChooseIcon = useCallback((nodeId: string) => {
+    const icons = ['💡', '⚠️', '✅', '⭐', '🚀', '📌', '🎯', '🔥'];
+    const chosen = icons[Math.floor(Math.random() * icons.length)];
+    const target = doc.nodes.find((n) => n.id === nodeId);
+    if (target) {
+      const cleanText = target.text?.replace(/^([💡⚠️✅⭐🚀📌🎯🔥]\s*)/, '') || 'Topic';
+      handleUpdateNode(nodeId, { text: `${chosen} ${cleanText}` });
+      setStatusMessage(`Added icon ${chosen}`);
+    }
+  }, [doc.nodes, handleUpdateNode]);
+
+  // Spatial Navigation
+  const handleArrowNavigation = useCallback(
+    (arrowKey: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') => {
+      if (doc.nodes.length === 0) return;
+      const currentNode = doc.nodes.find((n) => n.id === selectedNodeId) || doc.nodes[0];
+      let targetId: string | null = null;
+
+      if (doc.mode === 'flowchart') {
+        const outgoing = doc.edges.filter((e) => e.source === currentNode.id);
+        const incoming = doc.edges.filter((e) => e.target === currentNode.id);
+        if (arrowKey === 'ArrowDown' && outgoing.length > 0) {
+          targetId = outgoing[0].target;
+        } else if (arrowKey === 'ArrowRight' && outgoing.length > 1) {
+          targetId = outgoing[1].target;
+        } else if (arrowKey === 'ArrowUp' && incoming.length > 0) {
+          targetId = incoming[0].source;
+        } else if (arrowKey === 'ArrowLeft' && incoming.length > 1) {
+          targetId = incoming[1].source;
+        }
+      } else {
+        const rootNode = doc.nodes.find((n) => n.type === 'root') || doc.nodes[0];
+        const childrenMap = new Map<string, CanonicalNode[]>();
+        for (const n of doc.nodes) {
+          if (n.parentId) {
+            const list = childrenMap.get(n.parentId) || [];
+            list.push(n);
+            childrenMap.set(n.parentId, list);
+          }
+        }
+
+        const isRoot = currentNode.id === rootNode.id;
+        const isRightWing = currentNode.geometry.x >= rootNode.geometry.x;
+
+        if (arrowKey === 'ArrowUp' || arrowKey === 'ArrowDown') {
+          if (currentNode.parentId) {
+            const siblings = childrenMap.get(currentNode.parentId) || [];
+            const idx = siblings.findIndex((s) => s.id === currentNode.id);
+            if (arrowKey === 'ArrowUp' && idx > 0) {
+              targetId = siblings[idx - 1].id;
+            } else if (arrowKey === 'ArrowDown' && idx < siblings.length - 1) {
+              targetId = siblings[idx + 1].id;
+            }
+          }
+        } else if (arrowKey === 'ArrowRight') {
+          if (isRoot) {
+            const rightDirectChildren = (childrenMap.get(rootNode.id) || []).filter((c) => c.geometry.x >= rootNode.geometry.x);
+            if (rightDirectChildren.length > 0) targetId = rightDirectChildren[0].id;
+          } else if (isRightWing) {
+            const children = childrenMap.get(currentNode.id) || [];
+            if (children.length > 0) targetId = children[0].id;
+          } else if (currentNode.parentId) {
+            targetId = currentNode.parentId;
+          }
+        } else if (arrowKey === 'ArrowLeft') {
+          if (isRoot) {
+            const leftDirectChildren = (childrenMap.get(rootNode.id) || []).filter((c) => c.geometry.x < rootNode.geometry.x);
+            if (leftDirectChildren.length > 0) targetId = leftDirectChildren[0].id;
+          } else if (!isRightWing) {
+            const children = childrenMap.get(currentNode.id) || [];
+            if (children.length > 0) targetId = children[0].id;
+          } else if (currentNode.parentId) {
+            targetId = currentNode.parentId;
+          }
+        }
+      }
+
+      if (targetId) {
+        setSelectedNodeId(targetId);
+        setNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            selected: n.id === targetId,
+          }))
+        );
+        focusNodeOnCanvas(targetId, nodes);
+      }
+    },
+    [doc, selectedNodeId, nodes, focusNodeOnCanvas]
+  );
+
+  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (focusNodeId) {
+          setFocusNodeId(null);
+          setStatusMessage('Exited focus mode');
+          return;
+        }
+        if (contextMenu) {
+          setContextMenu(null);
+          return;
+        }
+      }
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const activeTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+        if (activeTag !== 'input' && activeTag !== 'textarea') {
+          e.preventDefault();
+          handleToggleFocusMode();
+          return;
+        }
+      }
+
       dispatchCanvasKeyDown(e, doc.mode, {
         onSave: handleSaveDocument,
         onSearch: () => setIsOutlineOpen(true),
@@ -1437,6 +1878,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         onArrowNavigation: handleArrowNavigation,
         onDeselect: () => {
           setSelectedNodeId(null);
+          setMultiSelectedNodeIds(new Set());
           setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
         },
       });
@@ -1446,6 +1888,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     doc.mode,
+    focusNodeId,
+    contextMenu,
+    handleToggleFocusMode,
     handleSaveDocument,
     handleUndo,
     handleRedo,
@@ -1460,313 +1905,355 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     handleArrowNavigation,
   ]);
 
+  // Viewport zoom tracker for adaptive edge legibility
+  const handleViewportChange = useCallback((viewport: { zoom: number }) => {
+    setCurrentZoom(viewport.zoom);
+  }, []);
+
+  // Compute dimmed visual nodes & edges when focus mode is active
+  const displayedNodes = useMemo(() => {
+    return nodes.map((n) => {
+      const isFocused = !focusedBranchNodeIds || focusedBranchNodeIds.has(n.id);
+      const isMulti = multiSelectedNodeIds.has(n.id);
+      return {
+        ...n,
+        style: {
+          ...n.style,
+          opacity: isFocused ? 1 : 0.16,
+          boxShadow: isMulti
+            ? '0 0 0 2px rgba(99, 102, 241, 0.4), 0 4px 12px rgba(99, 102, 241, 0.15)'
+            : n.style?.boxShadow,
+        },
+      };
+    });
+  }, [nodes, focusedBranchNodeIds, multiSelectedNodeIds]);
+
+  const displayedEdges = useMemo(() => {
+    const adaptiveWidth = adaptiveEdges && currentZoom < 0.65 ? Math.max(2, 1.25 / currentZoom) : 2;
+    return edges.map((e) => {
+      const isFocused = !focusedBranchNodeIds || (focusedBranchNodeIds.has(e.source) && focusedBranchNodeIds.has(e.target));
+      return {
+        ...e,
+        style: {
+          ...e.style,
+          strokeWidth: adaptiveWidth,
+          opacity: isFocused ? 1 : 0.18,
+        },
+      };
+    });
+  }, [edges, focusedBranchNodeIds, adaptiveEdges, currentZoom]);
+
   return (
     <div
       ref={containerRef}
       data-testid="canvas-editor"
-      className="w-full h-full flex flex-col relative overflow-hidden"
+      className="w-full h-full flex flex-col relative overflow-hidden select-none"
     >
-      {/* Top Navigation Bar */}
-      <div className="min-h-14 px-3 lg:px-4 py-2 bg-white/95 backdrop-blur-md border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 z-20 shadow-xs shrink-0">
-        <div className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
+      {/* Topbar: Reconstructed per Final Design Contract */}
+      <header className="h-[52px] px-3 bg-white/95 backdrop-blur-md border-b border-slate-200 flex items-center justify-between gap-3 z-30 shrink-0 shadow-2xs">
+        {/* Left Section */}
+        <div className="flex items-center gap-2 min-w-0">
           <button
             onClick={onBackToLibrary}
             data-testid="back-to-library-btn"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-2xs transition-colors"
           >
-            <ArrowLeft size={14} />
-            Library
+            <ArrowLeft size={13} />
+            ← Library
           </button>
 
-          {/* Toggle Outline Panel Button */}
           <button
             onClick={() => setIsOutlineOpen((prev) => !prev)}
             title="Toggle Outline (Ctrl+\)"
             className={`p-1.5 rounded-lg border transition-colors ${
               isOutlineOpen
                 ? 'bg-blue-50 border-blue-200 text-blue-600'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
             }`}
           >
-            <PanelLeft size={16} />
+            <PanelLeft size={14} />
           </button>
 
-          <div className="h-4 w-px bg-slate-200" />
+          <div className="h-4 w-px bg-slate-200 mx-1" />
 
-          <input
-            type="text"
-            data-testid="canvas-document-title"
-            value={doc.title}
-            onChange={(e) => setDoc({ ...doc, title: e.target.value })}
-            className="min-w-24 max-w-48 flex-1 truncate text-sm font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none px-1 py-0.5"
-          />
+          <div className="min-w-0 flex flex-col">
+            <input
+              type="text"
+              data-testid="canvas-document-title"
+              value={doc.title}
+              onChange={(e) => setDoc({ ...doc, title: e.target.value })}
+              className="text-xs font-bold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 outline-none px-0.5 py-0 truncate max-w-[240px]"
+            />
+            <span className="text-[10px] text-slate-400 font-medium">
+              {doc.mode === 'mindmap' ? 'Mind Map · autosaved' : 'Flowchart · autosaved'}
+            </span>
+          </div>
+        </div>
 
-          <span
-            className={`whitespace-nowrap text-xs px-2 py-0.5 rounded-full font-medium ${
-              doc.mode === 'mindmap'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-emerald-100 text-emerald-700'
-            }`}
-          >
-            {doc.mode === 'mindmap' ? 'Mind Map Mode' : 'Flowchart Mode'}
+        {/* Center Section: Mode Pill */}
+        <div className="hidden md:flex items-center">
+          <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200/80 text-[11px] font-bold rounded-full">
+            {doc.mode === 'mindmap' ? 'Mind Map' : 'Flowchart'}
           </span>
         </div>
 
-        {/* Center/Right Action Tools */}
+        {/* Right Section: Action Controls */}
         <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {/* Undo / Redo */}
           <button
             onClick={handleUndo}
             disabled={!canUndo}
             title="Undo (Ctrl+Z)"
-            className="p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
+            className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
           >
-            <Undo size={16} />
+            <Undo size={14} />
           </button>
           <button
             onClick={handleRedo}
             disabled={!canRedo}
             title="Redo (Ctrl+Y)"
-            className="p-2 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
+            className="p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent rounded-lg transition-colors"
           >
-            <Redo size={16} />
+            <Redo size={14} />
           </button>
 
-          <div className="h-4 w-px bg-slate-200" />
+          <div className="h-4 w-px bg-slate-200 mx-0.5" />
 
-          {/* Flowchart vs Mind Map Quick Action Buttons */}
-          {doc.mode === 'flowchart' ? (
-            <>
-              <button
-                onClick={() => handleAddFlowchartStep('downstream')}
-                title="Add Downstream Step (Enter)"
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-medium rounded-lg transition-colors"
-              >
-                <Plus size={14} />
-                Next Step
-              </button>
-
-              <button
-                onClick={handleAddFlowchartBranch}
-                title="Add Branch (Tab)"
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
-              >
-                <CornerDownRight size={14} />
-                Branch
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => handleAddSiblingNode('below')}
-                title="Add Sibling (Enter)"
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-              >
-                <Plus size={14} />
-                Sibling
-              </button>
-
-              <button
-                onClick={handleAddChildNode}
-                title="Add Child (Tab)"
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
-              >
-                <GitFork size={14} />
-                Child
-              </button>
-            </>
-          )}
-
-          {selectedCanonicalNode?.manualSize && (
-            <button
-              onClick={handleResetNodeSize}
-              title={doc.mode === 'mindmap' ? 'Reset to natural text-aware width' : 'Reset to default size'}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-            >
-              <Sparkles size={14} />
-              Reset Size
-            </button>
-          )}
-
-          <button
-            onClick={handleDeleteSelectedSubtree}
-            title="Delete Selected (Del)"
-            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-          >
-            <Trash2 size={16} />
-          </button>
-
-          <div className="h-4 w-px bg-slate-200" />
-
-          {/* Layout Presets for Mind Map */}
-          {doc.mode === 'mindmap' ? (
-            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-              {(['balanced', 'LR', 'RL', 'TB'] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => handleAutoLayoutWithPreset(p)}
-                  className={`px-2 py-1 text-[11px] font-medium rounded-md capitalize transition-colors ${
-                    layoutPreset === p
-                      ? 'bg-white text-blue-700 shadow-2xs font-semibold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {p === 'balanced' ? 'Balanced' : p}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <button
-              onClick={() => handleAutoLayoutWithPreset('TB')}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors"
-            >
-              <Sparkles size={14} className="text-amber-500" />
-              Auto Layout (Dagre)
-            </button>
-          )}
-
-          <div className="h-4 w-px bg-slate-200" />
-
-          <button
-            onClick={handleSaveDocument}
-            title="Save Document Locally"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-lg transition-all shadow-xs"
-          >
-            <Save size={14} />
-            Save
-          </button>
-
-          <label className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer">
-            <Upload size={14} />
-            Import
-            <input
-              type="file"
-              accept=".mflow,.json,.md,.markdown,.opml"
-              onChange={handleImportFile}
-              className="hidden"
-            />
-          </label>
-
-          {/* Multi-Format Export Dropdown */}
+          {/* ＋ Add Dropdown */}
           <div className="relative">
             <button
-              onClick={() => setIsExportMenuOpen((prev) => !prev)}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-medium rounded-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsAddMenuOpen((prev) => !prev);
+                setIsLayoutMenuOpen(false);
+                setIsMoreMenuOpen(false);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg shadow-2xs transition-colors"
             >
-              <Download size={14} />
-              Export
-              <ChevronDown size={12} />
+              <Plus size={13} />
+              <span>Add</span>
+              <ChevronDown size={11} className="text-slate-400" />
             </button>
 
-            {isExportMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 text-xs">
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Native Package
-                </div>
-                <button
-                  onClick={() => handleExportFormat('mflow')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span className="font-medium">.mflow Container</span>
-                  <span className="text-[10px] text-slate-400">Single File</span>
-                </button>
+            {isAddMenuOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs"
+              >
+                {doc.mode === 'mindmap' ? (
+                  <>
+                    <button
+                      onClick={handleAddChildNode}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                    >
+                      <span>Child topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Tab</kbd>
+                    </button>
+                    <button
+                      onClick={() => handleAddSiblingNode('below')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                    >
+                      <span>Sibling topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Enter</kbd>
+                    </button>
+                    <button
+                      onClick={handleAddParentNode}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                    >
+                      <span>Parent topic</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Shift+Tab</kbd>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleAddFlowchartStep('downstream')}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center justify-between"
+                    >
+                      <span>Next Step</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Enter</kbd>
+                    </button>
+                    <button
+                      onClick={handleAddFlowchartBranch}
+                      className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                    >
+                      <span>Decision Branch</span>
+                      <kbd className="text-[10px] text-slate-400 font-mono">Tab</kbd>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
-                <div className="my-1 border-t border-slate-100" />
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Visual & Document
-                </div>
-                <button
-                  onClick={() => handleExportFormat('svg')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Vector SVG (.svg)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('png')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Raster PNG (.png)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('jpeg')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Raster JPEG (.jpeg)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('pdf')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>PDF Document (.pdf)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('html')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Interactive HTML (.html)</span>
-                </button>
+          {/* ✦ Auto Layout Dropdown */}
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsLayoutMenuOpen((prev) => !prev);
+                setIsAddMenuOpen(false);
+                setIsMoreMenuOpen(false);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-lg shadow-2xs transition-colors"
+            >
+              <Sparkles size={13} />
+              <span>Auto Layout</span>
+              <ChevronDown size={11} className="text-blue-500" />
+            </button>
 
+            {isLayoutMenuOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs"
+              >
+                {doc.mode === 'mindmap' ? (
+                  <>
+                    <button
+                      onClick={() => handleAutoLayoutWithPreset('balanced')}
+                      className={`w-full px-3 py-1.5 text-left flex items-center justify-between ${
+                        layoutPreset === 'balanced' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Balanced</span>
+                      {layoutPreset === 'balanced' && <span>✓</span>}
+                    </button>
+                    <button
+                      onClick={() => handleAutoLayoutWithPreset('LR')}
+                      className={`w-full px-3 py-1.5 text-left flex items-center justify-between ${
+                        layoutPreset === 'LR' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Left → Right</span>
+                      {layoutPreset === 'LR' && <span>✓</span>}
+                    </button>
+                    <button
+                      onClick={() => handleAutoLayoutWithPreset('RL')}
+                      className={`w-full px-3 py-1.5 text-left flex items-center justify-between ${
+                        layoutPreset === 'RL' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Right → Left</span>
+                      {layoutPreset === 'RL' && <span>✓</span>}
+                    </button>
+                    <button
+                      onClick={() => handleAutoLayoutWithPreset('TB')}
+                      className={`w-full px-3 py-1.5 text-left flex items-center justify-between ${
+                        layoutPreset === 'TB' ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>Top → Bottom</span>
+                      {layoutPreset === 'TB' && <span>✓</span>}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => handleAutoLayoutWithPreset('TB')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 font-medium"
+                  >
+                    Auto Layout (Dagre)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Save Primary Button */}
+          <button
+            onClick={handleSaveDocument}
+            title="Save Document Locally (Ctrl+S)"
+            className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-semibold rounded-lg shadow-2xs transition-all"
+          >
+            <Save size={13} />
+            <span>Save</span>
+          </button>
+
+          {/* ••• More Overflow Dropdown */}
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMoreMenuOpen((prev) => !prev);
+                setIsAddMenuOpen(false);
+                setIsLayoutMenuOpen(false);
+              }}
+              title="More Actions"
+              className="p-1.5 text-slate-600 hover:bg-slate-100 border border-slate-200 bg-white rounded-lg shadow-2xs transition-colors"
+            >
+              <span className="text-xs font-bold px-0.5">•••</span>
+            </button>
+
+            {isMoreMenuOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs"
+              >
+                <label className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer">
+                  <Upload size={13} className="text-slate-400" />
+                  <span>Import File…</span>
+                  <input
+                    type="file"
+                    accept=".mflow,.json,.md,.markdown,.opml"
+                    onChange={handleImportFile}
+                    className="hidden"
+                  />
+                </label>
+                <button
+                  onClick={() => {
+                    setIsExportMenuOpen(true);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <Download size={13} className="text-slate-400" />
+                    <span>Export…</span>
+                  </div>
+                  <ChevronRight size={11} className="text-slate-400" />
+                </button>
+                {selectedNodeId && (
+                  <button
+                    onClick={() => handleCreateGroup('Process Group', [selectedNodeId])}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <Layers size={13} className="text-slate-400" />
+                    <span>Wrap in Group</span>
+                  </button>
+                )}
                 <div className="my-1 border-t border-slate-100" />
-                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Outline & Interop
-                </div>
                 <button
-                  onClick={() => handleExportFormat('markdown')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                  onClick={() => setIsOutlineOpen((p) => !p)}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                 >
-                  <span>Markdown Outline (.md)</span>
+                  <PanelLeft size={13} className="text-slate-400" />
+                  <span>Toggle Outline</span>
                 </button>
                 <button
-                  onClick={() => handleExportFormat('mermaid')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                  onClick={() => setIsInspectorOpen((p) => !p)}
+                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                 >
-                  <span>Mermaid Diagram (.mmd)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('opml')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>OPML Outline (.opml)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('mm')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Legacy Mind-Map XML (.mm)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('canvas')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>JSON Canvas (.canvas)</span>
-                </button>
-                <button
-                  onClick={() => handleExportFormat('json')}
-                  className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
-                >
-                  <span>Canonical JSON (.json)</span>
+                  <PanelRight size={13} className="text-slate-400" />
+                  <span>Toggle Inspector</span>
                 </button>
               </div>
             )}
           </div>
 
-          <div className="h-4 w-px bg-slate-200" />
-
-          {/* Toggle Inspector Panel Button */}
+          {/* Inspector Toggle */}
           <button
             onClick={() => setIsInspectorOpen((prev) => !prev)}
             title="Toggle Inspector (Ctrl+/)"
             className={`p-1.5 rounded-lg border transition-colors ${
               isInspectorOpen
                 ? 'bg-blue-50 border-blue-200 text-blue-600'
-                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
             }`}
           >
-            <PanelRight size={16} />
+            <PanelRight size={14} />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* 3-Pane Workspace Shell Body */}
+      {/* 3-Pane Workspace Shell */}
       <div className="flex-1 w-full flex overflow-hidden relative">
         {/* Left Pane: Outline Panel */}
         {isOutlineOpen && (
@@ -1778,22 +2265,40 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           />
         )}
 
-        {/* Center Pane: React Flow Viewport */}
-        <main aria-label="Interactive Canvas Viewport" className="flex-1 h-full relative">
+        {/* Center Canvas Viewport */}
+        <main aria-label="Interactive Canvas Viewport" className="flex-1 h-full relative overflow-hidden bg-slate-50">
+          {/* Focus Mode Banner */}
+          {focusNodeId && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 bg-slate-900/90 text-white rounded-full text-xs font-semibold flex items-center gap-2.5 shadow-lg backdrop-blur-md animate-fadeIn">
+              <Crosshair size={13} className="text-blue-400" />
+              <span>Focus mode · current branch</span>
+              <button
+                onClick={() => setFocusNodeId(null)}
+                className="ml-1 px-2 py-0.5 bg-white/20 hover:bg-white/30 text-white rounded text-[11px] font-bold transition-colors"
+              >
+                Exit Focus (Esc)
+              </button>
+            </div>
+          )}
+
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={displayedNodes}
+            edges={displayedEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+            onNodeContextMenu={handleNodeContextMenu}
+            onPaneContextMenu={handlePaneContextMenu}
+            onViewportChange={handleViewportChange}
             onPaneClick={() => {
               setSelectedNodeId(null);
+              setMultiSelectedNodeIds(new Set());
               setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
             }}
             nodeTypes={nodeTypes}
             onInit={(instance) => {
-              rfInstanceRef.current = instance;
+              rfInstanceRef.current = instance as any;
             }}
             fitView
             minZoom={0.05}
@@ -1801,7 +2306,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           >
             <Background
               color={doc.theme?.edgeColor || '#cbd5e1'}
-              gap={20}
+              gap={22}
               size={1}
               style={{ backgroundColor: doc.theme?.canvasBackground || '#ffffff' }}
             />
@@ -1847,6 +2352,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               })}
             </ViewportPortal>
 
+            {/* Status Pill */}
             <Panel position="bottom-center" className="mb-4">
               <div
                 data-testid="save-status-pill"
@@ -1860,6 +2366,381 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               </div>
             </Panel>
           </ReactFlow>
+
+          {/* M3: Right-Click Context Menu with Frozen 8 Feature Families + Submenus */}
+          {contextMenu && (
+            <div
+              data-testid="canvas-context-menu"
+              onClick={(e) => e.stopPropagation()}
+              className="fixed bg-white border border-slate-200 rounded-xl shadow-2xl py-1.5 z-50 text-xs w-[230px] select-none animate-fadeIn"
+              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+            >
+              {/* 1. Clipboard */}
+              <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Clipboard
+              </div>
+              <button
+                onClick={() => {
+                  handleCopyBranch();
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Copy size={13} className="text-slate-400" />
+                  <span>Copy</span>
+                </div>
+                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+C</kbd>
+              </button>
+              <button
+                onClick={() => {
+                  handleCutBranch();
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Scissors size={13} className="text-slate-400" />
+                  <span>Cut</span>
+                </div>
+                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+X</kbd>
+              </button>
+              <button
+                onClick={() => {
+                  handlePaste();
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Clipboard size={13} className="text-slate-400" />
+                  <span>Paste</span>
+                </div>
+                <kbd className="text-[10px] text-slate-400 font-mono">Ctrl+V</kbd>
+              </button>
+
+              <div className="my-1 border-t border-slate-100" />
+
+              {/* 2. Topic Creation Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Plus size={13} className="text-slate-400" />
+                    <span>Topic creation</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-44 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => {
+                      handleAddChildNode();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                  >
+                    <span>Child topic</span>
+                    <kbd className="text-[10px] text-slate-400 font-mono">Tab</kbd>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddSiblingNode('below');
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                  >
+                    <span>Sibling topic</span>
+                    <kbd className="text-[10px] text-slate-400 font-mono">Enter</kbd>
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddParentNode();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center justify-between"
+                  >
+                    <span>Parent topic</span>
+                    <kbd className="text-[10px] text-slate-400 font-mono">Shift+Tab</kbd>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Media Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon size={13} className="text-slate-400" />
+                    <span>Media</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-40 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <label className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50 flex items-center gap-2 cursor-pointer">
+                    <span>Image…</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file || !contextMenu.nodeId) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const dataUrl = ev.target?.result as string;
+                          handleUpdateNode(contextMenu.nodeId, { assetRef: dataUrl });
+                        };
+                        reader.readAsDataURL(file);
+                        setContextMenu(null);
+                      }}
+                    />
+                  </label>
+                  <button
+                    onClick={() => {
+                      handleChooseIcon(contextMenu.nodeId);
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-blue-50"
+                  >
+                    Icon…
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Numbering Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <ListOrdered size={13} className="text-slate-400" />
+                    <span>Numbering</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => handleApplyNumbering('none')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    None
+                  </button>
+                  <button
+                    onClick={() => handleApplyNumbering('decimal')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    1, 2, 3, …
+                  </button>
+                  <button
+                    onClick={() => handleApplyNumbering('roman')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    I, II, III, …
+                  </button>
+                  <button
+                    onClick={() => handleApplyNumbering('alpha')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    a, b, c, …
+                  </button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button
+                    onClick={() => handleApplyNumbering('decimal', 1)}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Number first level
+                  </button>
+                  <button
+                    onClick={() => handleApplyNumbering('decimal', 2)}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Number first two levels
+                  </button>
+                  <button
+                    onClick={() => handleApplyNumbering('decimal', 3)}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Number first three levels
+                  </button>
+                </div>
+              </div>
+
+              {/* 5. Separate Collapse Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <ChevronDown size={13} className="text-slate-400" />
+                    <span>Collapse</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => handleCollapseBranch('current')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Collapse current topic
+                  </button>
+                  <button
+                    onClick={() => handleCollapseBranch('siblings')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Collapse sibling topics
+                  </button>
+                  <button
+                    onClick={() => handleCollapseBranch('descendants')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Collapse all descendants
+                  </button>
+                </div>
+              </div>
+
+              {/* 6. Separate Expand Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Eye size={13} className="text-slate-400" />
+                    <span>Expand</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => handleExpandBranch('current')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Expand current topic
+                  </button>
+                  <button
+                    onClick={() => handleExpandBranch('siblings')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Expand sibling topics
+                  </button>
+                  <button
+                    onClick={() => handleExpandBranch('descendants')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Expand all descendants
+                  </button>
+                </div>
+              </div>
+
+              {/* 7. Selection Submenu */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <CheckSquare size={13} className="text-slate-400" />
+                    <span>Selection</span>
+                  </div>
+                  <ChevronRight size={12} className="text-slate-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => handleSelectHierarchy('same-branch')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Same-level in current branch
+                  </button>
+                  <button
+                    onClick={() => handleSelectHierarchy('all-level')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Same-level across map
+                  </button>
+                  <button
+                    onClick={() => handleSelectHierarchy('clear')}
+                    className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                  >
+                    Clear multi-selection
+                  </button>
+                </div>
+              </div>
+
+              <div className="my-1 border-t border-slate-100" />
+
+              {/* 8. Delete Submenu (Danger) */}
+              <div className="relative group/sub">
+                <div className="w-full px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Trash2 size={13} className="text-rose-500" />
+                    <span>Delete</span>
+                  </div>
+                  <ChevronRight size={12} className="text-rose-400" />
+                </div>
+                <div className="hidden group-hover/sub:block absolute left-[calc(100%-4px)] top-0 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50 text-xs">
+                  <button
+                    onClick={() => {
+                      handleDeleteSelectedSubtree();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                  >
+                    Delete topic + descendants
+                  </button>
+                  <button
+                    onClick={() => {
+                      confirmDeleteOnlyKeepChildren();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                  >
+                    Delete only · keep children
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleDeleteSelectedTopics();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-rose-600 hover:bg-rose-50"
+                  >
+                    Delete selected topics
+                  </button>
+                </div>
+              </div>
+
+              <div className="my-1 border-t border-slate-100" />
+
+              {/* 9. Focus Mode */}
+              <button
+                onClick={handleToggleFocusMode}
+                className="w-full px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Crosshair size={13} className={focusNodeId ? 'text-blue-600' : 'text-slate-400'} />
+                  <span>{focusNodeId ? 'Exit focus mode' : 'Focus mode'}</span>
+                </div>
+                <kbd className="text-[10px] text-slate-400 font-mono">F</kbd>
+              </button>
+            </div>
+          )}
+
+          {/* Export Dialog / Overlay */}
+          {isExportMenuOpen && (
+            <div
+              data-testid="canvas-export-menu"
+              onClick={(e) => e.stopPropagation()}
+              className="absolute right-4 top-4 w-56 bg-white border border-slate-200 rounded-2xl shadow-2xl p-2 z-50 text-xs"
+            >
+              <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Export Format
+              </div>
+              <button
+                onClick={() => handleExportFormat('mflow')}
+                className="w-full px-2.5 py-1.5 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-lg flex items-center justify-between"
+              >
+                <span className="font-semibold">.mflow Container</span>
+                <span className="text-[10px] text-slate-400">Native</span>
+              </button>
+              <div className="my-1 border-t border-slate-100" />
+              {(['svg', 'png', 'jpeg', 'pdf', 'html', 'markdown', 'mermaid', 'opml', 'mm', 'canvas', 'json'] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  onClick={() => handleExportFormat(fmt)}
+                  className="w-full px-2.5 py-1 text-left text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-md capitalize"
+                >
+                  {fmt.toUpperCase()} Export
+                </button>
+              ))}
+            </div>
+          )}
         </main>
 
         {/* Right Pane: Inspector Panel */}
@@ -1872,9 +2753,32 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             onResetNodeStyle={handleResetNodeStyle}
             onCreateGroup={handleCreateGroup}
             onClose={() => setIsInspectorOpen(false)}
+            onAttachImage={(nodeId) => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.accept = 'image/*';
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  handleUpdateNode(nodeId, { assetRef: ev.target?.result as string });
+                };
+                reader.readAsDataURL(file);
+              };
+              input.click();
+            }}
+            onChooseIcon={handleChooseIcon}
+            onCollapseBranch={handleCollapseBranch}
+            onExpandBranch={handleExpandBranch}
+            onSelectNodes={handleSelectHierarchy}
+            onApplyNumbering={handleApplyNumbering}
+            adaptiveEdges={adaptiveEdges}
+            onToggleAdaptiveEdges={() => setAdaptiveEdges((p) => !p)}
           />
         )}
       </div>
+
       {pendingDeletion && (
         <ConfirmationDialog
           title={pendingDeletion.title}

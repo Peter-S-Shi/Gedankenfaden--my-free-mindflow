@@ -20,10 +20,10 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
 [ 2. Product Hardening Exit Gate ] (COMPLETE - PASS: CI 34797692094 & Native Windows Pass)
           │
           ▼
-[ 3. UI Reconstruction ] (NEXT / ACTIVE STAGE)
+[ 3. UI Reconstruction (V2 M3) ] (COMPLETE - PASS)
           │
           ▼
-[ 4. V2 Release Candidate (RC) & Full Native Regression ] (PENDING)
+[ 4. V2 Release Candidate (RC) & Full Native Regression ] (NEXT ACTIVE STAGE)
           │
           ▼
 [ 5. Release v2.0.0 & Portfolio Packaging Refresh ] (PENDING)
@@ -49,14 +49,17 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
   - Single-root invariant preservation on parent deletion (#16) and multi-node subtree drag translation (#17).
   - All 70+ test suites green; Windows native release build verified; exact-head CI run `34797692094` passed on Ubuntu and Windows.
 
-#### 3. UI Reconstruction
-- **Status**: **NEXT / ACTIVE STAGE**
-- **Scope**:
-  - Modernize workspace visual design, layout inspector, toolbar controls, and theme system.
-  - Build upon the stabilized canonical model, unified layout engine, and hardened native bridge without introducing architectural regressions.
+#### 3. UI Reconstruction (V2 M3)
+- **Status**: **COMPLETED (PASS)**
+- **Scope & Accomplishments**:
+  - Text-first dynamic node sizing for Mind Map nodes with single-line bias, 360px ceiling, and live height reflow, while manual width overrides remain authoritative.
+  - Replaced bottom-right resize dot on Mind Map nodes with clean left/right border hover horizontal resize handles. Flowchart retains 2D `NodeResizer`.
+  - Reconstructed 8-family right-click context menu (Clipboard, Topic Creation, Media, Numbering with maxDepth limits, separate Collapse and Expand submenus, Selection, Delete with keep-children vs subtree options, and Focus Mode).
+  - Reorganized Inspector into 6 collapsible structured sections (Node Appearance, Media & Grouping, Structure & Branch, Document Theme & Canvas, Connections, Document Info) preserving all styling controls.
+  - Implemented Focus Mode with branch isolation, top banner, and Esc/F hotkey, plus low-zoom adaptive edge rendering.
 
 #### 4. V2 Release Candidate (RC) & Full Native Regression
-- **Status**: **PENDING**
+- **Status**: **NEXT ACTIVE STAGE**
 - **Scope**:
   - End-to-end regression across all canvas modes, exporters, importers, and recovery systems.
   - Clean installer generation (NSIS, MSI) and standalone portable package validation.

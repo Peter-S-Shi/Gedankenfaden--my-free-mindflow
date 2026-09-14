@@ -89,19 +89,36 @@ export interface TextAwareNodeSize {
 }
 
 /**
- * The node's real footprint for a given declared width: same width back
- * (production nodes don't auto-grow width today — canvas and export both
- * already assume a fixed declared width), height grown to fit the wrapped
- * text, using the exact same growth formula `computeEffectiveNodeBoxes`
- * (export) uses, so a node "looks the same size" whether you're laying it
- * out or exporting it.
+ * Derives a node's text-first auto width with a single-line bias.
+ * Short text hugs its content; medium sentences form wide capsule nodes up to
+ * a reasonable ceiling (e.g. 360px); very long text wraps into multiple lines.
+ */
+export function computeTextFirstAutoWidth(
+  text: string,
+  fontSize: number = 14,
+  minWidth: number = 90,
+  maxWidth: number = 360
+): number {
+  const contentWidth =
+    [...text].reduce((sum, ch) => sum + estimatedCharWidth(ch, fontSize), 0) + 28;
+  return Math.max(minWidth, Math.min(maxWidth, Math.ceil(contentWidth)));
+}
+
+/**
+ * The node's real footprint for a given declared width or text-first auto width.
+ * If options.width is provided (e.g. explicit manualSize.width), that width wins.
+ * Otherwise, text-first auto-sizing is computed with single-line bias and a 360px ceiling.
+ * Height is derived from text wrapping at the resolved width.
  */
 export function computeTextAwareNodeSize(
   text: string,
-  options: { width?: number; fontSize?: number } = {}
+  options: { width?: number; fontSize?: number; minWidth?: number; maxWidth?: number } = {}
 ): TextAwareNodeSize {
-  const width = options.width || 150;
   const fontSize = options.fontSize || 14;
+  const width =
+    options.width && options.width > 0
+      ? options.width
+      : computeTextFirstAutoWidth(text || '', fontSize, options.minWidth, options.maxWidth);
   const { lines, lineHeight } = wrapNodeText(text || '', width, fontSize);
   const height = Math.max(44, lines.length * lineHeight + 16);
   return { width, height };

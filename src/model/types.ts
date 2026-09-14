@@ -55,6 +55,7 @@ export interface NodeStyle {
 export interface NodeNumberingRule {
   level1Style?: NumberingStyle;
   level2Style?: NumberingStyle;
+  maxDepth?: number;
 }
 
 export interface CanonicalNode {

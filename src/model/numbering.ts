@@ -1,4 +1,4 @@
-import { CanonicalDocument, CanonicalNode, NumberingStyle } from './types';
+import { CanonicalDocument, CanonicalNode, NodeNumberingRule, NumberingStyle } from './types';
 
 export function formatIndexToStyle(index: number, style: NumberingStyle): string {
   if (style === 'none') return '';
@@ -76,23 +76,37 @@ export function computeDocumentNumbering(doc: CanonicalDocument): Map<string, st
   // Find root node(s)
   const rootNodes = doc.nodes.filter((n) => n.type === 'root' || !n.parentId);
 
-  const traverse = (node: CanonicalNode, depth: number, parentRule?: { level1Style?: NumberingStyle; level2Style?: NumberingStyle }) => {
+  const traverse = (node: CanonicalNode, depth: number, parentRule?: NodeNumberingRule) => {
     const children = childrenMap.get(node.id) || [];
     if (children.length === 0) return;
 
     // Determine numbering style for this level
     const currentRule = node.numbering || parentRule;
+    if (currentRule?.maxDepth !== undefined && depth >= currentRule.maxDepth) {
+      // Do not number levels deeper than maxDepth
+      children.forEach((child) => traverse(child, depth + 1, currentRule));
+      return;
+    }
+
     let style: NumberingStyle = 'none';
 
-    if (depth === 0) {
+    if (currentRule?.level1Style) {
+      if (depth === 0) {
+        style = currentRule.level1Style;
+      } else if (depth === 1) {
+        style = currentRule.level2Style || currentRule.level1Style;
+      } else {
+        style = currentRule.level1Style === 'none' ? 'none' : 'bullet';
+      }
+    } else if (depth === 0) {
       // Level 1 children (direct children of root)
-      style = currentRule?.level1Style || (doc.metadata?.defaultLevel1Numbering as NumberingStyle) || 'decimal';
+      style = (doc.metadata?.defaultLevel1Numbering as NumberingStyle) || 'decimal';
     } else if (depth === 1) {
       // Level 2 children
-      style = currentRule?.level2Style || (doc.metadata?.defaultLevel2Numbering as NumberingStyle) || 'alpha';
+      style = (doc.metadata?.defaultLevel2Numbering as NumberingStyle) || 'alpha';
     } else {
       // Level 3+
-      style = currentRule?.level2Style === 'bullet' ? 'bullet' : 'bullet';
+      style = 'bullet';
     }
 
     children.forEach((child, index) => {
