@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   CanonicalNode,
   MindMapAnnotation,
@@ -22,6 +22,7 @@ export interface AnnotationLayerProps {
   targetingSourceNodeId?: string | null;
   targetingMousePos?: { x: number; y: number } | null;
   onControlPointDrag?: (id: string, which: 'c1' | 'c2', delta: { dx: number; dy: number }) => void;
+  zoom?: number;
 }
 
 export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
@@ -29,10 +30,16 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   nodes,
   selectedAnnotationId,
   onSelectAnnotation,
+  onUpdateAnnotation,
+  onDeleteAnnotation: _onDeleteAnnotation,
   targetingSourceNodeId,
   targetingMousePos,
   onControlPointDrag,
+  zoom = 1,
 }) => {
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
+
   const draggingHandleRef = useRef<{
     annotationId: string;
     which: 'c1' | 'c2';
@@ -66,8 +73,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const handlePointerMoveHandle = (e: React.PointerEvent) => {
     if (!draggingHandleRef.current || !onControlPointDrag) return;
     const { annotationId, which, startX, startY, initialOffset } = draggingHandleRef.current;
-    const dx = e.clientX - startX + initialOffset.dx;
-    const dy = e.clientY - startY + initialOffset.dy;
+    const effectiveZoom = zoom > 0 ? zoom : 1;
+    const dx = (e.clientX - startX) / effectiveZoom + initialOffset.dx;
+    const dy = (e.clientY - startY) / effectiveZoom + initialOffset.dy;
     onControlPointDrag(annotationId, which, { dx, dy });
   };
 
@@ -347,6 +355,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 e.stopPropagation();
                 onSelectAnnotation(ann.id);
               }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onSelectAnnotation(ann.id);
+                setEditingLineId(ann.id);
+                setEditingText(ann.label || '');
+              }}
             >
               {/* Invisible wide stroke for hit testing */}
               <path
@@ -369,8 +383,41 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                 className="transition-colors"
               />
 
-              {/* Optional Label Pill at Midpoint */}
-              {ann.label && (
+              {/* Midpoint Label Pill / Inline Editor */}
+              {editingLineId === ann.id ? (
+                <foreignObject
+                  x={curve.midPoint.x - 70}
+                  y={curve.midPoint.y - 15}
+                  width={140}
+                  height={30}
+                  className="overflow-visible pointer-events-auto"
+                >
+                  <div className="flex items-center justify-center w-full h-full">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onBlur={() => {
+                        onUpdateAnnotation?.(ann.id, { label: editingText.trim() });
+                        setEditingLineId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          onUpdateAnnotation?.(ann.id, { label: editingText.trim() });
+                          setEditingLineId(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingLineId(null);
+                        }
+                      }}
+                      className="w-full px-2.5 py-0.5 text-xs text-slate-800 bg-white border-2 border-blue-500 rounded-full shadow-lg outline-none text-center"
+                      placeholder="Type label..."
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                </foreignObject>
+              ) : ann.label ? (
                 <g
                   transform={`translate(${curve.midPoint.x - (ann.label.length * 7 + 16) / 2}, ${curve.midPoint.y - 12})`}
                   className="pointer-events-auto cursor-pointer"
@@ -378,7 +425,14 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                     e.stopPropagation();
                     onSelectAnnotation(ann.id);
                   }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onSelectAnnotation(ann.id);
+                    setEditingLineId(ann.id);
+                    setEditingText(ann.label || '');
+                  }}
                 >
+                  <title>Double-click to edit label</title>
                   <rect
                     x={0}
                     y={0}
@@ -387,7 +441,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                     rx={11}
                     fill="#ffffff"
                     stroke={isSelected ? '#2563eb' : stroke}
-                    strokeWidth={1}
+                    strokeWidth={isSelected ? 1.5 : 1}
                     className="shadow-sm"
                   />
                   <text
@@ -400,6 +454,43 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
                     style={{ userSelect: 'none' }}
                   >
                     {ann.label}
+                  </text>
+                </g>
+              ) : (
+                /* Empty Label Button / Pill */
+                <g
+                  transform={`translate(${curve.midPoint.x - 24}, ${curve.midPoint.y - 11})`}
+                  className="pointer-events-auto cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectAnnotation(ann.id);
+                    setEditingLineId(ann.id);
+                    setEditingText('');
+                  }}
+                >
+                  <title>Click to write label on line</title>
+                  <rect
+                    x={0}
+                    y={0}
+                    width={48}
+                    height={22}
+                    rx={11}
+                    fill="#ffffff"
+                    stroke={isSelected ? '#2563eb' : '#cbd5e1'}
+                    strokeWidth={isSelected ? 1.5 : 1}
+                    strokeDasharray={isSelected ? undefined : '3,2'}
+                    className="shadow-sm hover:border-blue-400"
+                  />
+                  <text
+                    x={24}
+                    y={15}
+                    textAnchor="middle"
+                    fill={isSelected ? '#2563eb' : '#94a3b8'}
+                    fontSize={11}
+                    fontWeight={500}
+                    style={{ userSelect: 'none' }}
+                  >
+                    {isSelected ? '+ Text' : '...'}
                   </text>
                 </g>
               )}

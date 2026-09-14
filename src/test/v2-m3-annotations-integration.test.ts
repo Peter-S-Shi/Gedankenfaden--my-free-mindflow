@@ -193,5 +193,18 @@ describe('V2 Mind Map Annotations Integration (Tickets 2, 3, 4, 5)', () => {
       expect(curve).toBeDefined();
       expect(curve.pathD).toContain('C');
     });
+
+    it('supports relationship line label text customization and round-trip persistence', () => {
+      const doc = createTestMindMap();
+      const relLine = createRelationshipLineAnnotation('topic_1', 'topic_3')!;
+      relLine.label = 'Depends on';
+      doc.annotations = [relLine];
+
+      const serialized = serializeDocument(doc);
+      expect(serialized).toContain('"label": "Depends on"');
+
+      const restored = deserializeDocument(serialized);
+      expect(restored.annotations?.[0].label).toBe('Depends on');
+    });
   });
 });

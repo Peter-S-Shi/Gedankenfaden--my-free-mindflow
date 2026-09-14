@@ -433,31 +433,60 @@ export function computeRelationshipCurve(
   const srcCenter = { x: src.geometry.x + srcW / 2, y: src.geometry.y + srcH / 2 };
   const tgtCenter = { x: tgt.geometry.x + tgtW / 2, y: tgt.geometry.y + tgtH / 2 };
 
-  let p1: { x: number; y: number };
-  let p2: { x: number; y: number };
+  // 4 candidate face anchor points for source and target
+  const srcAnchors = [
+    { x: src.geometry.x + srcW, y: srcCenter.y, dir: { x: 1, y: 0 } },
+    { x: src.geometry.x, y: srcCenter.y, dir: { x: -1, y: 0 } },
+    { x: srcCenter.x, y: src.geometry.y + srcH, dir: { x: 0, y: 1 } },
+    { x: srcCenter.x, y: src.geometry.y, dir: { x: 0, y: -1 } },
+  ];
 
-  const isRightward = tgtCenter.x >= srcCenter.x;
+  const tgtAnchors = [
+    { x: tgt.geometry.x, y: tgtCenter.y, dir: { x: -1, y: 0 } },
+    { x: tgt.geometry.x + tgtW, y: tgtCenter.y, dir: { x: 1, y: 0 } },
+    { x: tgtCenter.x, y: tgt.geometry.y, dir: { x: 0, y: -1 } },
+    { x: tgtCenter.x, y: tgt.geometry.y + tgtH, dir: { x: 0, y: 1 } },
+  ];
 
-  if (isRightward) {
-    p1 = { x: src.geometry.x + srcW, y: srcCenter.y };
-    p2 = { x: tgt.geometry.x, y: tgtCenter.y };
-  } else {
-    p1 = { x: src.geometry.x, y: srcCenter.y };
-    p2 = { x: tgt.geometry.x + tgtW, y: tgtCenter.y };
+  let bestP1 = srcAnchors[0];
+  let bestP2 = tgtAnchors[0];
+  let bestScore = Infinity;
+
+  for (const a1 of srcAnchors) {
+    for (const a2 of tgtAnchors) {
+      const vx = a2.x - a1.x;
+      const vy = a2.y - a1.y;
+      const d = Math.hypot(vx, vy);
+      if (d === 0) continue;
+      const ux = vx / d;
+      const uy = vy / d;
+      const align1 = a1.dir.x * ux + a1.dir.y * uy;
+      const align2 = a2.dir.x * (-ux) + a2.dir.y * (-uy);
+      const score = d - 50 * (align1 + align2);
+      if (score < bestScore) {
+        bestScore = score;
+        bestP1 = a1;
+        bestP2 = a2;
+      }
+    }
   }
+
+  const p1 = { x: bestP1.x, y: bestP1.y };
+  const p2 = { x: bestP2.x, y: bestP2.y };
 
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
   const dist = Math.hypot(dx, dy);
-  const curvature = Math.max(30, Math.min(160, dist * 0.35));
+  const curvature = Math.max(25, Math.min(100, dist * 0.3));
 
-  const c1Base = isRightward
-    ? { x: p1.x + curvature, y: p1.y }
-    : { x: p1.x - curvature, y: p1.y };
-
-  const c2Base = isRightward
-    ? { x: p2.x - curvature, y: p2.y }
-    : { x: p2.x + curvature, y: p2.y };
+  const c1Base = {
+    x: p1.x + bestP1.dir.x * curvature,
+    y: p1.y + bestP1.dir.y * curvature,
+  };
+  const c2Base = {
+    x: p2.x + bestP2.dir.x * curvature,
+    y: p2.y + bestP2.dir.y * curvature,
+  };
 
   const c1 = {
     x: c1Base.x + (annotation.route?.c1Offset?.dx || 0),

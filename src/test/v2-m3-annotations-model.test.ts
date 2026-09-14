@@ -173,6 +173,22 @@ describe('V2 Mind Map Annotations Model & Grouping Algorithms (Ticket 1)', () =>
       expect(curve?.midPoint).toBeDefined();
     });
 
+    it('selects natural vertical anchors (bottom -> top) for vertically stacked sibling nodes', () => {
+      // a: y = -180..-150, b: y = -140..-110 (both x = 350, width = 60, midX = 380)
+      const line = createRelationshipLineAnnotation('a', 'b')!;
+      const curve = computeRelationshipCurve(line, mockNodes);
+      expect(curve).not.toBeNull();
+      // p1 should be at the bottom face of node a: (380, -150)
+      expect(curve?.p1.x).toBe(380);
+      expect(curve?.p1.y).toBe(-150);
+      // p2 should be at the top face of node b: (380, -140)
+      expect(curve?.p2.x).toBe(380);
+      expect(curve?.p2.y).toBe(-140);
+      // midPoint should be midway between the nodes
+      expect(curve?.midPoint.x).toBe(380);
+      expect(curve?.midPoint.y).toBe(-145);
+    });
+
     it('applies route offset adjustments to Bezier control points', () => {
       const line = createRelationshipLineAnnotation('a', 'x')!;
       line.route = {

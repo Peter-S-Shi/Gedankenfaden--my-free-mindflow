@@ -2965,6 +2965,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 targetingSourceNodeId={targetingLineSourceId}
                 targetingMousePos={targetingMousePos}
                 onControlPointDrag={handleControlPointDrag}
+                zoom={currentZoom}
               />
             </ViewportPortal>
 
