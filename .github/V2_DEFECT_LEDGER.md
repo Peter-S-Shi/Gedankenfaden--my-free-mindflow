@@ -1,37 +1,45 @@
-# Gedankenfaden v2.0.0 — Working Defect Ledger
+# Gedankenfaden v2.0.0 — Product Hardening Defect Ledger & Closure Record
 
-> Provisional Reality Audit ledger for the v2.0.0 reconstruction branch. This is not the final release record.
+> Historical defect ledger and closure evidence for the Gedankenfaden v2.0.0 Product Hardening phase on branch `v2.0.0-upgrade`. This document serves as permanent closure record and verification baseline; it is no longer an active defect queue.
 
-## Current findings (ordered by product contract)
+---
 
-| ID | Layer | Defect | Evidence | Status |
+## 1. Product Hardening Defect Ledger & Resolution Status
+
+| ID | Layer | Defect Description (Historical) | Resolution & Evidence | Status |
 |---|---|---|---|---|
-| F01 | Product representation / canvas | **节点视觉孤儿化——多样本确认** | Reproduced across several real documents; nodes can appear detached from logical parent structure. | Confirmed, multi-sample |
-| F02 | Product representation / canvas | **逻辑父子关系仍在，但架构连线不可见** | Reproduced in multiple real documents; hierarchy remains in data/positioning while the connecting edge is absent. | Confirmed, multi-sample |
-| F03 | Interaction / canvas | **Group container cannot be dragged by the user** | `CanvasEditor.tsx` renders the group overlay with `pointer-events-none` and no drag handler. `translateGroup()` has a unit test but no production caller, despite the V1 group-drag contract. | Confirmed by code path; real UI reproduction pending |
-| F04 | Export truthfulness | **PNG export is not a normal PNG** | Exporter prepends PNG magic bytes to SVG XML; no raster encoder. Existing test checks only first four bytes. | Confirmed by manual failure + code audit; test blind spot |
-| F05 | Export truthfulness | **JPEG export is not a normal JPEG** | JPEG magic bytes are prepended to SVG XML; no JPEG encoder. Existing test checks only first two bytes. | Confirmed by code audit; manual reproduction pending; test blind spot |
-| F06 | Export truthfulness | **PDF export contains summary text, not the diagram** | Fixed one-page PDF contains title/mode/node count only; no geometry, edges, labels, groups, or shapes. Test checks only `%PDF-1.4`. | Confirmed by code audit; test blind spot |
-| F07 | Export truthfulness | **SVG and HTML exports lose the rendered document contract** | SVG always emits rounded rectangles and cubic paths, ignoring node shapes, routing/style, handles, and groups; HTML embeds that SVG. Tests check marker strings only. | Confirmed by code audit; consumer interoperability pending; test blind spot |
-| F08 | Structured import | **Markdown/OPML parsing has a narrow fidelity contract** | Adversarial probe (nested headings/lists plus OPML entities) preserved tested Markdown hierarchy and outline entity decoding, but OPML `<title>A &amp; B</title>` became literal `A &amp; B` while outline text decoded. Regex parsing also omits broader XML metadata/grammar. | Confirmed entity-loss case; broader grammar remains evidence gap |
-| F09 | Library synchronization | **Library folder does not update live after external file additions** | Real use requires manual import/rescan; implementation has no active filesystem watcher despite V1 watcher contract. | Confirmed by manual test + code audit |
-| F10 | Persistence / recovery | **Normal native window close is recorded as unclean** | No Tauri close-event or unload bridge; `heartbeatSession()` has no production caller. Direct close can leave `isCleanShutdown: false`, causing a false recovery banner next launch. | Confirmed by call-graph audit; native close/relaunch reproduction pending |
-| F11 | Persistence / data integrity | **Save failures are swallowed and Library metadata can remain stale** | Save catch logs only; UI status is not error. Active LibraryEntry metadata is not updated after edit until rescan. | Confirmed by code audit; failure-injection/native reproduction pending |
-| F12 | Persistence / filesystem | **Recursive discovery depth is an unresolved product decision** | `scanDirectoryForDocuments()` reads one directory and skips child directories. The V1 contract requires a selected real directory and live watching, but does not explicitly require recursive discovery through arbitrary nested subdirectories. | Product Decision / Candidate; non-ticketable pending explicit product decision |
-| F13 | Native boundary / security | **Tauri filesystem commands accept arbitrary renderer-supplied paths** | Read/write/remove/rename/read-dir commands take unrestricted strings and do not enforce app-owned, Library, or dialog-authorized roots. Under the V2 policy this is a confirmed security/hardening finding, not merely an architectural risk. | Confirmed by code audit; native policy tests pending |
-| F14 | Automated verification | **Verification relies on mocks, headers, and happy paths** | 20 files/116 tests pass, but bridge tests use `MemoryMockNativeBridge`; exports check headers/substrings; no real consumer, OS close/relaunch, external watcher, or Windows boundary test. | Confirmed verification-system finding; bounded acceptance basis for repair tickets |
+| **F01** | Product representation / canvas | **节点视觉孤儿化——多样本确认**<br>Reproduced across several real documents; nodes can appear detached from logical parent structure. | Resolved across layout engine reconstruction (PR #18), branch wrapping (`ae8c0d1`), and fan-out column scaling (`372237a`, `f8901b9`). Verified by `src/test/f01-mindmap-visual-orpaning.test.ts` and `src/test/v2-layout-fanout-reconstruction.test.ts`. | **Repaired & Verified** |
+| **F02** | Product representation / canvas | **逻辑父子关系仍在，但架构连线不可见**<br>Reproduced in multiple real documents; hierarchy remains in data/positioning while the connecting edge is absent. | Fixed by bidirectional edge registration and mirrored endpoint routing (`fafa40f`, `3b20db7`). Verified by `src/test/f02-mindmap-edge-visibility.test.ts`. | **Repaired & Verified** |
+| **F03** | Interaction / canvas | **Group container cannot be dragged by the user**<br>`CanvasEditor.tsx` renders the group overlay with `pointer-events-none` and no drag handler. `translateGroup()` has a unit test but no production caller. | Fixed in ticket #7 (`4d2c9d2`) by restoring pointer events and integrating canvas group drag handlers. Verified by `src/test/f03-group-drag.test.ts`. | **Repaired & Verified** (#7) |
+| **F04** | Export truthfulness | **PNG export is not a normal PNG**<br>Exporter prepends PNG magic bytes to SVG XML; no raster encoder. Existing test checks only first four bytes. | Fixed in ticket #9 (`e5c8e40`) with genuine OffscreenCanvas/browser-based raster PNG encoding. Verified by `src/test/f04-f05-image-export-raster.test.ts` and real browser raster consumer tests. | **Repaired & Verified** (#9) |
+| **F05** | Export truthfulness | **JPEG export is not a normal JPEG**<br>JPEG magic bytes are prepended to SVG XML; no JPEG encoder. Existing test checks only first two bytes. | Fixed in ticket #9 (`e5c8e40`) with genuine OffscreenCanvas/browser-based raster JPEG encoding. Verified by `src/test/f04-f05-image-export-raster.test.ts` and real browser raster consumer tests. | **Repaired & Verified** (#9) |
+| **F06** | Export truthfulness | **PDF export contains summary text, not the diagram**<br>Fixed one-page PDF contains title/mode/node count only; no geometry, edges, labels, groups, or shapes. | Fixed in ticket #10 (`ce3fa96`) with full vector diagram PDF rendering. Verified with `pdfjs-dist` consumer parser assertions in `src/test/f06-pdf-export-diagram.test.ts`. | **Repaired & Verified** (#10) |
+| **F07** | Export truthfulness | **SVG and HTML exports lose the rendered document contract**<br>SVG always emits rounded rectangles and cubic paths, ignoring node shapes, routing/style, handles, and groups; HTML embeds that SVG. | Fixed across `6ba17ca`, `f58adc4`, `82253bf`, and M1-C layout-export geometry unification (`46a3e65`). Verified by `src/test/f07-export-fidelity.test.ts`, `src/test/f09-browser-raster-consumer.test.ts`, and `src/test/v2-m1c-geometry-convergence.test.ts`. | **Repaired & Verified** (#8) |
+| **F08** | Structured import | **Markdown/OPML parsing has a narrow fidelity contract**<br>Adversarial probe showed entity decoding issues in titles (`<title>A &amp; B</title>` remained literal). | Fixed in ticket #11 (`2189d47`) with full XML entity decoding, nested outline hierarchy preservation, and markdown parser hardening. Verified by `src/test/v2-f08-import-fidelity.test.ts`. | **Repaired & Verified** (#11) |
+| **F09** | Library synchronization | **Library folder does not update live after external file additions**<br>Real use requires manual import/rescan; implementation had no active filesystem watcher. | Fixed in ticket #13 (`59e3e4d`, `65919e7`, `12d9719`) via authorized Tauri native directory watcher + startup auto-hydration. Verified by `src/test/v2-f09-library-live-sync.test.ts`, Rust watcher lifecycle tests, and Windows native acceptance. | **Repaired & Verified** (#13) |
+| **F10** | Persistence / recovery | **Normal native window close is recorded as unclean**<br>Direct close could leave session dirty, causing false crash recovery banner on relaunch. | Fixed in ticket #14 (`b8484b4`, `12d9719`) via `nativeCloseGuard` session journal flushing, `close_app_window` IPC clean exit, and continuous rolling recovery snapshots. Verified by `src/test/v2-f10-clean-close.test.ts`, `src/test/v2-f10-recovery-lifecycle.test.ts`, and Windows native acceptance. | **Repaired & Verified** (#14) |
+| **F11** | Persistence / data integrity | **Save failures are swallowed and Library metadata can remain stale**<br>Save catch logged only; active LibraryEntry metadata was not refreshed. | Fixed in ticket #15 (`4c0e448`) with explicit user-facing error propagation and active library metadata refresh upon save. Verified by `src/test/v2-f11-save-failure-metadata.test.ts`. | **Repaired & Verified** (#15) |
+| **F12** | Persistence / filesystem | **Recursive discovery depth is an unresolved product decision**<br>`scanDirectoryForDocuments()` reads selected directory and does not recurse nested subdirectories. | **DEFERRED — explicit product decision / out of current PH scope**. Preserves single-directory root boundary without accidental deep filesystem traversal. | **DEFERRED** |
+| **F13** | Native boundary / security | **Tauri filesystem commands accept arbitrary renderer-supplied paths**<br>Unrestricted path parameters without path canonicalization / authorization checks. | Fixed in ticket #12 (`9aace83`) by enforcing strict path resolution within authorized Library roots and dialog-selected targets. Verified by `src/test/v2-f12-native-security.test.ts` and Rust native security tests. | **Repaired & Verified** (#12) |
+| **F14** | Automated verification | **Verification relies on mocks, headers, and happy paths**<br>Blind spots in mock bridges, superficial header tests, and lack of real consumer / native lifecycle checks. | Closed for Product Hardening: Established real consumer tests (real PDF parser, browser canvas rasterization, Rust `cargo test` integration, and native Windows lifecycle verification). | **Closed (Verification Seams Established)** |
 
-## Audit evidence
+---
 
-- Baseline: `npm test -- --run` → 20 test files passed, 116 tests passed.
-- Red-capable export probe detected PNG/JPEG SVG wrappers and summary-only PDF → RED.
-- Adversarial parser probe: nested Markdown hierarchy was emitted; OPML outline entities decoded, but `<title>` entities were not (`A &amp; B` remained literal) → reproducible F08 evidence.
-- No product repair, UI redesign, or release-status document changes were made.
+## 2. Additional Product Hardening Repairs
 
-## Ticketing judgment
+In addition to F01–F14, the following functional and interaction defects were resolved during the Product Hardening phase:
+- **#16 Delete parent node / preserve children** (`28ac882`): Added explicit conservative reparenting to parent's parent for mid-tree node deletion, preserving the canonical single-root invariant (`src/test/v2-f16-delete-node-preserve-children.test.ts`).
+- **#17 Drag parent carrying subtree** (`c7eb7e8`): Moving a parent node translates all descendant nodes by the identical displacement delta, preserving relative manual offsets (`src/test/v2-f17-drag-subtree.test.ts`).
+- **Manual Node Sizing Persistence** (`e505f88`): Preserves explicit node dimensions in canonical document model, layout calculations, and exporters (`src/test/v2-manual-node-sizing.test.ts`).
+- **V2 Balanced Mind Map Layout Engine** (PR #18, `6e684e1`): Completely reconstructed balanced mind-map positioning, multi-column fan-out grid packing, text-aware geometry estimation, and incremental edit stabilization.
 
-F01–F08, F09–F11, and F13 are ready for focused repair tickets. F12 is non-ticketable until the product explicitly decides whether recursive discovery is part of the Library contract. F13 is ready for a deliberately scoped native-boundary/security ticket under the V2 policy, with native policy tests as its acceptance seam. F14 remains the bounded verification-system basis for those tickets—not a mandate for an unbounded test-suite rewrite.
+---
 
-## Queue rule
+## 3. Product Hardening Exit & Closure
 
-This ledger is the sole candidate queue for the Reality Audit closure. Each repair must have an individual ticket and focused regression seam, preserving this product-representation → interaction/output → persistence/data-management → security/verification order. Do not begin repair from this document without ticket-level authorization.
+The V2 Product Hardening repair queue is formally complete and closed as of commit `12d9719` and exact-head CI run `34797692094` (100% green on Ubuntu and Windows matrix). Real Windows native acceptance has verified:
+1. Startup Library auto-hydration (#13).
+2. Clean native close vs. forced crash recovery distinction (#14).
+3. Single-root invariant preservation (#16) and subtree drag translation (#17).
+
+This document is preserved as historical closure evidence. Active development moves to the next macro stage: **UI Reconstruction**.
