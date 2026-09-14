@@ -293,7 +293,7 @@ export function layoutMindMapEngineV2(
     }
 
     if (anchor) {
-      placeChildrenAnchored(children, parentCenterY, side, depth, localAnchorX);
+      placeChildrenAnchored(parentId, children, parentCenterY, side, depth, localAnchorX);
       return;
     }
 
@@ -400,6 +400,7 @@ export function layoutMindMapEngineV2(
    * existing siblings never move because of a change elsewhere.
    */
   function placeChildrenAnchored(
+    parentId: string,
     children: CanonicalNode[],
     parentCenterY: number,
     side: Side,
@@ -409,7 +410,13 @@ export function layoutMindMapEngineV2(
     const byChildId = new Map(children.map((c) => [c.id, c]));
     const isNew = (id: string) => {
       const prev = anchor!.prevById.get(id);
-      return !prev || prev.parentId !== byChildId.get(id)?.parentId;
+      const child = byChildId.get(id);
+      if (!prev || prev.parentId !== child?.parentId) return true;
+      if (parentId === rootNode.id && child?.mindMapSide) {
+        const previousSide: Side = prev.geometry.x >= anchor!.prevRootX ? 'right' : 'left';
+        return previousSide !== child.mindMapSide;
+      }
+      return false;
     };
     const anyAnchored = children.some((c) => !isNew(c.id));
     if (!anyAnchored) {
@@ -583,7 +590,19 @@ function partitionBySide(
   level1Children: CanonicalNode[],
   footprint: Map<string, number>
 ): { left: CanonicalNode[]; right: CanonicalNode[] } {
-  const [right, left] = kWayPartition(level1Children, 2, footprint);
+  const left = level1Children.filter((node) => node.mindMapSide === 'left');
+  const right = level1Children.filter((node) => node.mindMapSide === 'right');
+  const unassigned = level1Children.filter((node) => !node.mindMapSide);
+  const weights = {
+    left: left.reduce((sum, node) => sum + (footprint.get(node.id) || 1), 0),
+    right: right.reduce((sum, node) => sum + (footprint.get(node.id) || 1), 0),
+  };
+  for (const node of [...unassigned].sort((a, b) => (footprint.get(b.id) || 1) - (footprint.get(a.id) || 1))) {
+    const side = weights.right <= weights.left ? right : left;
+    side.push(node);
+    if (side === right) weights.right += footprint.get(node.id) || 1;
+    else weights.left += footprint.get(node.id) || 1;
+  }
   return { left, right };
 }
 
@@ -626,6 +645,13 @@ function assignSidesAnchored(
   let leftWeight = 0;
   let rightWeight = 0;
   for (const child of level1) {
+    if (child.mindMapSide) {
+      const side = child.mindMapSide;
+      nodeSide.set(child.id, side);
+      if (side === 'right') rightWeight += footprint.get(child.id) || 1;
+      else leftWeight += footprint.get(child.id) || 1;
+      continue;
+    }
     const prev = anchor.prevById.get(child.id);
     if (prev && prev.parentId === rootId) {
       const side: Side = prev.geometry.x >= anchor.prevRootX ? 'right' : 'left';

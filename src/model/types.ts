@@ -64,6 +64,7 @@ export interface CanonicalNode {
   geometry: NodeGeometry;
   type?: 'default' | 'root' | 'process' | 'decision' | 'terminal' | 'data';
   parentId?: string; // Hierarchical parent in Mind Map mode
+  mindMapSide?: 'left' | 'right'; // Explicit root-side placement after a cross-centre reparent
   shape?: NodeShape; // Top-level convenience shape accessor
   assetRef?: string; // Internal URI: "asset://img_<id>.<ext>"
   icon?: string; // Independent node icon representation (e.g. "💡", "⭐", "🎯")

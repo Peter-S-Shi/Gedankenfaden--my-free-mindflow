@@ -60,6 +60,13 @@ import {
 import { canApplyNumbering } from '../model/numbering';
 import { allowsManualConnections, filterEdgeChangesForMode } from '../model/connectionPolicy';
 import {
+  findReparentCapture,
+  applyReparent,
+  applyDetachedDrop,
+  updateHierarchyEdgesForReparent,
+  removeIncomingHierarchyEdge,
+} from '../model/reparentOnDrag';
+import {
   ArrowLeft,
   Plus,
   Trash2,
@@ -158,8 +165,17 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   // M3: Multi-selection & Focus Mode
   const [multiSelectedNodeIds, setMultiSelectedNodeIds] = useState<Set<string>>(new Set());
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
-  const [adaptiveEdges, setAdaptiveEdges] = useState(true);
+  const adaptiveEdges = true;
   const [currentZoom, setCurrentZoom] = useState(1);
+
+  // M3 Behavior Correction Contract: dragging a Mind Map node is
+  // reparenting, not freeform positioning -- see onNodeDrag/onNodeDragStop.
+  // `reparentPreview` drives the live dashed preview + candidate highlight.
+  const [reparentPreview, setReparentPreview] = useState<{
+    draggedId: string;
+    candidateParentId: string;
+    side?: 'left' | 'right';
+  } | null>(null);
 
   // M3: Context Menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -421,6 +437,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<CustomNodeData>>[]) => {
       const hasResizeDimensionChange = changes.some((c) => c.type === 'dimensions');
+      const hasPositionChange = changes.some((c) => c.type === 'position');
+      // M3 Behavior Correction Contract: a Mind Map node drag is never a
+      // freeform canonical position write -- onNodeDragStop below is the
+      // single place that commits the outcome (reparent or snap-back).
+      // Position changes still flow through here so the dragged node (and
+      // any carried descendants) visually track the cursor in local React
+      // Flow state; canonical `doc` simply isn't touched until the gesture
+      // ends. Flowchart keeps the original per-frame canonical sync.
+      const skipCanonicalSync = doc.mode === 'mindmap' && hasPositionChange;
 
       setNodes((nds) => {
         const next = carryDescendantsWithDraggedParents(
@@ -430,7 +455,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
           childrenIdsByParent
         );
 
-        if (hasResizeDimensionChange) {
+        if (hasResizeDimensionChange || skipCanonicalSync) {
           return next;
         }
 
@@ -459,7 +484,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         }
       }
     },
-    [edges, syncToCanonical, childrenIdsByParent]
+    [edges, syncToCanonical, childrenIdsByParent, doc.mode]
   );
 
   const onEdgesChange = useCallback(
@@ -479,6 +504,140 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       });
     },
     [nodes, syncToCanonical, doc.mode]
+  );
+
+  // M3 Behavior Correction Contract: dragging a Mind Map node is
+  // reparenting, never freeform positioning that could stretch/bend a
+  // hierarchy edge indefinitely. onNodeDrag tracks whether the live
+  // position has entered another node's capture zone (for the dashed
+  // preview + highlight); onNodeDragStop commits the reparent if one was
+  // captured, or detaches the carried subtree as a free-standing hierarchy
+  // at the shown drop position if no node captures it.
+  const liveNodeBox = useCallback(
+    (node: Node<CustomNodeData>) => ({
+      x: node.position.x,
+      y: node.position.y,
+      width: typeof node.width === 'number' ? node.width : node.measured?.width ?? 150,
+      height: typeof node.height === 'number' ? node.height : node.measured?.height ?? 44,
+    }),
+    []
+  );
+
+  const revealReparentOutcome = useCallback((nodeIds: string[]) => {
+    // Structural relayout can move the new parent and carried subtree beyond
+    // the currently visible canvas (most noticeably underneath an open
+    // Inspector). Fit only the affected family after React Flow has received
+    // the projected nodes so a successful drop can never look like deletion.
+    requestAnimationFrame(() => {
+      const instance = rfInstanceRef.current;
+      if (!instance) return;
+      const affectedNodes = instance.getNodes().filter((candidateNode) => nodeIds.includes(candidateNode.id));
+      if (affectedNodes.length === 0) return;
+      void instance.fitView({ nodes: affectedNodes, padding: 0.35, duration: 220, maxZoom: 1.15 });
+    });
+  }, []);
+
+  const onNodeDrag = useCallback(
+    (_event: unknown, node: Node<CustomNodeData>) => {
+      // `doc` is untouched for the whole gesture (see onNodesChange above),
+      // so every OTHER node's canonical geometry here is exactly what's
+      // rendered -- only the dragged node's own live box comes from React
+      // Flow's own in-progress drag state.
+      if (doc.mode !== 'mindmap') return;
+      const box = liveNodeBox(node);
+      const candidate = findReparentCapture(doc.nodes, node.id, box, childrenIdsByParent);
+      setReparentPreview(
+        candidate ? { draggedId: node.id, candidateParentId: candidate.parentId, side: candidate.side } : null
+      );
+    },
+    [doc.mode, doc.nodes, childrenIdsByParent, liveNodeBox]
+  );
+
+  const onNodeDragStop = useCallback(
+    (_event: unknown, node: Node<CustomNodeData>) => {
+      setReparentPreview(null);
+      if (doc.mode !== 'mindmap') return;
+
+      const candidate = findReparentCapture(doc.nodes, node.id, liveNodeBox(node), childrenIdsByParent);
+      const dragged = doc.nodes.find((candidateNode) => candidateNode.id === node.id);
+      const projectCallbacks = {
+        onToggleFold: handleToggleFold,
+        selectedNodeId,
+        onUpdateLabel: handleUpdateNodeLabel,
+        onLiveResizeWidth: handleLiveResizeWidth,
+        onResizeEnd: handleResizeEndFromNode,
+      };
+
+      if (!dragged || dragged.type === 'root') {
+        const projected = canonicalToReactFlow(doc, projectCallbacks);
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        return;
+      }
+
+      if (candidate) {
+        const reparentedNodes = applyReparent(doc.nodes, node.id, candidate);
+        const reparentedEdges = updateHierarchyEdgesForReparent(
+          doc.edges,
+          node.id,
+          dragged.parentId,
+          candidate.parentId
+        );
+        const nextDoc: CanonicalDocument = {
+          ...doc,
+          nodes: reparentedNodes,
+          edges: reparentedEdges,
+          updatedAt: new Date().toISOString(),
+        };
+        const layouted = autoLayoutDocument(nextDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+        const projected = canonicalToReactFlow(layouted, projectCallbacks);
+        setDoc(layouted);
+        setNodes(projected.nodes);
+        setEdges(projected.edges);
+        historyRef.current.pushState(layouted);
+        updateHistoryStatus();
+        revealReparentOutcome([candidate.parentId, node.id]);
+        setStatusMessage(candidate.side ? `Moved to ${candidate.side} side of central topic` : 'Moved under new parent topic');
+        return;
+      }
+
+      // No candidate captured the subtree: it becomes a free-standing
+      // hierarchy at the drop position. The old parent's remaining branch
+      // is repacked, while the detached subtree keeps the shape shown during
+      // the gesture and loses only its old incoming hierarchy edge.
+      const detachedNodes = applyDetachedDrop(doc.nodes, node.id, liveNodeBox(node));
+      const detachedEdges = dragged.parentId
+        ? removeIncomingHierarchyEdge(doc.edges, node.id, dragged.parentId)
+        : doc.edges;
+      const detachedDoc: CanonicalDocument = {
+        ...doc,
+        nodes: detachedNodes,
+        edges: detachedEdges,
+        updatedAt: new Date().toISOString(),
+      };
+      const layouted = autoLayoutDocument(detachedDoc, { preset: layoutPreset, stabilizeAgainst: doc });
+      const projected = canonicalToReactFlow(layouted, projectCallbacks);
+      setDoc(layouted);
+      setNodes(projected.nodes);
+      setEdges(projected.edges);
+      historyRef.current.pushState(layouted);
+      updateHistoryStatus();
+      revealReparentOutcome([node.id]);
+      setStatusMessage('Detached as a free topic');
+    },
+    [
+      doc,
+      layoutPreset,
+      selectedNodeId,
+      childrenIdsByParent,
+      liveNodeBox,
+      handleToggleFold,
+      handleUpdateNodeLabel,
+      handleLiveResizeWidth,
+      handleResizeEndFromNode,
+      updateHistoryStatus,
+      revealReparentOutcome,
+    ]
   );
 
   const onConnect = useCallback(
@@ -2056,22 +2215,28 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
     return nodes.map((n) => {
       const isFocused = !focusedBranchNodeIds || focusedBranchNodeIds.has(n.id);
       const isMulti = multiSelectedNodeIds.has(n.id);
+      // M3 Behavior Correction Contract: while dragging, the node whose
+      // capture zone the drag has entered is highlighted so the user knows
+      // where it'll be reparented if they release now.
+      const isReparentCandidate = reparentPreview?.candidateParentId === n.id;
       return {
         ...n,
         style: {
           ...n.style,
           opacity: isFocused ? 1 : 0.16,
-          boxShadow: isMulti
-            ? '0 0 0 2px rgba(99, 102, 241, 0.4), 0 4px 12px rgba(99, 102, 241, 0.15)'
-            : n.style?.boxShadow,
+          boxShadow: isReparentCandidate
+            ? '0 0 0 3px rgba(59, 130, 246, 0.65), 0 4px 10px rgba(59, 130, 246, 0.25)'
+            : isMulti
+              ? '0 0 0 2px rgba(99, 102, 241, 0.4), 0 4px 12px rgba(99, 102, 241, 0.15)'
+              : n.style?.boxShadow,
         },
       };
     });
-  }, [nodes, focusedBranchNodeIds, multiSelectedNodeIds]);
+  }, [nodes, focusedBranchNodeIds, multiSelectedNodeIds, reparentPreview]);
 
   const displayedEdges = useMemo(() => {
     const adaptiveWidth = adaptiveEdges && currentZoom < 0.65 ? Math.max(2, 1.25 / currentZoom) : 2;
-    return edges.map((e) => {
+    const base: Edge[] = edges.map((e) => {
       const isFocused = !focusedBranchNodeIds || (focusedBranchNodeIds.has(e.source) && focusedBranchNodeIds.has(e.target));
       return {
         ...e,
@@ -2082,7 +2247,35 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         },
       };
     });
-  }, [edges, focusedBranchNodeIds, adaptiveEdges, currentZoom]);
+
+    // M3 Behavior Correction Contract: a dashed preview of the pending
+    // reparent -- purely a rendering affordance, not a real canonical edge
+    // (never written back; recomputed every frame from live positions).
+    if (reparentPreview) {
+      const draggedNode = nodes.find((n) => n.id === reparentPreview.draggedId);
+      const candidateNode = nodes.find((n) => n.id === reparentPreview.candidateParentId);
+      if (draggedNode && candidateNode) {
+        const draggedIsRight = draggedNode.position.x >= candidateNode.position.x;
+        base.push({
+          id: '__reparent-preview__',
+          source: reparentPreview.candidateParentId,
+          target: reparentPreview.draggedId,
+          sourceHandle: draggedIsRight ? 'right' : 'left',
+          targetHandle: draggedIsRight ? 'left' : 'right',
+          type: 'straight',
+          selectable: false,
+          deletable: false,
+          focusable: false,
+          reconnectable: false,
+          interactionWidth: 0,
+          style: { stroke: '#3b82f6', strokeWidth: 2, strokeDasharray: '6 4' },
+          zIndex: 1000,
+        } as Edge);
+      }
+    }
+
+    return base;
+  }, [edges, focusedBranchNodeIds, adaptiveEdges, currentZoom, reparentPreview, nodes]);
 
   return (
     <div
@@ -2426,6 +2619,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             nodes={displayedNodes}
             edges={displayedEdges}
             onNodesChange={onNodesChange}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
@@ -3055,8 +3250,6 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             onExpandBranch={handleExpandBranch}
             onSelectNodes={handleSelectHierarchy}
             onApplyNumbering={handleApplyNumbering}
-            adaptiveEdges={adaptiveEdges}
-            onToggleAdaptiveEdges={() => setAdaptiveEdges((p) => !p)}
           />
         )}
       </div>

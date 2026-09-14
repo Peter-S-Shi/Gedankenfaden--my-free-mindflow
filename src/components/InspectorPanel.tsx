@@ -2,7 +2,6 @@ import React from 'react';
 import { CanonicalDocument, CanonicalNode, NodeShape, DocumentTheme } from '../model/types';
 import { BUILTIN_THEMES, PaletteDefinition } from '../model/theme';
 import { canApplyNumbering } from '../model/numbering';
-import { allowsManualConnections } from '../model/connectionPolicy';
 import { PRESET_ICONS } from '../model/icons';
 import {
   PanelRightClose,
@@ -30,8 +29,6 @@ export interface InspectorPanelProps {
   onExpandBranch?: (kind: 'current' | 'siblings' | 'descendants') => void;
   onSelectNodes?: (kind: 'same-branch' | 'all-level') => void;
   onApplyNumbering?: (style: 'none' | 'decimal' | 'roman' | 'alpha') => void;
-  adaptiveEdges?: boolean;
-  onToggleAdaptiveEdges?: () => void;
 }
 
 const PRESET_SHAPES: { value: NodeShape; label: string }[] = [
@@ -74,8 +71,6 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   onExpandBranch,
   onSelectNodes,
   onApplyNumbering,
-  adaptiveEdges = true,
-  onToggleAdaptiveEdges,
 }) => {
   const currentTheme = document.theme || {
     paletteId: 'nordic-slate',
@@ -613,99 +608,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           </div>
         </details>
 
-        {/* Section 5: Connections */}
-        <details className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs" open>
-          <summary className="px-3 py-2.5 bg-slate-50/70 flex items-center justify-between cursor-pointer text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors">
-            <span>Connections</span>
-            <ChevronDown size={13} className="text-slate-400 transition-transform details-arrow" />
-          </summary>
-          <div className="p-3 border-t border-slate-200 space-y-3">
-            {/* Edge Color */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">
-                Edge Color
-              </label>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="color"
-                  value={currentTheme.edgeColor || '#94a3b8'}
-                  onChange={(e) => onUpdateTheme({ ...currentTheme, edgeColor: e.target.value })}
-                  className="w-6 h-6 rounded border border-slate-300 cursor-pointer p-0"
-                />
-                <input
-                  type="text"
-                  value={currentTheme.edgeColor || ''}
-                  placeholder="Edge Hex"
-                  onChange={(e) => onUpdateTheme({ ...currentTheme, edgeColor: e.target.value })}
-                  className="flex-1 text-[11px] px-2 py-0.5 bg-slate-50 border border-slate-200 rounded font-mono"
-                />
-              </div>
-            </div>
-
-            {/* Default Edge Routing -- M3 Behavior Correction Contract:
-                hierarchy edges aren't individually editable entities in
-                Mind Map (they already ignore this setting entirely --
-                adapter.ts hardcodes 'smoothstep' there regardless), so the
-                control is Flowchart-only rather than presenting an
-                ambiguous no-op. */}
-            {allowsManualConnections(document.mode) && (
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">
-                  Default Edge Routing
-                </label>
-                <div className="grid grid-cols-3 gap-1">
-                  {(['smoothstep', 'orthogonal', 'bezier'] as const).map((routing) => (
-                    <button
-                      key={routing}
-                      onClick={() => onUpdateTheme({ ...currentTheme, defaultEdgeRouting: routing })}
-                      className={`text-[11px] py-1 px-1 rounded border capitalize ${
-                        (currentTheme.defaultEdgeRouting || 'smoothstep') === routing
-                          ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {routing === 'smoothstep' ? 'Smooth' : routing === 'orthogonal' ? 'Ortho' : 'Curved'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Large-map Edge Legibility */}
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">
-                Large-map Edge Legibility
-              </label>
-              <div className="grid grid-cols-2 gap-1">
-                <button
-                  onClick={() => onToggleAdaptiveEdges?.()}
-                  className={`text-[11px] py-1 px-1.5 rounded border ${
-                    adaptiveEdges
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  Adaptive
-                </button>
-                <button
-                  onClick={() => onToggleAdaptiveEdges?.()}
-                  className={`text-[11px] py-1 px-1.5 rounded border ${
-                    !adaptiveEdges
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  Fixed
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1 leading-tight">
-                Adaptive mode protects stroke continuity at low zoom without changing graph structure.
-              </p>
-            </div>
-          </div>
-        </details>
-
-        {/* Section 6: Document Info */}
+        {/* Section 5: Document Info */}
         <details className="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs">
           <summary className="px-3 py-2.5 bg-slate-50/70 flex items-center justify-between cursor-pointer text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors">
             <span>Document Info</span>

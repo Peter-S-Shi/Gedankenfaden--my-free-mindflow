@@ -14,6 +14,7 @@ export interface CustomNodeData extends Record<string, unknown> {
   collapsed?: boolean;
   manualOffset?: { dx: number; dy: number };
   parentId?: string;
+  mindMapSide?: CanonicalNode['mindMapSide'];
   isNewBorn?: boolean;
   visuals?: ResolvedNodeVisuals;
   numberingBadge?: string;
@@ -59,6 +60,7 @@ const PROJECTION_ONLY_NODE_DATA_KEYS = new Set([
   'collapsed',
   'manualOffset',
   'parentId',
+  'mindMapSide',
   'isNewBorn',
   'isDeleting',
   'visuals',
@@ -164,6 +166,7 @@ export function canonicalToReactFlow(
         collapsed: Boolean(n.collapsed),
         manualOffset: n.manualOffset,
         parentId: n.parentId,
+        mindMapSide: n.mindMapSide,
         visuals,
         numberingBadge: numberingMap.get(n.id),
         hasChildren,
@@ -268,6 +271,7 @@ export function reactFlowToCanonical(
       },
       type: (rn.data?.nodeType as CanonicalNode['type']) || existing?.type || 'default',
       parentId: rn.data?.parentId || existing?.parentId,
+      mindMapSide: (rn.data?.mindMapSide as CanonicalNode['mindMapSide']) || existing?.mindMapSide,
       shape: (rn.data?.shape as NodeShape) || existing?.shape,
       assetRef: (rn.data?.assetRef as string) || existing?.assetRef,
       icon: rn.data?.icon !== undefined ? rn.data.icon : existing?.icon,
