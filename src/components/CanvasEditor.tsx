@@ -16,6 +16,7 @@ import {
   Panel,
   ViewportPortal,
   BezierEdge,
+  Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -192,7 +193,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const [multiSelectedNodeIds, setMultiSelectedNodeIds] = useState<Set<string>>(new Set());
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const adaptiveEdges = true;
-  const [currentZoom, setCurrentZoom] = useState(1);
+  const [currentZoom, setCurrentZoom] = useState(initialDocument.viewport?.zoom ?? 1);
 
   // M3 Behavior Correction Contract: dragging a Mind Map node is
   // reparenting, not freeform positioning -- see onNodeDrag/onNodeDragStop.
@@ -2113,7 +2114,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   );
 
   const handleSaveDocument = useCallback(async () => {
-    const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+    const liveViewport = rfInstanceRef.current?.getViewport();
+    const docWithLiveViewport: CanonicalDocument = liveViewport
+      ? { ...doc, viewport: { x: liveViewport.x, y: liveViewport.y, zoom: liveViewport.zoom } }
+      : doc;
+    const currentDoc = reactFlowToCanonical(nodes, edges, docWithLiveViewport);
     setStatusMessage('Saving...');
     const result = await onSaveDocument(currentDoc);
     if (result.success) {
@@ -2129,7 +2134,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   const handleExportFormat = useCallback(
     async (format: ExportFormat) => {
       try {
-        const currentDoc = reactFlowToCanonical(nodes, edges, doc);
+        const liveViewport = rfInstanceRef.current?.getViewport();
+        const docWithLiveViewport: CanonicalDocument = liveViewport
+          ? { ...doc, viewport: { x: liveViewport.x, y: liveViewport.y, zoom: liveViewport.zoom } }
+          : doc;
+        const currentDoc = reactFlowToCanonical(nodes, edges, docWithLiveViewport);
         const artifact = await createExportArtifact(currentDoc, format, assetStoreRef.current.toBytesMap());
         const bridge = getNativeBridge();
         if (bridge.isTauri()) {
@@ -2182,6 +2191,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
+            if (loadedDoc.viewport && rfInstanceRef.current) {
+              rfInstanceRef.current.setViewport(loadedDoc.viewport);
+              setCurrentZoom(loadedDoc.viewport.zoom);
+            }
             historyRef.current.pushState(loadedDoc);
             updateHistoryStatus();
             setStatusMessage(`Loaded container: ${loadedDoc.title}`);
@@ -2206,6 +2219,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
+            if (rfInstanceRef.current) {
+              rfInstanceRef.current.fitView({ padding: 0.2 });
+            }
             historyRef.current.pushState(layouted);
             updateHistoryStatus();
             setStatusMessage(`Imported Markdown: ${imported.title}`);
@@ -2230,6 +2246,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
+            if (rfInstanceRef.current) {
+              rfInstanceRef.current.fitView({ padding: 0.2 });
+            }
             historyRef.current.pushState(layouted);
             updateHistoryStatus();
             setStatusMessage(`Imported OPML: ${imported.title}`);
@@ -2252,6 +2271,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             });
             setNodes(projected.nodes);
             setEdges(projected.edges);
+            if (parsed.viewport && rfInstanceRef.current) {
+              rfInstanceRef.current.setViewport(parsed.viewport);
+              setCurrentZoom(parsed.viewport.zoom);
+            }
             historyRef.current.pushState(parsed);
             updateHistoryStatus();
             setStatusMessage(`Loaded: ${parsed.title}`);
@@ -2447,6 +2470,24 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
 
   // Viewport zoom tracker for adaptive edge legibility
   const handleViewportChange = useCallback((viewport: { zoom: number }) => {
+    setCurrentZoom(viewport.zoom);
+  }, []);
+
+  // Viewport camera persistence at gesture-end boundaries (pan/zoom/fitView)
+  const handleMoveEnd = useCallback((_event: MouseEvent | TouchEvent | null, viewport: Viewport) => {
+    setDoc((prevDoc) => {
+      if (
+        prevDoc.viewport?.x === viewport.x &&
+        prevDoc.viewport?.y === viewport.y &&
+        prevDoc.viewport?.zoom === viewport.zoom
+      ) {
+        return prevDoc;
+      }
+      return {
+        ...prevDoc,
+        viewport: { x: viewport.x, y: viewport.y, zoom: viewport.zoom },
+      };
+    });
     setCurrentZoom(viewport.zoom);
   }, []);
 
@@ -2922,6 +2963,8 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             }}
             onNodeContextMenu={handleNodeContextMenu}
             onPaneContextMenu={handlePaneContextMenu}
+            defaultViewport={initialDocument.viewport}
+            onMoveEnd={handleMoveEnd}
             onViewportChange={handleViewportChange}
             onPointerMove={(e) => {
               if (targetingLineSourceId && rfInstanceRef.current) {
@@ -2941,8 +2984,10 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             edgeTypes={edgeTypes}
             onInit={(instance) => {
               rfInstanceRef.current = instance as any;
+              if (initialDocument.viewport) {
+                instance.setViewport(initialDocument.viewport);
+              }
             }}
-            fitView
             minZoom={0.05}
             maxZoom={5}
           >
