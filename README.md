@@ -1,81 +1,174 @@
-# Gedankenfaden — My Free Mindflow
+# Gedankenfaden
 
-A free, local-first Windows desktop workspace for building mind maps and flowcharts without accounts, cloud sync, or vendor lock-in.
+<p align="center">
+  <img src="assets/readme/gedankenfaden-hero-banner.png" alt="Gedankenfaden — local-first Windows workspace for mind maps and flowcharts" width="100%">
+</p>
 
-[![CI](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/actions/workflows/ci.yml/badge.svg)](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Peter-S-Shi/Gedankenfaden--my-free-mindflow?display_name=tag)](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows-2563eb)](#download-and-run)
-[![Local first](https://img.shields.io/badge/data-local--first-15803d)](#local-first-by-design)
+<p align="center">
+  <strong>A free, local-first Windows desktop workspace for mind maps and flowcharts.</strong>
+</p>
 
-### Library
+<p align="center">
+  No account. No mandatory cloud. Your documents stay on your own filesystem.
+</p>
 
-![Gedankenfaden local document library showing mind-map and flowchart files](assets/v2pp/pp07.png)
+<p align="center">
+  <a href="https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases"><strong>Releases</strong></a>
+  ·
+  <a href="#see-it-in-action">See it in action</a>
+  ·
+  <a href="#engineering-depth">Engineering</a>
+  ·
+  <a href="ARCHITECTURE.md">Architecture</a>
+</p>
 
-### Mind Map
+<p align="center">
+  <a href="https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Peter-S-Shi/Gedankenfaden--my-free-mindflow?display_name=tag"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-2563eb">
+  <img alt="Local first" src="https://img.shields.io/badge/data-local--first-15803d">
+  <img alt="Desktop" src="https://img.shields.io/badge/desktop-Tauri%202-24C8DB">
+</p>
 
-![Gedankenfaden mind map canvas showing a balanced layout, outline, and inspector with node styling controls](assets/v2pp/PP01.png)
+Gedankenfaden is built around a simple idea: visual thinking should not force you to choose between a hierarchy tool and a process tool — or between convenience and ownership.
 
-### Flowchart
+Use **Mind Map** mode when you are exploring structure, branches, and relationships. Use **Flowchart** mode when you are modeling processes, decisions, loops, and systems. Both modes live on one canonical graph model, while your work remains stored as portable `.mflow` files on Windows.
 
-![Gedankenfaden flowchart canvas showing grouped nodes, routed connections, an outline, and inspector](assets/v2pp/pp05.png)
+---
 
-Gedankenfaden gives developers, researchers, technical writers, and systems thinkers one private canvas for hierarchical ideas and cyclic processes. The same canonical graph model powers both views, while files remain portable and user-owned.
+## Why Gedankenfaden?
 
-## What you can do
+<table>
+<tr>
+<td width="33%" valign="top">
 
-- **Think in two structures.** Build balanced, collapsible mind maps or directed flowcharts with cycles, common diagram shapes, branch labels, groups, and multiple routing styles.
-- **Work from the keyboard.** Create siblings, children, upstream or downstream nodes, edit labels, paste multiline outlines, and remove selections with desktop-native shortcuts.
-- **Keep rich documents portable.** Store graph data and embedded images together in a single `.mflow` document.
-- **Import existing outlines.** Turn Markdown or OPML hierarchies into editable documents while preserving the source file.
-- **Share in practical formats.** Export canonical JSON, SVG, PNG, JPEG, PDF, Markdown, standalone HTML, Mermaid, OPML, FreeMind `.mm`, or JSON Canvas.
+### 🧭 Two thinking modes
 
-## A focused desktop workflow
+Move between a balanced, collapsible **Mind Map** and a directed **Flowchart** without switching products or abandoning one document model.
+
+</td>
+<td width="33%" valign="top">
+
+### 💾 Real local ownership
+
+The Library works with user-selected Windows folders. Documents are ordinary, portable files — not records trapped inside an account-backed cloud service.
+
+</td>
+<td width="33%" valign="top">
+
+### 🛠️ Built beyond the demo stage
+
+Persistence, autosave, crash recovery, file association, native packaging, export fidelity, regression coverage, and human release-candidate acceptance are part of the project.
+
+</td>
+</tr>
+</table>
+
+---
+
+## See it in action
+
+<p align="center">
+  <img src="assets/readme/gedankenfaden-product-proof-board.png" alt="Gedankenfaden product proof: Mind Map, Flowchart, and Local Library" width="100%">
+</p>
+
+### What you can do
+
+- **Build structured mind maps** with balanced layouts, branch collapse/expand, cross-links, numbering, annotations, icons, and manual positioning.
+- **Model real processes** with flowchart shapes, cycles, grouped nodes, labels, and orthogonal or smooth routing.
+- **Work from the keyboard** to create siblings and children, edit labels, navigate selections, and turn multiline text into structure.
+- **Keep documents portable** with `.mflow`, including the graph state and embedded assets needed to reopen the work later.
+- **Import existing structure** from Markdown or OPML without replacing the source file.
+- **Export to practical formats** including SVG, PNG, JPEG, PDF, Markdown, standalone HTML, Mermaid, OPML, FreeMind `.mm`, JSON, and JSON Canvas.
+- **Recover from interruption** with autosave, snapshotting, and crash-recovery behavior designed for a real desktop workflow.
+
+---
+
+## One document, two representations
+
+Gedankenfaden does not maintain separate products for mind mapping and flowcharting.
 
 ```text
-Library on your Windows folders
-        ↓
-Mind map or flowchart canvas
-        ↓
-Outline + direct manipulation + Inspector
-        ↓
-Atomic save, recovery journal, and local snapshots
-        ↓
-Portable .mflow or an open export format
+Portable .mflow document
+        │
+        ▼
+Canonical graph model
+        │
+        ├───────────────┐
+        ▼               ▼
+   Mind Map         Flowchart
+ hierarchy          process
+ exploration        logic
+        │               │
+        └───────┬───────┘
+                ▼
+      save / reopen / export
 ```
 
-The shortest useful path is simple: launch the app, create a mind map or flowchart, add a few connected ideas, and save the document directly to your own filesystem.
+That separation matters technically: the durable domain document is not the canvas library itself. The UI projects canonical nodes, edges, groups, document metadata, and viewport state into the editor.
+
+---
 
 ## Local-first by design
 
-Gedankenfaden has no account system, tracking layer, mandatory network service, or cloud database. Its Library reflects real Windows folders, and document persistence uses debounced autosave, atomic writes, a crash-recovery journal, and bounded rolling snapshots.
+```text
+Your Windows filesystem
+        ↕
+Gedankenfaden Library
+        ↕
+Portable .mflow documents
+```
 
-This is a deliberate product boundary, not an offline mode layered onto a web service.
+There is no account system, mandatory sync service, hosted database, or tracking layer in the core product model.
 
-## Engineering highlights
+Local-first is not an offline fallback. It is the default ownership boundary.
 
-- **Canonical graph boundary:** domain documents remain independent of React Flow; pure adapters project canonical nodes, edges, groups, and viewport state into the UI.
-- **One model, two modes:** hierarchical mind maps and general directed flowcharts share a durable schema without pretending every graph can be losslessly converted through a user-facing mode switch.
-- **Native file lifecycle:** Tauri 2 provides Windows filesystem access, native dialogs, file association, atomic persistence, and release packaging.
-- **Data-integrity safeguards:** validation, transactional history, autosave, recovery, snapshots, and deletion confirmation protect the authoring loop.
-- **Regression-oriented delivery:** TypeScript checks, unit and integration tests, production builds, native Windows builds, installer packaging, artifact verification, and native smoke checks run through the repository workflow.
-- **Accessible motion:** interaction feedback respects `prefers-reduced-motion` rather than treating animation as a required cue.
+---
 
-For deeper inspection, see the [product contract](PRODUCT_SPEC.md), [architecture](ARCHITECTURE.md), [roadmap](ROADMAP.md), and [current verification status](PROJECT_STATUS.md).
+## Engineering depth
 
-## Download and run
+Gedankenfaden is also an engineering portfolio project. The repository demonstrates the work required to turn a visual-editor prototype into a release-ready desktop product.
 
-Gedankenfaden v2.0.0 is available from [GitHub Releases](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases/latest):
+| Engineering area | What the project demonstrates |
+|---|---|
+| **Canonical graph architecture** | The domain model stays independent from the rendering library; adapters project canonical state into the editor. |
+| **Dual-mode constraints** | Rooted Mind Maps and general directed Flowcharts share one representation while retaining mode-specific rules. |
+| **Layout engineering** | Text-aware geometry, bilateral balancing, fan-out handling, manual-offset preservation, and incremental layout stability. |
+| **Native desktop boundary** | Tauri + Rust filesystem integration, authorized paths, active-folder watching, file association, and native lifecycle handling. |
+| **Persistence & recovery** | Atomic-style persistence, autosave, rolling recovery state, save/reopen journeys, and crash-recovery validation. |
+| **Export fidelity** | Geometry and visual intent are preserved across vector, raster, document, and structured interchange formats. |
+| **Release discipline** | Reality audit → hardening → UI reconstruction → release candidate → packaged human acceptance → v2.0.0. |
 
-- **NSIS installer** — conventional setup with Start Menu and desktop integration.
-- **MSI package** — Windows Installer package with `.mflow` file association.
-- **Portable ZIP** — extract and run `gedankenfaden.exe`; no installation required.
-- **SHA-256 checksums** — supplied alongside the binaries.
+<p align="center">
+  <img src="assets/readme/gedankenfaden-engineering-journey.png" alt="Gedankenfaden v2 engineering journey from reality audit to release" width="100%">
+</p>
 
-The Windows binaries are currently unsigned, so Windows may show an unknown-publisher warning. The project does not target macOS, Linux, mobile, or a hosted web service in v2.
+For the deeper record, see:
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system architecture and domain boundaries
+- [`ROADMAP.md`](ROADMAP.md) — milestone history and v2 closure
+- [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — current program and verification state
+- [`.github/V2_DEFECT_LEDGER.md`](.github/V2_DEFECT_LEDGER.md) — historical hardening evidence
+
+---
+
+## Download
+
+Get the newest published Windows build from the repository's [GitHub Releases](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases) page.
+
+Windows delivery formats include:
+
+- **NSIS installer** — conventional Windows setup
+- **MSI package** — Windows Installer distribution
+- **Portable ZIP** — extract and run without installation
+
+The Windows binaries are currently unsigned, so Windows may display an unknown-publisher warning.
+
+---
 
 ## Run from source
 
-Prerequisites: Node.js 20.19 or newer, npm 10 or newer, and a stable Rust Windows toolchain.
+Prerequisites: Node.js 20.x, npm, and a stable Rust Windows toolchain.
 
 ```powershell
 npm install
@@ -84,11 +177,45 @@ npm run build
 npx tauri dev
 ```
 
-`npx tauri dev` launches the native desktop shell against the local frontend. To produce a full release bundle (NSIS installer, MSI package, and the release binary) instead, use `npx tauri build`.
+Build the full Windows desktop bundle with:
 
-## Intentional v2 boundaries
+```powershell
+npx tauri build
+```
 
-Gedankenfaden is a single-user Windows authoring tool. Version 2 does not include cloud sync, collaboration, accounts, AI map generation, mobile clients, presentation mode, a template marketplace, or social plugins.
+---
+
+## Intentional boundaries
+
+Gedankenfaden v2 is deliberately scoped as a **single-user Windows visual-thinking tool**.
+
+It does not currently include cloud sync, collaboration, user accounts, mobile clients, presentation mode, a template marketplace, or whole-map AI generation.
+
+Those are product boundaries, not missing claims. The current design stays focused on private, durable, local visual thinking.
+
+---
+
+## Technology
+
+<p>
+  <strong>React 19</strong> ·
+  <strong>TypeScript</strong> ·
+  <strong>Tauri 2</strong> ·
+  <strong>Rust</strong> ·
+  <strong>@xyflow/react</strong> ·
+  <strong>Vite</strong> ·
+  <strong>Vitest</strong>
+</p>
+
+---
+
+## Release status
+
+**Current codebase:** `v2.0.0`
+
+The v2 program completed product hardening, UI reconstruction, release-candidate validation, and packaged human acceptance. Published downloadable builds are listed on the Releases page.
+
+---
 
 ## License
 
