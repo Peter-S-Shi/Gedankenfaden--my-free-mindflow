@@ -12,20 +12,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-// RC-A: package.json is the single source of truth for the release version
+// package.json is the single source of truth for the release version
 // (previously "1.0.0" was hardcoded in this script independently of
 // package.json, so a version bump here silently drifted from the actual
-// release version). The raw semver string (which may carry a prerelease
-// identifier such as "-1") is what candidate builds must be labeled with, per
-// the RC-A truthfulness requirement -- never mark a candidate build 2.0.0.
+// release version). The raw semver string drives the packaged labeling:
+// a bare version (no prerelease identifier, e.g. "2.0.0") packages and
+// labels as the real final release; a version carrying a prerelease
+// identifier (e.g. "2.0.0-<N>") packages and labels as a release candidate
+// instead, so the same script stays correct across both.
 //
-// The prerelease identifier is kept numeric-only (e.g. "2.0.0-1", not
-// "2.0.0-rc.1"): Tauri's Windows MSI/WiX bundler rejects any pre-release
-// identifier that isn't a bare number ("optional pre-release identifier in
-// app version must be numeric-only ... for msi target"), discovered when
-// `npx tauri build` failed to bundle the MSI target during RC-A's own
-// fail-closed verification. The human-readable "RC" label is derived here
-// instead of embedded in the semver itself.
+// During V2's RC-A phase, candidate builds used a numeric-only prerelease
+// identifier (e.g. "2.0.0-<N>" rather than "2.0.0-rc.1"): Tauri's Windows MSI/WiX
+// bundler rejects any pre-release identifier that isn't a bare number
+// ("optional pre-release identifier in app version must be numeric-only
+// ... for msi target"), discovered when `npx tauri build` failed to bundle
+// the MSI target during that phase's own fail-closed verification. That
+// was an earlier prerelease workaround, superseded now that the version
+// has been promoted to the final "2.0.0" -- the human-readable "RC" label
+// (still derived here, not embedded in the semver) simply no longer
+// applies once the version carries no prerelease identifier.
 const { version: packageVersion } = JSON.parse(
   fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8')
 );

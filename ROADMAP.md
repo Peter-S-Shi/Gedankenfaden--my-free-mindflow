@@ -79,7 +79,7 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
 #### 4a. V2 Release Candidate Phase A (RC-A): Version/Config Unification & Native Build Verification
 - **Status**: **COMPLETE**
 - **Scope & Accomplishments**:
-  - Audited and unified release/version/package configuration that still read the frozen V1 `1.0.0` baseline (`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `scripts/package-portable.mjs`, `.github/workflows/ci.yml`) to a single source-of-truth machine version `2.0.0-1` (numeric-only semver prerelease identifier, required by the Windows MSI/WiX bundler), displayed to users as **"2.0.0 RC1"** -- explicitly not a `v2.0.0` promotion.
+  - Audited and unified release/version/package configuration that still read the frozen V1 `1.0.0` baseline (`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `scripts/package-portable.mjs`, `.github/workflows/ci.yml`) to a single source of truth. An interim numeric-only prerelease identifier was used briefly (required at the time by the Windows MSI/WiX bundler, which rejects non-numeric prerelease identifiers such as `-rc.1`), then retired by a subsequent, explicit, narrowly-scoped instruction that normalized the machine version to the final `2.0.0` (no prerelease/RC suffix). This version normalization is metadata-only: it does not itself merge PR #4/PR #19, tag a release, or constitute Release Closure.
   - Fail-closed verified: `cargo build` / `cargo build --release` / `cargo test` (7/7 Rust unit tests) locally, plus the real `npx tauri build` bundle pipeline (NSIS installer + MSI installer) and portable-artifact packaging/verification, re-run both locally and via the existing GitHub Actions pipeline on the RC branch's exact-head CI (SUCCESS).
   - Added an isolated V1.0.0-to-V2.0.0-candidate `.mflow`/persisted-document compatibility smoke (`src/test/v2-rc-a-v1-compat-smoke.test.ts`) using entirely synthetic fixture data -- no real user file or library directory touched.
   - Delivered on branch `rc/v2.0.0-release-candidate` as a child PR into `v2.0.0-upgrade` (not `main`); PR #4 and the RC child PR both remain unmerged.
@@ -87,7 +87,7 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
 
 #### 4b. V2 Release Candidate Phase B: M7-B Human Acceptance
 - **Status**: **PENDING (NEXT STAGE)**
-- **Scope**: A minimal packaged-candidate human smoke of the RC-A `2.0.0 RC1` build, following the V1 acceptance model -- not a second full human-acceptance cycle over already-closed Product Hardening (Flowchart Fidelity Closure, Export Closure) or an end-to-end manual regression of every canvas mode, importer, and exporter:
+- **Scope**: A minimal packaged-candidate human smoke of the RC-A `2.0.0` candidate build, following the V1 acceptance model -- not a second full human-acceptance cycle over already-closed Product Hardening (Flowchart Fidelity Closure, Export Closure) or an end-to-end manual regression of every canvas mode, importer, and exporter:
   - Install via NSIS or MSI, or launch the portable build, on the human reviewer's own machine.
   - Real application cold start (not a dev-server proxy) shows the actual UI.
   - `.mflow` file-association open (double-click a file in Explorer).
