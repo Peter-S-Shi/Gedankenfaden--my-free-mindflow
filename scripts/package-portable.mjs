@@ -12,8 +12,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+// RC-A: package.json is the single source of truth for the release version
+// (previously "1.0.0" was hardcoded in this script independently of
+// package.json, so a version bump here silently drifted from the actual
+// release version). The raw semver string (which may carry a prerelease
+// tag such as "-rc.1") is what candidate builds must be labeled with, per
+// the RC-A truthfulness requirement -- never mark a candidate build 2.0.0.
+const { version: packageVersion } = JSON.parse(
+  fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8')
+);
+
 async function main() {
-  console.log('--- Gedankenfaden Windows Portable Packager ---');
+  console.log(`--- Gedankenfaden Windows Portable Packager (v${packageVersion}) ---`);
 
   // Candidate executable paths
   const candidateExePaths = [
@@ -41,7 +51,8 @@ async function main() {
   }
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const stagingDir = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64');
+  const stagingName = `Gedankenfaden-v${packageVersion}-windows-x64`;
+  const stagingDir = path.resolve(outputDir, stagingName);
   fs.mkdirSync(stagingDir, { recursive: true });
 
   // 1. Copy executable
@@ -49,11 +60,12 @@ async function main() {
   fs.copyFileSync(exePath, destExe);
 
   // 2. Write README
+  const isReleaseCandidate = packageVersion.includes('-rc.');
   const readmeText = `======================================================================
 Gedankenfaden - Local-First Visual Thinking Desktop
 ======================================================================
 
-Version: 1.0.0
+Version: ${packageVersion}${isReleaseCandidate ? ' (RELEASE CANDIDATE -- not a final release)' : ''}
 Architecture: Windows x86_64
 Mode: Standalone Portable (No installation required)
 
@@ -78,7 +90,8 @@ Support & Project Source: https://github.com/Peter-S-Shi/Gedankenfaden--my-free-
   // 3. Write Manifest
   const manifest = {
     name: 'Gedankenfaden',
-    version: '1.0.0',
+    version: packageVersion,
+    releaseChannel: isReleaseCandidate ? 'rc' : 'stable',
     platform: 'windows-x64',
     distributionType: 'portable',
     buildTimestamp: new Date().toISOString(),
@@ -98,14 +111,14 @@ Support & Project Source: https://github.com/Peter-S-Shi/Gedankenfaden--my-free-
   console.log('Compressing standalone portable zip archive...');
   const zipData = {};
   const exeBuffer = fs.readFileSync(destExe);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/gedankenfaden.exe'] = new Uint8Array(exeBuffer);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/README.txt'] = fflate.strToU8(readmeText);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/manifest.json'] = fflate.strToU8(
+  zipData[`${stagingName}/gedankenfaden.exe`] = new Uint8Array(exeBuffer);
+  zipData[`${stagingName}/README.txt`] = fflate.strToU8(readmeText);
+  zipData[`${stagingName}/manifest.json`] = fflate.strToU8(
     JSON.stringify(manifest, null, 2)
   );
 
   const zipped = fflate.zipSync(zipData, { level: 6 });
-  const zipPath = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64-portable.zip');
+  const zipPath = path.resolve(outputDir, `${stagingName}-portable.zip`);
   fs.writeFileSync(zipPath, zipped);
 
   const zipStats = fs.statSync(zipPath);

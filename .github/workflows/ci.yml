@@ -67,13 +67,29 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: node scripts/package-portable.mjs
 
+      - name: Resolve package version
+        # RC-A: the release version now has one source of truth (package.json,
+        # kept in lockstep with tauri.conf.json/Cargo.toml) instead of being
+        # hardcoded independently in this workflow and in package-portable.mjs.
+        if: matrix.os == 'windows-latest'
+        id: pkg_version
+        shell: bash
+        run: |
+          value=$(node -p "require('./package.json').version")
+          if [ -z "$value" ]; then
+            echo "package.json has no resolvable version" >&2
+            exit 1
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+
       - name: Verify Release Artifacts Exist
         if: matrix.os == 'windows-latest'
         run: |
           node -e "
             const fs = require('fs');
             const path = require('path');
-            const portableZip = 'dist-portable/Gedankenfaden-v1.0.0-windows-x64-portable.zip';
+            const pkgVersion = require('./package.json').version;
+            const portableZip = 'dist-portable/Gedankenfaden-v' + pkgVersion + '-windows-x64-portable.zip';
             if (!fs.existsSync(portableZip) || fs.statSync(portableZip).size < 100000) {
               console.error('Missing or invalid portable zip:', portableZip);
               process.exit(1);
@@ -103,7 +119,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: gedankenfaden-windows-v1.0.0
+          name: gedankenfaden-windows-v${{ steps.pkg_version.outputs.value }}
           if-no-files-found: error
           path: |
             dist-portable/*.zip
