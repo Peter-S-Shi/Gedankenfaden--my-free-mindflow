@@ -83,6 +83,69 @@ function preserveDomainNodeData(data: Record<string, unknown> | undefined): Reco
   return Object.keys(preserved).length > 0 ? preserved : undefined;
 }
 
+export type ReactFlowEdgeType = 'step' | 'smoothstep' | 'bezier' | 'straight';
+
+/**
+ * Maps canonical routing semantics to React Flow renderer types.
+ * Canonical `orthogonal` maps to true right-angle renderer `step`.
+ */
+export function canonicalEdgeTypeToReactFlow(
+  canonicalType: CanonicalEdge['type'] | undefined,
+  defaultRouting: 'smoothstep' | 'bezier' | 'orthogonal' = 'smoothstep'
+): ReactFlowEdgeType {
+  const resolved = canonicalType || defaultRouting;
+  switch (resolved) {
+    case 'orthogonal':
+      return 'step';
+    case 'smoothstep':
+      return 'smoothstep';
+    case 'bezier':
+      return 'bezier';
+    case 'straight':
+      return 'straight';
+    default:
+      return 'smoothstep';
+  }
+}
+
+/**
+ * Maps React Flow renderer edge types back to canonical types without leaking renderer identifiers.
+ */
+export function reactFlowEdgeTypeToCanonical(
+  rfType: string | undefined,
+  existingType?: CanonicalEdge['type']
+): CanonicalEdge['type'] {
+  if (existingType) {
+    if (existingType === 'orthogonal' && (rfType === 'step' || rfType === 'orthogonal')) {
+      return 'orthogonal';
+    }
+    if (existingType === 'smoothstep' && rfType === 'smoothstep') {
+      return 'smoothstep';
+    }
+    if (existingType === 'bezier' && (rfType === 'bezier' || rfType === 'default')) {
+      return 'bezier';
+    }
+    if (existingType === 'straight' && rfType === 'straight') {
+      return 'straight';
+    }
+  }
+
+  switch (rfType) {
+    case 'step':
+    case 'orthogonal':
+      return 'orthogonal';
+    case 'smoothstep':
+      return 'smoothstep';
+    case 'bezier':
+    case 'default':
+      return 'bezier';
+    case 'straight':
+      return 'straight';
+    default:
+      return existingType || 'smoothstep';
+  }
+}
+
 export interface CanonicalToReactFlowCallbacks {
   onToggleFold?: (nodeId: string) => void;
   onUpdateLabel?: (nodeId: string, label: string) => void;
@@ -191,10 +254,8 @@ export function canonicalToReactFlow(
     const isHidden = hiddenNodeIds.has(e.source) || hiddenNodeIds.has(e.target);
 
     const isFlowchart = doc.mode === 'flowchart';
-    const edgeType =
-      e.type === 'orthogonal'
-        ? 'smoothstep'
-        : e.type || (isFlowchart ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep');
+    const canonicalType = e.type || (isFlowchart ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep');
+    const edgeType = canonicalEdgeTypeToReactFlow(canonicalType);
 
     return {
       id: e.id,
@@ -301,7 +362,7 @@ export function reactFlowToCanonical(
       sourceHandle: re.sourceHandle || existing?.sourceHandle,
       targetHandle: re.targetHandle || existing?.targetHandle,
       label: typeof re.label === 'string' ? re.label : existing?.label,
-      type: (re.type as CanonicalEdge['type']) || existing?.type || 'smoothstep',
+      type: reactFlowEdgeTypeToCanonical(re.type, existing?.type),
       style: existing?.style,
     };
   });

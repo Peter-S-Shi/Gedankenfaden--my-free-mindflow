@@ -15,6 +15,7 @@ import {
   ReactFlowInstance,
   Panel,
   ViewportPortal,
+  BezierEdge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -27,7 +28,12 @@ import {
   MindMapAnnotation,
   RelationshipLineAnnotation,
 } from '../model/types';
-import { canonicalToReactFlow, reactFlowToCanonical, CustomNodeData } from '../model/adapter';
+import {
+  canonicalToReactFlow,
+  reactFlowToCanonical,
+  canonicalEdgeTypeToReactFlow,
+  CustomNodeData,
+} from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
 import { HistoryManager } from '../model/history';
 import { createExportArtifact, ExportFormat, saveExportWithNativeDialog } from '../export/saveExport';
@@ -111,6 +117,10 @@ import {
 
 const nodeTypes = {
   customNode: CustomNode,
+};
+
+const edgeTypes = {
+  bezier: BezierEdge,
 };
 
 export interface SaveResult {
@@ -675,13 +685,14 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
       // not the only gate.
       if (!allowsManualConnections(doc.mode)) return;
       const theme = doc.theme || BUILTIN_THEMES['nordic-slate'];
-      const edgeType = doc.mode === 'flowchart' ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep';
+      const canonicalRouting = doc.mode === 'flowchart' ? theme.defaultEdgeRouting || 'smoothstep' : 'smoothstep';
+      const rfEdgeType = canonicalEdgeTypeToReactFlow(canonicalRouting);
 
       setEdges((eds) => {
         const next = addEdge(
           {
             ...params,
-            type: edgeType === 'orthogonal' ? 'smoothstep' : edgeType,
+            type: rfEdgeType,
             style: { stroke: theme.edgeColor || '#94a3b8', strokeWidth: 2 },
             markerEnd:
               doc.mode === 'flowchart'
@@ -2927,6 +2938,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
               }
             }}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onInit={(instance) => {
               rfInstanceRef.current = instance as any;
             }}
