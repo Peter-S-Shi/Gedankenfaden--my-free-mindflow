@@ -79,18 +79,21 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
 #### 4a. V2 Release Candidate Phase A (RC-A): Version/Config Unification & Native Build Verification
 - **Status**: **COMPLETE**
 - **Scope & Accomplishments**:
-  - Audited and unified release/version/package configuration that still read the frozen V1 `1.0.0` baseline (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `scripts/package-portable.mjs`, `.github/workflows/ci.yml`) to a single source-of-truth `2.0.0-rc.1` release-candidate label -- explicitly not a `v2.0.0` promotion.
-  - Fail-closed verified: `cargo build` / `cargo build --release` / `cargo test` (7/7 Rust unit tests) locally, plus the existing GitHub Actions pipeline's Windows native release binary, `tauri build` NSIS+MSI bundle, and portable-artifact packaging/verification steps re-run on the RC branch.
+  - Audited and unified release/version/package configuration that still read the frozen V1 `1.0.0` baseline (`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `scripts/package-portable.mjs`, `.github/workflows/ci.yml`) to a single source-of-truth machine version `2.0.0-1` (numeric-only semver prerelease identifier, required by the Windows MSI/WiX bundler), displayed to users as **"2.0.0 RC1"** -- explicitly not a `v2.0.0` promotion.
+  - Fail-closed verified: `cargo build` / `cargo build --release` / `cargo test` (7/7 Rust unit tests) locally, plus the real `npx tauri build` bundle pipeline (NSIS installer + MSI installer) and portable-artifact packaging/verification, re-run both locally and via the existing GitHub Actions pipeline on the RC branch's exact-head CI (SUCCESS).
   - Added an isolated V1.0.0-to-V2.0.0-candidate `.mflow`/persisted-document compatibility smoke (`src/test/v2-rc-a-v1-compat-smoke.test.ts`) using entirely synthetic fixture data -- no real user file or library directory touched.
   - Delivered on branch `rc/v2.0.0-release-candidate` as a child PR into `v2.0.0-upgrade` (not `main`); PR #4 and the RC child PR both remain unmerged.
   - Did not reopen Product Hardening, redesign the Tauri/native/packaging architecture, or perform UI polish/new features.
 
 #### 4b. V2 Release Candidate Phase B: M7-B Human Acceptance
 - **Status**: **PENDING (NEXT STAGE)**
-- **Scope**:
-  - Manual acceptance of UI Reconstruction (V2 M3), Flowchart Fidelity Closure (F6-F10), Export Closure (EX-01..EX-11), and the RC-A `2.0.0-rc.1` candidate build together against the real Mind Map / Flowchart acceptance samples.
-  - End-to-end regression across all canvas modes, exporters, importers, and recovery systems on the actual packaged candidate (NSIS/MSI/portable), not just CI.
-  - Complete native smoke and cold-start verification on the human reviewer's own machine.
+- **Scope**: A minimal packaged-candidate human smoke of the RC-A `2.0.0 RC1` build, following the V1 acceptance model -- not a second full human-acceptance cycle over already-closed Product Hardening (Flowchart Fidelity Closure, Export Closure) or an end-to-end manual regression of every canvas mode, importer, and exporter:
+  - Install via NSIS or MSI, or launch the portable build, on the human reviewer's own machine.
+  - Real application cold start (not a dev-server proxy) shows the actual UI.
+  - `.mflow` file-association open (double-click a file in Explorer).
+  - One representative edit -> save -> close -> reopen persistence journey.
+  - Crash-recovery behavior (forced process kill mid-edit triggers the recovery prompt on relaunch) where applicable.
+  - UI Reconstruction (V2 M3) still separately awaits its own first human acceptance pass (not previously accepted), scoped to its own UI surface -- not folded into an RC-B end-to-end regression.
 
 #### 5. Release v2.0.0 & Portfolio Packaging Refresh
 - **Status**: **PENDING**

@@ -9,7 +9,7 @@
 **Flowchart Fidelity Closure (F6-F10)**: COMPLETE / PASS (`cbbaf70`) -- multiline text, canvas pattern, edge width, theme color, and font-family fidelity  
 **Final Export Product Hardening Closure (EX-01..EX-11)**: COMPLETE / PASS (`9bc1e9e`) -- hierarchy-export gating, JSON Canvas standard fidelity, numbering/annotation/background/visual-resolver export parity, PDF text-aware geometry, Unicode filenames, icon/image export  
 **V2 Release Candidate Phase A (RC-A)**: COMPLETE -- version/package-config unification to `2.0.0-1` (displayed to users as "2.0.0 RC1"; previously stale `1.0.0` residue in `package.json`/`tauri.conf.json`/`Cargo.toml`/CI/packaging script), native Windows release build + NSIS/MSI/portable artifact verification, and an isolated v1.0.0-to-v2.0.0-candidate `.mflow` compatibility smoke (see Section 5). Branch: `rc/v2.0.0-release-candidate` (child PR into `v2.0.0-upgrade`, not `main`).  
-**Next Macro Stage**: M7-B Human Acceptance -- manual verification of UI Reconstruction, Flowchart Fidelity Closure, Export Closure, and the RC-A candidate build together, before V2 Release Candidate Phase B / Final Release Closure begins  
+**Next Macro Stage**: M7-B Human Acceptance -- a minimal packaged-candidate smoke of the RC-A `2.0.0 RC1` build (install/portable launch, cold start, `.mflow` file-association open, one edit-save-close-reopen persistence journey, recovery behavior), per the V1 acceptance model. UI Reconstruction (V2 M3) still awaits its own first human acceptance pass; Product Hardening (including Flowchart Fidelity Closure and Export Closure) is already CLOSED/PASS and is not re-verified end-to-end in RC-B.  
 **Release Truth**: v2.0.0 RC-A is a version/config/native-build audit only, not a promoted v2.0.0 release. PR #4 remains Draft; the RC-A child PR is also not merge-ready and must not be merged without explicit human review. Final `v2.0.0` promotion, tagging, and portfolio refresh remain PENDING.  
 **Official Remote**: `https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow.git`  
 **Last Updated**: 2026-09-15  
@@ -33,7 +33,7 @@
 | **Flowchart Fidelity Closure (F6-F10)** | **COMPLETE (PASS)** | `cbbaf70`; focused + full suite (58/58, 428/428) green; exact-head CI `34917893819` SUCCESS |
 | **Final Export Product Hardening Closure (EX-01..EX-11)** | **COMPLETE (PASS)** | `9bc1e9e`, `src/export/exportScene.ts`; full suite (499/499) green; exact-head CI `34920635735` SUCCESS |
 | **V2 Release Candidate Phase A (RC-A)** | **COMPLETE** | Branch `rc/v2.0.0-release-candidate`; version/config unified to `2.0.0-1` ("2.0.0 RC1"); native release build + NSIS/MSI/portable verified via the correct `tauri build` bundle pipeline; V1-compat smoke `src/test/v2-rc-a-v1-compat-smoke.test.ts` |
-| **V2 Release Candidate Phase B (Human Acceptance)** | **PENDING** | Scheduled next: manual acceptance of UI Reconstruction + Flowchart Fidelity Closure + Export Closure + RC-A candidate build together |
+| **V2 Release Candidate Phase B (Human Acceptance)** | **PENDING** | Scheduled next: minimal packaged-candidate smoke of the RC-A `2.0.0 RC1` build (install/portable launch, cold start, `.mflow` open, one save/reload journey, recovery check) -- not a re-verification of already-closed Product Hardening or UI Reconstruction's first acceptance pass |
 | **Umbrella PR #4** | **OPEN (DRAFT)** | Base: `main`, Head: `v2.0.0-upgrade` -- unaffected by RC-A; RC-A is a separate child PR into `v2.0.0-upgrade` |
 
 ### Key Product Hardening Accomplishments
