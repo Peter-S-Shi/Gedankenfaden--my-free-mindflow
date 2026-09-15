@@ -267,6 +267,7 @@ export function canonicalToReactFlow(
       type: edgeType,
       animated: false,
       hidden: isHidden,
+      data: e.isCrossLink !== undefined ? { isCrossLink: e.isCrossLink } : undefined,
       markerEnd:
         isFlowchart || e.style?.arrowEnd
           ? {
@@ -355,6 +356,10 @@ export function reactFlowToCanonical(
 
   nextDoc.edges = rfEdges.map((re) => {
     const existing = edgeMap.get(re.id);
+    const edgeData = re.data as { isCrossLink?: boolean } | undefined;
+    const isCrossLink =
+      edgeData?.isCrossLink !== undefined ? edgeData.isCrossLink : existing?.isCrossLink;
+
     return {
       id: re.id,
       source: re.source,
@@ -363,6 +368,7 @@ export function reactFlowToCanonical(
       targetHandle: re.targetHandle || existing?.targetHandle,
       label: typeof re.label === 'string' ? re.label : existing?.label,
       type: reactFlowEdgeTypeToCanonical(re.type, existing?.type),
+      ...(isCrossLink !== undefined ? { isCrossLink } : {}),
       style: existing?.style,
     };
   });
