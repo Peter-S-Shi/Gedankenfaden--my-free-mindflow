@@ -14,13 +14,35 @@
  * 11. JSON Canvas (.canvas)
  */
 
-import { CanonicalDocument, CanonicalNode } from '../model/types';
+import { CanonicalDocument, CanonicalNode, CanonicalGroup } from '../model/types';
 import { serializeDocument } from '../model/document';
 import { calculateOrthogonalPath } from '../model/routing';
-import { wrapNodeText } from '../model/textMeasurement';
-import { PDFDocument, PDFFont, rgb } from 'pdf-lib';
+import { AssetStore } from '../model/assets';
+import { resolveNodeVisuals } from '../model/theme';
+import { resolveGroupBounds } from '../model/groups';
+import { buildExportScene, SceneNode } from './exportScene';
+import { PDFDocument, PDFFont, PDFImage, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import notoSansScUnicode from '@fontsource-variable/noto-sans-sc/unicode.json';
+
+/**
+ * Resolves the export `assets` map (asset filename -> raw bytes, the same
+ * map `.mflow` packaging already receives) into an `AssetStore` lookup, so
+ * SVG/HTML/PDF can embed a node's `assetRef` image without inventing a
+ * second asset identity model (EX-11).
+ */
+function resolveAssetStore(assets?: Map<string, Uint8Array>): AssetStore | undefined {
+  if (!assets || assets.size === 0) return undefined;
+  return AssetStore.fromBytesMap(assets);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  // eslint-disable-next-line no-undef
+  return btoa(binary);
+}
 
 const notoSansScFiles = import.meta.glob('../../node_modules/@fontsource-variable/noto-sans-sc/files/*.woff2', {
   eager: true,
@@ -29,6 +51,7 @@ const notoSansScFiles = import.meta.glob('../../node_modules/@fontsource-variabl
 }) as Record<string, string>;
 
 interface PdfTextPlacement { text: string; x: number; y: number; size: number; centered: boolean; color: string }
+interface PdfImagePlacement { data: Uint8Array; mimeType: string; x: number; y: number; width: number; height: number }
 
 /**
  * 1. Native Lossless JSON Exporter (.json)
@@ -40,109 +63,158 @@ export function exportToJSON(doc: CanonicalDocument): string {
 /**
  * 2. Vector SVG Exporter (.svg)
  */
-export function exportToSVG(doc: CanonicalDocument): string {
+export function exportToSVG(doc: CanonicalDocument, assets?: Map<string, Uint8Array>): string {
   if (doc.nodes.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"></svg>`;
   }
 
-  const effectiveBoxes = computeEffectiveNodeBoxes(doc);
+  const assetStore = resolveAssetStore(assets);
+  const scene = buildExportScene(doc, (n) => Boolean(n.assetRef && assetStore?.getAsset(n.assetRef)));
 
-  let minX = Infinity;
-  let minY = Infinity;
-  maxX_calc: {
-    let maxX = -Infinity;
-    let maxY = -Infinity;
+  const padding = 60;
+  const vbX = Math.floor(scene.bounds.minX - padding);
+  const vbY = Math.floor(scene.bounds.minY - padding);
+  const vbW = Math.ceil(scene.bounds.maxX - scene.bounds.minX + padding * 2);
+  const vbH = Math.ceil(scene.bounds.maxY - scene.bounds.minY + padding * 2);
 
-    doc.nodes.forEach((n) => {
-      const box = effectiveBoxes.get(n.id)!;
-      minX = Math.min(minX, box.x);
-      minY = Math.min(minY, box.y);
-      maxX = Math.max(maxX, box.x + box.width);
-      maxY = Math.max(maxY, box.y + box.height);
-    });
+  const boxById = new Map(scene.nodes.map((sn) => [sn.node.id, sn]));
+  const nodeMap = new Map(doc.nodes.map((n) => [n.id, n]));
+  let svgContent = '';
 
-    const padding = 60;
-    const vbX = Math.floor(minX - padding);
-    const vbY = Math.floor(minY - padding);
-    const vbW = Math.ceil(maxX - minX + padding * 2);
-    const vbH = Math.ceil(maxY - minY + padding * 2);
+  // F7/EX-08: background pattern natively expressed as an SVG pattern, using
+  // the same dots/lines/none projection Canvas uses -- never the document's
+  // own hardcoded white fill.
+  let backgroundDefs = '';
+  let backgroundFill = `<rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="${escapeXml(scene.background.fill)}" />`;
+  if (scene.background.pattern !== 'none') {
+    if (scene.background.pattern === 'dots') {
+      backgroundDefs = `<pattern id="canvas-bg-pattern" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1.2" fill="${escapeXml(scene.background.patternColor)}" /></pattern>`;
+    } else {
+      backgroundDefs = `<pattern id="canvas-bg-pattern" width="22" height="22" patternUnits="userSpaceOnUse"><path d="M 22 0 L 0 0 0 22" fill="none" stroke="${escapeXml(scene.background.patternColor)}" stroke-width="1" /></pattern>`;
+    }
+    backgroundFill += `\n  <rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="url(#canvas-bg-pattern)" />`;
+  }
 
-    const nodeMap = new Map(doc.nodes.map((n) => [n.id, n]));
-    let svgContent = '';
+  // EX-05: boundary annotations are background regions, drawn behind groups
+  // and primary node content.
+  for (const ann of scene.annotations) {
+    if (ann.kind !== 'boundary') continue;
+    const style = ann.annotation.style;
+    svgContent += `  <g data-annotation-id="${escapeXml(ann.annotation.id)}" data-annotation-kind="boundary"><rect x="${ann.box.x}" y="${ann.box.y}" width="${ann.box.width}" height="${ann.box.height}" rx="${style?.borderRadius ?? 12}" fill="${escapeXml(style?.fillColor || 'rgba(59,130,246,0.08)')}" fill-opacity="${style?.fillOpacity ?? 1}" stroke="${escapeXml(style?.borderColor || '#93c5fd')}" stroke-width="${style?.borderWidth ?? 1.5}"${style?.borderStyle === 'dashed' ? ' stroke-dasharray="8 6"' : ''} />`;
+    if (ann.annotation.title) {
+      svgContent += `<text x="${ann.box.x + 10}" y="${ann.box.y + 20}" fill="${escapeXml(style?.borderColor || '#3b82f6')}" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" font-weight="600">${escapeXml(ann.annotation.title)}</text>`;
+    }
+    svgContent += `</g>\n`;
+  }
 
-    doc.groups.forEach((group) => {
-      const bounds = group.bounds;
-      if (!bounds) return;
-      svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${escapeXml(group.style?.backgroundColor || 'rgba(241,245,249,0.65)')}" stroke="${escapeXml(group.style?.borderColor || '#cbd5e1')}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
-    });
+  scene.groups.forEach(({ group, bounds }: { group: CanonicalGroup; bounds: { x: number; y: number; width: number; height: number } }) => {
+    svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${escapeXml(group.style?.backgroundColor || 'rgba(241,245,249,0.65)')}" stroke="${escapeXml(group.style?.borderColor || '#cbd5e1')}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
+  });
 
-    // Render edges
-    doc.edges.forEach((edge) => {
-      const src = nodeMap.get(edge.source);
-      const tgt = nodeMap.get(edge.target);
-      if (!src || !tgt) return;
+  // Render edges
+  doc.edges.forEach((edge) => {
+    const src = nodeMap.get(edge.source);
+    const tgt = nodeMap.get(edge.target);
+    if (!src || !tgt) return;
 
-      const anchor = (node: CanonicalNode, handle: string | undefined) => {
-        const box = effectiveBoxes.get(node.id)!;
-        if (handle === 'left') return { x: box.x, y: box.y + box.height / 2 };
-        if (handle === 'top') return { x: box.x + box.width / 2, y: box.y };
-        if (handle === 'bottom') return { x: box.x + box.width / 2, y: box.y + box.height };
-        return { x: box.x + box.width, y: box.y + box.height / 2 };
-      };
-      const start = anchor(src, edge.sourceHandle); const end = anchor(tgt, edge.targetHandle);
-      const pathD = edge.type === 'straight' ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edge.type === 'orthogonal' ? calculateOrthogonalPath(start, end, edge.sourceHandle as 'left' | 'right' | 'top' | 'bottom', edge.targetHandle as 'left' | 'right' | 'top' | 'bottom').path : edge.type === 'smoothstep' ? `M ${start.x} ${start.y} Q ${start.x} ${(start.y + end.y) / 2} ${(start.x + end.x) / 2} ${(start.y + end.y) / 2} Q ${end.x} ${(start.y + end.y) / 2} ${end.x} ${end.y}` : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`;
-      svgContent += `  <path data-edge-id="${escapeXml(edge.id)}" data-source-handle="${edge.sourceHandle || 'right'}" data-target-handle="${edge.targetHandle || 'left'}" d="${pathD}" fill="none" stroke="${edge.style?.stroke || doc.theme.edgeColor || '#94a3b8'}" stroke-width="${edge.style?.strokeWidth || 2}"${edge.style?.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.style?.arrowEnd ? ' marker-end="url(#arrowhead)"' : ''} />\n`;
-      if (edge.label) {
-        const midX = (start.x + end.x) / 2;
-        const midY = (start.y + end.y) / 2 - 6;
-        svgContent += `  <text x="${midX}" y="${midY}" fill="#64748b" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" text-anchor="middle">${escapeXml(edge.label)}</text>\n`;
+    const anchor = (node: CanonicalNode, handle: string | undefined) => {
+      const box = boxById.get(node.id)!.box;
+      if (handle === 'left') return { x: box.x, y: box.y + box.height / 2 };
+      if (handle === 'top') return { x: box.x + box.width / 2, y: box.y };
+      if (handle === 'bottom') return { x: box.x + box.width / 2, y: box.y + box.height };
+      return { x: box.x + box.width, y: box.y + box.height / 2 };
+    };
+    const start = anchor(src, edge.sourceHandle); const end = anchor(tgt, edge.targetHandle);
+    const pathD = edge.type === 'straight' ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edge.type === 'orthogonal' ? calculateOrthogonalPath(start, end, edge.sourceHandle as 'left' | 'right' | 'top' | 'bottom', edge.targetHandle as 'left' | 'right' | 'top' | 'bottom').path : edge.type === 'smoothstep' ? `M ${start.x} ${start.y} Q ${start.x} ${(start.y + end.y) / 2} ${(start.x + end.x) / 2} ${(start.y + end.y) / 2} Q ${end.x} ${(start.y + end.y) / 2} ${end.x} ${end.y}` : `M ${start.x} ${start.y} C ${(start.x + end.x) / 2} ${start.y}, ${(start.x + end.x) / 2} ${end.y}, ${end.x} ${end.y}`;
+    svgContent += `  <path data-edge-id="${escapeXml(edge.id)}" data-source-handle="${edge.sourceHandle || 'right'}" data-target-handle="${edge.targetHandle || 'left'}" d="${pathD}" fill="none" stroke="${edge.style?.stroke || doc.theme.edgeColor || '#94a3b8'}" stroke-width="${edge.style?.strokeWidth || 2}"${edge.style?.dashed ? ' stroke-dasharray="6 4"' : ''}${edge.style?.arrowEnd ? ' marker-end="url(#arrowhead)"' : ''} />\n`;
+    if (edge.label) {
+      const midX = (start.x + end.x) / 2;
+      const midY = (start.y + end.y) / 2 - 6;
+      svgContent += `  <text x="${midX}" y="${midY}" fill="#64748b" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" text-anchor="middle">${escapeXml(edge.label)}</text>\n`;
+    }
+  });
+
+  // EX-05: relationship lines and braces sit above edges/groups so they
+  // remain visible, but are still drawn before nodes so node text on top
+  // stays readable.
+  for (const ann of scene.annotations) {
+    if (ann.kind === 'relationshipLine') {
+      const style = ann.annotation.style;
+      const markerEnd = style?.arrowEnd ? ' marker-end="url(#rel-arrow-end)"' : '';
+      const markerStart = style?.arrowStart ? ' marker-start="url(#rel-arrow-start)"' : '';
+      svgContent += `  <path data-annotation-id="${escapeXml(ann.annotation.id)}" data-annotation-kind="relationshipLine" d="${ann.geometry.pathD}" fill="none" stroke="${escapeXml(style?.stroke || '#6366f1')}" stroke-width="${style?.strokeWidth ?? 2}"${style?.lineStyle === 'dashed' ? ' stroke-dasharray="6 4"' : ''}${markerStart}${markerEnd} />\n`;
+      if (ann.annotation.label) {
+        svgContent += `  <text x="${ann.geometry.midPoint.x}" y="${ann.geometry.midPoint.y - 6}" fill="${escapeXml(style?.stroke || '#6366f1')}" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" text-anchor="middle">${escapeXml(ann.annotation.label)}</text>\n`;
       }
-    });
+    } else if (ann.kind === 'brace') {
+      const style = ann.annotation.style;
+      svgContent += `  <path data-annotation-id="${escapeXml(ann.annotation.id)}" data-annotation-kind="brace" d="${ann.geometry.pathD}" fill="none" stroke="${escapeXml(style?.color || '#64748b')}" stroke-width="${style?.strokeWidth ?? 2}" />\n`;
+      if (ann.annotation.label) {
+        svgContent += `  <text x="${ann.geometry.labelPosition.x}" y="${ann.geometry.labelPosition.y}" fill="${escapeXml(style?.color || '#64748b')}" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" text-anchor="${ann.geometry.side === 'right' ? 'start' : 'end'}">${escapeXml(ann.annotation.label)}</text>\n`;
+      }
+    }
+  }
 
-    // Render nodes
-    doc.nodes.forEach((n) => {
-      const box = effectiveBoxes.get(n.id)!;
-      const w = box.width;
-      const h = box.height;
-      const nx = box.x;
-      const ny = box.y;
-      const fontSize = n.style?.fontSize || 14;
-      // F10: style-preserving exporters must consume the resolved canonical
-      // font family (local node.style.fontFamily > document theme.fontFamily)
-      // instead of silently hardcoding sans-serif.
-      const fontFamily = n.style?.fontFamily || doc.theme?.fontFamily || 'sans-serif';
-      const rx = n.style?.borderRadius ?? (n.type === 'terminal' ? h / 2 : 8);
-      const bg = n.style?.backgroundColor || (n.type === 'root' ? '#3b82f6' : '#ffffff');
-      const border = n.style?.borderColor || (n.type === 'root' ? '#2563eb' : '#cbd5e1');
-      const textColor = n.style?.textColor || (n.type === 'root' ? '#ffffff' : '#0f172a');
+  // Render nodes
+  scene.nodes.forEach((sn: SceneNode) => {
+    const n = sn.node;
+    const box = sn.box;
+    const w = box.width;
+    const h = box.height;
+    const nx = box.x;
+    const ny = box.y;
+    const fontSize = n.style?.fontSize || 14;
+    const fontFamily = sn.visuals.fontFamily;
+    const rx = sn.visuals.borderRadius;
+    const bg = sn.visuals.backgroundColor;
+    const border = sn.visuals.borderColor;
+    const textColor = sn.visuals.textColor;
 
-      const shape = n.shape || n.style?.shape || (n.type === 'decision' ? 'diamond' : n.type === 'terminal' ? 'pill' : 'rounded');
-      svgContent += `  <g id="${escapeXml(n.id)}" data-node-shape="${shape}">\n`;
-      if (shape === 'diamond') svgContent += `    <polygon points="${nx + w / 2},${ny} ${nx + w},${ny + h / 2} ${nx + w / 2},${ny + h} ${nx},${ny + h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else if (shape === 'parallelogram') svgContent += `    <polygon points="${nx + 16},${ny} ${nx + w},${ny} ${nx + w - 16},${ny + h} ${nx},${ny + h}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else if (shape === 'circle') svgContent += `    <ellipse cx="${nx + w / 2}" cy="${ny + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
-      else svgContent += `    <rect x="${nx}" y="${ny}" width="${w}" height="${h}" rx="${shape === 'rectangle' ? 0 : shape === 'pill' ? h / 2 : rx}" fill="${bg}" stroke="${border}" stroke-width="${n.style?.borderWidth || 1.5}" />\n`;
+    const shape = sn.visuals.shape;
+    svgContent += `  <g id="${escapeXml(n.id)}" data-node-shape="${shape}">\n`;
+    if (shape === 'diamond') svgContent += `    <polygon points="${nx + w / 2},${ny} ${nx + w},${ny + h / 2} ${nx + w / 2},${ny + h} ${nx},${ny + h / 2}" fill="${bg}" stroke="${border}" stroke-width="${sn.visuals.borderWidth}" />\n`;
+    else if (shape === 'parallelogram') svgContent += `    <polygon points="${nx + 16},${ny} ${nx + w},${ny} ${nx + w - 16},${ny + h} ${nx},${ny + h}" fill="${bg}" stroke="${border}" stroke-width="${sn.visuals.borderWidth}" />\n`;
+    else if (shape === 'circle') svgContent += `    <ellipse cx="${nx + w / 2}" cy="${ny + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="${bg}" stroke="${border}" stroke-width="${sn.visuals.borderWidth}" />\n`;
+    else svgContent += `    <rect x="${nx}" y="${ny}" width="${w}" height="${h}" rx="${shape === 'rectangle' ? 0 : shape === 'pill' ? h / 2 : rx}" fill="${bg}" stroke="${border}" stroke-width="${sn.visuals.borderWidth}" />\n`;
 
-      const blockHeight = box.lines.length * box.lineHeight;
-      const firstLineY = ny + h / 2 - blockHeight / 2 + box.lineHeight * 0.75;
-      const tspans = box.lines
-        .map((line, i) => `<tspan x="${nx + w / 2}" y="${firstLineY + i * box.lineHeight}">${escapeXml(line)}</tspan>`)
-        .join('');
-      svgContent += `    <text fill="${textColor}" font-family="${escapeXml(fontFamily)}" font-size="${fontSize}" font-weight="500" text-anchor="middle">${tspans}</text>\n`;
-      svgContent += `  </g>\n`;
-    });
+    // EX-11: embedded node image, self-contained via a data: URI so SVG/HTML
+    // never reference a broken local asset:// path.
+    if (sn.imageArea && n.assetRef) {
+      const asset = assetStore?.getAsset(n.assetRef);
+      if (asset) {
+        const dataUri = `data:${asset.mimeType};base64,${bytesToBase64(asset.data)}`;
+        svgContent += `    <image x="${sn.imageArea.x}" y="${sn.imageArea.y}" width="${sn.imageArea.width}" height="${sn.imageArea.height}" href="${dataUri}" preserveAspectRatio="xMidYMid meet" />\n`;
+      }
+    }
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
+    const textTop = sn.imageArea ? sn.imageArea.y + sn.imageArea.height + 4 : ny;
+    const textAreaHeight = sn.imageArea ? ny + h - textTop : h;
+    const blockHeight = sn.lines.length * sn.lineHeight;
+    const firstLineY = textTop + textAreaHeight / 2 - blockHeight / 2 + sn.lineHeight * 0.75;
+    // EX-11: icon renders as an inline prefix on the first display line,
+    // matching Canvas's inline icon-before-label placement without a new
+    // node layout model.
+    const iconPrefix = n.icon ? `${n.icon} ` : '';
+    const tspans = sn.lines
+      .map((line, i) => `<tspan x="${nx + w / 2}" y="${firstLineY + i * sn.lineHeight}">${escapeXml(i === 0 ? iconPrefix + line : line)}</tspan>`)
+      .join('');
+    svgContent += `    <text fill="${textColor}" font-family="${escapeXml(fontFamily)}" font-size="${fontSize}" font-weight="500" text-anchor="middle">${tspans}</text>\n`;
+    svgContent += `  </g>\n`;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${vbW}" height="${vbH}" viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
   <defs>
     <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
+    <marker id="rel-arrow-end" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="context-stroke" /></marker>
+    <marker id="rel-arrow-start" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto"><path d="M8,0 L0,4 L8,8 z" fill="context-stroke" /></marker>
+    ${backgroundDefs}
     <style>
       text { user-select: none; }
     </style>
   </defs>
-  <rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="#ffffff" />
+  ${backgroundFill}
 ${svgContent}</svg>`;
-  }
 }
 
 /**
@@ -198,6 +270,21 @@ export function exportToMarkdown(doc: CanonicalDocument): string {
 /**
  * 4. Mermaid Graph / Flowchart Exporter (.mmd)
  */
+/**
+ * EX-07: canonical node text may contain explicit hard `\n` breaks (F6).
+ * A literal physical newline inside an ordinary quoted Mermaid label is
+ * parser/version-sensitive -- not a stable export contract. `<br/>` is
+ * Mermaid's own supported, deterministic line-break representation inside
+ * a label, so it survives regardless of whether a given renderer happens
+ * to tolerate a raw embedded newline.
+ */
+function toMermaidLabel(text: string): string {
+  return text
+    .replace(/"/g, '&quot;')
+    .split('\n')
+    .join('<br/>');
+}
+
 export function exportToMermaid(doc: CanonicalDocument): string {
   const lines: string[] = [];
   lines.push('graph TD');
@@ -206,7 +293,7 @@ export function exportToMermaid(doc: CanonicalDocument): string {
 
   doc.nodes.forEach((n) => {
     const sId = sanitizeId(n.id);
-    const escapedText = n.text.replace(/"/g, '&quot;');
+    const escapedText = toMermaidLabel(n.text);
 
     switch (n.shape || (n.type === 'decision' ? 'diamond' : n.type === 'terminal' ? 'pill' : 'rounded')) {
       case 'diamond':
@@ -231,7 +318,7 @@ export function exportToMermaid(doc: CanonicalDocument): string {
     const sSrc = sanitizeId(e.source);
     const sTgt = sanitizeId(e.target);
     if (e.label) {
-      lines.push(`  ${sSrc} -->|"${e.label.replace(/"/g, '&quot;')}"| ${sTgt}`);
+      lines.push(`  ${sSrc} -->|"${toMermaidLabel(e.label)}"| ${sTgt}`);
     } else {
       lines.push(`  ${sSrc} --> ${sTgt}`);
     }
@@ -335,22 +422,72 @@ export function exportToLegacyMindMapXML(doc: CanonicalDocument): string {
  * 7. JSON Canvas Open Specification Exporter (.canvas)
  * Generates open format .canvas structure for visual canvases
  */
+/**
+ * EX-02: JSON Canvas 1.0 only accepts `#RRGGBB` or a preset "1".."6" for
+ * `color` -- never invent a private encoding for colors the standard
+ * cannot represent (e.g. rgba() with alpha).
+ */
+function toJsonCanvasColor(color: string | undefined): string | undefined {
+  if (!color) return undefined;
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : undefined;
+}
+
+/** JSON Canvas edge `fromSide`/`toSide` accept exactly these four values. */
+function toJsonCanvasSide(handle: string | undefined): 'top' | 'right' | 'bottom' | 'left' | undefined {
+  return handle === 'top' || handle === 'right' || handle === 'bottom' || handle === 'left' ? handle : undefined;
+}
+
+/**
+ * 7. JSON Canvas Open Specification Exporter (.canvas)
+ *
+ * EX-02: maps only the semantics the current public JSON Canvas 1.0
+ * specification (https://jsoncanvas.org/spec/1.0/) can genuinely represent
+ * -- ordinary text nodes, `group` nodes for `CanonicalGroup`, and edge
+ * source/target/side/end/label/color. This is truthful high fidelity
+ * within the target standard, not a private "lossless" extension: routing
+ * curves, dashed stroke width, and other Gedankenfaden-only semantics the
+ * standard has no field for are intentionally not encoded.
+ */
 export function exportToJSONCanvas(doc: CanonicalDocument): string {
-  const canvasNodes = doc.nodes.map((n) => ({
-    id: n.id,
-    type: 'text',
-    text: n.text,
-    x: Math.round(n.geometry.x),
-    y: Math.round(n.geometry.y),
-    width: Math.round(n.geometry.width || 150),
-    height: Math.round(n.geometry.height || 44),
-    color: n.style?.backgroundColor || (n.type === 'root' ? '1' : undefined),
-  }));
+  const textNodes = doc.nodes.map((n) => {
+    const visuals = resolveNodeVisuals(n, doc.theme);
+    return {
+      id: n.id,
+      type: 'text' as const,
+      text: n.text,
+      x: Math.round(n.geometry.x),
+      y: Math.round(n.geometry.y),
+      width: Math.round(n.geometry.width || 150),
+      height: Math.round(n.geometry.height || 44),
+      color: toJsonCanvasColor(visuals.backgroundColor),
+    };
+  });
+
+  const groupNodes = doc.groups.map((group) => {
+    const bounds = resolveGroupBounds(group, doc.nodes);
+    return {
+      id: `group_${group.id}`,
+      type: 'group' as const,
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+      label: group.title || undefined,
+      color: toJsonCanvasColor(group.style?.borderColor),
+    };
+  });
+
+  const canvasNodes = [...groupNodes, ...textNodes];
 
   const canvasEdges = doc.edges.map((e) => ({
     id: e.id,
     fromNode: e.source,
+    fromSide: toJsonCanvasSide(e.sourceHandle),
+    fromEnd: 'none' as const,
     toNode: e.target,
+    toSide: toJsonCanvasSide(e.targetHandle),
+    toEnd: e.style?.arrowEnd === false ? ('none' as const) : ('arrow' as const),
+    color: toJsonCanvasColor(e.style?.stroke),
     label: e.label || undefined,
   }));
 
@@ -365,10 +502,16 @@ export function exportToJSONCanvas(doc: CanonicalDocument): string {
 }
 
 /**
- * 8. Standalone Interactive/Viewable HTML Report (.html)
+ * 8. Standalone Self-Contained HTML View (.html)
+ *
+ * EX-04: this is a self-contained, offline, viewable HTML document that
+ * embeds the exported SVG -- not an interactive pan/zoom editor or an
+ * interactive SVG application. It does not fetch network resources and
+ * does not run a Gedankenfaden runtime; PRODUCT_SPEC/ARCHITECTURE describe
+ * it the same way. Do not read this as an invitation to add interaction.
  */
-export function exportToHTML(doc: CanonicalDocument): string {
-  const svg = exportToSVG(doc);
+export function exportToHTML(doc: CanonicalDocument, assets?: Map<string, Uint8Array>): string {
+  const svg = exportToSVG(doc, assets);
   const title = escapeXml(doc.title || 'Gedankenfaden Document');
 
   return `<!DOCTYPE html>
@@ -452,41 +595,52 @@ async function rasterizeSvg(svg: string, mimeType: 'image/png' | 'image/jpeg'): 
   } finally { URL.revokeObjectURL(source); }
 }
 
-export async function exportToPNG(doc: CanonicalDocument): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc), 'image/png'); }
+export async function exportToPNG(doc: CanonicalDocument, assets?: Map<string, Uint8Array>): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc, assets), 'image/png'); }
 
 /**
  * 10. JPEG Exporter (.jpeg)
  * Produces binary JPEG buffer
  */
-export async function exportToJPEG(doc: CanonicalDocument): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc), 'image/jpeg'); }
+export async function exportToJPEG(doc: CanonicalDocument, assets?: Map<string, Uint8Array>): Promise<Uint8Array> { return rasterizeSvg(exportToSVG(doc, assets), 'image/jpeg'); }
 
 /**
  * 11. PDF Document Exporter (.pdf)
  * Generates a printable PDF 1.4 vector diagram.
  */
-export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
-  const visibleBounds = [
-    ...doc.nodes.map((node) => ({ x: node.geometry.x, y: node.geometry.y, width: node.geometry.width || 150, height: node.geometry.height || 44 })),
-    ...doc.groups.flatMap((group) => group.bounds ? [group.bounds] : []),
-  ];
-  const minX = visibleBounds.length ? Math.min(...visibleBounds.map((bounds) => bounds.x)) : 0;
-  const minY = visibleBounds.length ? Math.min(...visibleBounds.map((bounds) => bounds.y)) : 0;
-  const maxX = visibleBounds.length ? Math.max(...visibleBounds.map((bounds) => bounds.x + bounds.width)) : 480;
-  const maxY = visibleBounds.length ? Math.max(...visibleBounds.map((bounds) => bounds.y + bounds.height)) : 360;
+export async function exportToPDF(doc: CanonicalDocument, assets?: Map<string, Uint8Array>): Promise<Uint8Array> {
+  const assetStore = resolveAssetStore(assets);
+  const scene = buildExportScene(doc, (n) => Boolean(n.assetRef && assetStore?.getAsset(n.assetRef)));
+
+  const minX = scene.bounds.minX;
+  const minY = scene.bounds.minY;
+  const maxX = scene.bounds.maxX;
+  const maxY = scene.bounds.maxY;
   const diagramWidth = Math.max(1, maxX - minX);
   const diagramHeight = Math.max(1, maxY - minY);
   const landscape = diagramWidth >= diagramHeight;
-  const pageWidth = landscape ? 792 : 612;
-  const pageHeight = landscape ? 612 : 792;
   const margin = 42;
+  // EX-09: a fixed Letter page forced every diagram to shrink-to-fit, which
+  // on a large real map crushed 14px text down to sub-1pt and produced a
+  // geometry/text scale mismatch. Instead the page grows to the diagram at
+  // a 1:1 canvas-unit-to-point baseline (never *upscaling* a small diagram
+  // past a normal Letter/landscape page), bounded by a generous ceiling so
+  // an extreme diagram degrades by a deterministic, documented scale-down
+  // rather than growing the PDF unboundedly.
+  const minPageWidth = landscape ? 792 : 612;
+  const minPageHeight = landscape ? 612 : 792;
+  const maxPagePoints = 14400; // 200in ceiling
+  const pageWidth = Math.min(maxPagePoints, Math.max(minPageWidth, diagramWidth + margin * 2));
+  const pageHeight = Math.min(maxPagePoints, Math.max(minPageHeight, diagramHeight + margin * 2));
   const scale = Math.min(1, (pageWidth - margin * 2) / diagramWidth, (pageHeight - margin * 2) / diagramHeight);
   const offsetX = (pageWidth - diagramWidth * scale) / 2;
   const offsetY = (pageHeight - diagramHeight * scale) / 2;
   const x = (value: number) => offsetX + (value - minX) * scale;
   const y = (value: number) => offsetY + (maxY - value) * scale;
+  const boxById = new Map(scene.nodes.map((sn) => [sn.node.id, sn]));
   const nodeMap = new Map(doc.nodes.map((node) => [node.id, node]));
   const content: string[] = ['1 J 1 j'];
   const unicodePlacements: PdfTextPlacement[] = [];
+  const imagePlacements: PdfImagePlacement[] = [];
 
   const setStroke = (color: string, width: number, dashed = false) => {
     const [r, g, b] = pdfRgb(color);
@@ -497,20 +651,62 @@ export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
     content.push(`${r} ${g} ${b} rg`);
   };
   const anchor = (node: CanonicalNode, handle: string | undefined) => {
-    const width = node.geometry.width || 150;
-    const height = node.geometry.height || 44;
-    if (handle === 'left') return { x: node.geometry.x, y: node.geometry.y + height / 2 };
-    if (handle === 'top') return { x: node.geometry.x + width / 2, y: node.geometry.y };
-    if (handle === 'bottom') return { x: node.geometry.x + width / 2, y: node.geometry.y + height };
-    return { x: node.geometry.x + width, y: node.geometry.y + height / 2 };
+    const box = boxById.get(node.id)!.box;
+    if (handle === 'left') return { x: box.x, y: box.y + box.height / 2 };
+    if (handle === 'top') return { x: box.x + box.width / 2, y: box.y };
+    if (handle === 'bottom') return { x: box.x + box.width / 2, y: box.y + box.height };
+    return { x: box.x + box.width, y: box.y + box.height / 2 };
   };
 
-  doc.groups.forEach((group) => {
-    if (!group.bounds) return;
-    const left = x(group.bounds.x);
-    const bottom = y(group.bounds.y + group.bounds.height);
-    const width = group.bounds.width * scale;
-    const height = group.bounds.height * scale;
+  // EX-08: background fill + pattern, same projection SVG/Canvas use.
+  setFill(scene.background.fill);
+  content.push(`0 0 ${pageWidth} ${pageHeight} re f`);
+  if (scene.background.pattern !== 'none') {
+    const [pr, pg, pb] = pdfRgb(scene.background.patternColor);
+    const gap = 22 * scale;
+    if (gap > 2) {
+      if (scene.background.pattern === 'dots') {
+        content.push(`${pr} ${pg} ${pb} rg`);
+        // A small filled square (`re f`) is a simple, guaranteed-visible PDF
+        // dot -- a degenerate zero-height Bezier curve is not a real filled
+        // shape and would render as nothing.
+        const dotSize = Math.max(1, 1.2 * scale);
+        for (let gx = offsetX % gap; gx < pageWidth; gx += gap) {
+          for (let gy = offsetY % gap; gy < pageHeight; gy += gap) {
+            content.push(`${gx - dotSize / 2} ${gy - dotSize / 2} ${dotSize} ${dotSize} re f`);
+          }
+        }
+      } else {
+        content.push(`${pr} ${pg} ${pb} RG 0.5 w [] 0 d`);
+        for (let gx = offsetX % gap; gx < pageWidth; gx += gap) content.push(`${gx} 0 m ${gx} ${pageHeight} l S`);
+        for (let gy = offsetY % gap; gy < pageHeight; gy += gap) content.push(`0 ${gy} m ${pageWidth} ${gy} l S`);
+      }
+    }
+  }
+
+  // EX-05: boundary annotations render as background regions, behind
+  // groups/edges/nodes.
+  for (const ann of scene.annotations) {
+    if (ann.kind !== 'boundary') continue;
+    const style = ann.annotation.style;
+    const left = x(ann.box.x);
+    const bottom = y(ann.box.y + ann.box.height);
+    const width = ann.box.width * scale;
+    const height = ann.box.height * scale;
+    setFill(style?.fillColor || 'rgba(59,130,246,0.08)');
+    setStroke(style?.borderColor || '#93c5fd', style?.borderWidth ?? 1.5, style?.borderStyle === 'dashed');
+    content.push(`${left} ${bottom} ${width} ${height} re B`);
+    if (ann.annotation.title) {
+      setFill(style?.borderColor || '#3b82f6');
+      drawPdfText(content, ann.annotation.title, left + 10 * scale, bottom + height - 18 * scale, 12 * scale, false, unicodePlacements, style?.borderColor || '#3b82f6');
+    }
+  }
+
+  scene.groups.forEach(({ group, bounds }) => {
+    const left = x(bounds.x);
+    const bottom = y(bounds.y + bounds.height);
+    const width = bounds.width * scale;
+    const height = bounds.height * scale;
     setFill(group.style?.backgroundColor || '#f1f5f9');
     setStroke(group.style?.borderColor || '#cbd5e1', 1.5, true);
     content.push(`${left} ${bottom} ${width} ${height} re B`);
@@ -556,14 +752,35 @@ export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
     if (edge.label) drawPdfText(content, edge.label, x(labelPosition.x), y(labelPosition.y) + 5 * scale, 11 * scale, false, unicodePlacements, '#64748b');
   });
 
-  doc.nodes.forEach((node) => {
-    const width = (node.geometry.width || 150) * scale;
-    const height = (node.geometry.height || 44) * scale;
-    const left = x(node.geometry.x);
-    const bottom = y(node.geometry.y + (node.geometry.height || 44));
-    const shape = node.shape || node.style?.shape || (node.type === 'decision' ? 'diamond' : node.type === 'terminal' ? 'pill' : 'rounded');
-    setFill(node.style?.backgroundColor || (node.type === 'root' ? '#3b82f6' : '#ffffff'));
-    setStroke(node.style?.borderColor || (node.type === 'root' ? '#2563eb' : '#cbd5e1'), node.style?.borderWidth || 1.5);
+  // EX-05: relationship lines and braces, drawn above edges but before
+  // nodes so node text stays readable on top.
+  for (const ann of scene.annotations) {
+    if (ann.kind === 'relationshipLine') {
+      const style = ann.annotation.style;
+      setStroke(style?.stroke || '#6366f1', style?.strokeWidth ?? 2, style?.lineStyle === 'dashed');
+      content.push(`${svgPathToPdfPath(ann.geometry.pathD, x, y)} S`);
+      if (ann.annotation.label) {
+        drawPdfText(content, ann.annotation.label, x(ann.geometry.midPoint.x), y(ann.geometry.midPoint.y) + 6 * scale, 11 * scale, true, unicodePlacements, style?.stroke || '#6366f1');
+      }
+    } else if (ann.kind === 'brace') {
+      const style = ann.annotation.style;
+      setStroke(style?.color || '#64748b', style?.strokeWidth ?? 2);
+      content.push(`${svgPathToPdfPath(ann.geometry.pathD, x, y)} S`);
+      if (ann.annotation.label) {
+        drawPdfText(content, ann.annotation.label, x(ann.geometry.labelPosition.x), y(ann.geometry.labelPosition.y), 11 * scale, false, unicodePlacements, style?.color || '#64748b');
+      }
+    }
+  }
+
+  scene.nodes.forEach((sn) => {
+    const node = sn.node;
+    const width = sn.box.width * scale;
+    const height = sn.box.height * scale;
+    const left = x(sn.box.x);
+    const bottom = y(sn.box.y + sn.box.height);
+    const shape = sn.visuals.shape;
+    setFill(sn.visuals.backgroundColor);
+    setStroke(sn.visuals.borderColor, sn.visuals.borderWidth);
     if (shape === 'diamond') {
       content.push(`${left + width / 2} ${bottom + height} m ${left + width} ${bottom + height / 2} l ${left + width / 2} ${bottom} l ${left} ${bottom + height / 2} l h B`);
     } else if (shape === 'parallelogram') {
@@ -574,16 +791,46 @@ export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
       const rx = width / 2; const ry = height / 2; const cx = left + rx; const cy = bottom + ry;
       content.push(`${cx + rx} ${cy} m ${cx + rx} ${cy + k * ry} ${cx + k * rx} ${cy + ry} ${cx} ${cy + ry} c ${cx - k * rx} ${cy + ry} ${cx - rx} ${cy + k * ry} ${cx - rx} ${cy} c ${cx - rx} ${cy - k * ry} ${cx - k * rx} ${cy - ry} ${cx} ${cy - ry} c ${cx + k * rx} ${cy - ry} ${cx + rx} ${cy - k * ry} ${cx + rx} ${cy} c h B`);
     } else if (shape === 'rounded' || shape === 'pill') {
-      const radius = shape === 'pill' ? height / 2 : Math.min((node.style?.borderRadius ?? 8) * scale, width / 2, height / 2);
+      const radius = shape === 'pill' ? height / 2 : Math.min(sn.visuals.borderRadius * scale, width / 2, height / 2);
       const k = 0.5522847498;
       content.push(`${left + radius} ${bottom} m ${left + width - radius} ${bottom} l ${left + width - radius + k * radius} ${bottom} ${left + width} ${bottom + radius - k * radius} ${left + width} ${bottom + radius} c ${left + width} ${bottom + height - radius} l ${left + width} ${bottom + height - radius + k * radius} ${left + width - radius + k * radius} ${bottom + height} ${left + width - radius} ${bottom + height} c ${left + radius} ${bottom + height} l ${left + radius - k * radius} ${bottom + height} ${left} ${bottom + height - radius + k * radius} ${left} ${bottom + height - radius} c ${left} ${bottom + radius} l ${left} ${bottom + radius - k * radius} ${left + radius - k * radius} ${bottom} ${left + radius} ${bottom} c h B`);
     } else {
       content.push(`${left} ${bottom} ${width} ${height} re B`);
     }
-    const textColor = node.style?.textColor || (node.type === 'root' ? '#ffffff' : '#0f172a');
-    const [r, g, b] = pdfRgb(textColor);
-    content.push(`${r} ${g} ${b} rg`);
-    drawPdfText(content, node.text, left + width / 2, bottom + height / 2 - 4 * scale, (node.style?.fontSize || 14) * scale, true, unicodePlacements, textColor);
+
+    // EX-11: embedded node image, queued for the post-processing pass where
+    // a real PDFDocument (needed to embed PNG/JPEG bytes) is available.
+    if (sn.imageArea && node.assetRef) {
+      const asset = assetStore?.getAsset(node.assetRef);
+      if (asset) {
+        const areaLeft = x(sn.imageArea.x);
+        const areaBottom = y(sn.imageArea.y + sn.imageArea.height);
+        imagePlacements.push({
+          data: asset.data,
+          mimeType: asset.mimeType,
+          x: areaLeft,
+          y: areaBottom,
+          width: sn.imageArea.width * scale,
+          height: sn.imageArea.height * scale,
+        });
+      }
+    }
+
+    // EX-09: PDF node text now shares the same text-aware wrap/geometry
+    // seam as SVG/Canvas (sn.lines/sn.lineHeight from buildExportScene)
+    // instead of drawing a single unwrapped line independent of the box.
+    const textTop = sn.imageArea ? y(sn.box.y + (sn.imageArea.y - sn.box.y) + sn.imageArea.height + 4) : bottom + height;
+    const textAreaHeight = sn.imageArea ? textTop - bottom : height;
+    const textCenterY = bottom + textAreaHeight / 2;
+    const lineHeightPt = sn.lineHeight * scale;
+    const fontSizePt = (node.style?.fontSize || 14) * scale;
+    const blockHeight = sn.lines.length * lineHeightPt;
+    const firstLineY = textCenterY + blockHeight / 2 - lineHeightPt * 0.75;
+    const iconPrefix = node.icon ? `${node.icon} ` : '';
+    sn.lines.forEach((line, i) => {
+      const lineText = i === 0 ? iconPrefix + line : line;
+      drawPdfText(content, lineText, left + width / 2, firstLineY - i * lineHeightPt, fontSizePt, true, unicodePlacements, sn.visuals.textColor);
+    });
   });
 
   const stream = `${content.join('\n')}\n`;
@@ -594,7 +841,7 @@ export async function exportToPDF(doc: CanonicalDocument): Promise<Uint8Array> {
     `<< /Length ${new TextEncoder().encode(stream).length} >>\nstream\n${stream}endstream`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
   ];
-  return addUnicodePdfText(buildPdf(objects), unicodePlacements);
+  return applyPdfOverlays(buildPdf(objects), unicodePlacements, imagePlacements);
 }
 
 function pdfRgb(color: string): [string, string, string] {
@@ -665,15 +912,32 @@ const notoSansSubsets = Object.entries(notoSansScUnicode as Record<string, strin
   }),
 }));
 
-function notoSubsetFor(character: string): string {
+/**
+ * EX-11: the bundled Noto Sans SC embedded font stack covers Latin/CJK
+ * ranges but not emoji/pictographic glyphs used as node icons. Returns
+ * `null` for a codepoint the font stack cannot represent instead of
+ * throwing -- callers deterministically drop just that glyph (a documented,
+ * bounded limitation) rather than crashing the whole PDF export or
+ * silently pretending an unsupported icon was rendered.
+ */
+export function notoSubsetFor(character: string): string | null {
   const codepoint = character.codePointAt(0) || 0;
   const subset = notoSansSubsets.find((candidate) => candidate.ranges.some(([start, end]) => codepoint >= start && codepoint <= end));
-  if (!subset) throw new Error(`PDF export cannot represent Unicode code point U+${codepoint.toString(16).toUpperCase()}.`);
-  return subset.name;
+  return subset ? subset.name : null;
 }
 
-async function addUnicodePdfText(pdfBytes: Uint8Array, placements: PdfTextPlacement[]): Promise<Uint8Array> {
-  if (placements.length === 0) return pdfBytes;
+/**
+ * Post-processes the raw content-stream PDF with everything that needs a
+ * real `PDFDocument`/page object: Unicode text runs (embedded Noto Sans SC)
+ * and embedded raster images (EX-11). Both go through pdf-lib in one load
+ * pass so image embedding doesn't need a second document round-trip.
+ */
+async function applyPdfOverlays(
+  pdfBytes: Uint8Array,
+  placements: PdfTextPlacement[],
+  imagePlacements: PdfImagePlacement[] = []
+): Promise<Uint8Array> {
+  if (placements.length === 0 && imagePlacements.length === 0) return pdfBytes;
   const pdf = await PDFDocument.load(pdfBytes);
   pdf.registerFontkit(fontkit);
   const page = pdf.getPage(0);
@@ -696,10 +960,12 @@ async function addUnicodePdfText(pdfBytes: Uint8Array, placements: PdfTextPlacem
     const runs: Array<{ subset: string; text: string; font?: PDFFont }> = [];
     for (const character of Array.from(placement.text)) {
       const subset = notoSubsetFor(character);
+      if (!subset) continue; // EX-11: deterministically drop an unsupported glyph (e.g. emoji icon), never the whole label.
       const current = runs.at(-1);
       if (current?.subset === subset) current.text += character;
       else runs.push({ subset, text: character });
     }
+    if (runs.length === 0) continue;
     for (const run of runs) run.font = await getFont(run.subset);
     const totalWidth = runs.reduce((width, run) => width + run.font!.widthOfTextAtSize(run.text, placement.size), 0);
     let cursor = placement.centered ? placement.x - totalWidth / 2 : placement.x;
@@ -709,6 +975,32 @@ async function addUnicodePdfText(pdfBytes: Uint8Array, placements: PdfTextPlacem
       cursor += run.font!.widthOfTextAtSize(run.text, placement.size);
     }
   }
+
+  for (const placement of imagePlacements) {
+    let image: PDFImage | undefined;
+    try {
+      const mime = placement.mimeType.toLowerCase();
+      if (mime.includes('png')) image = await pdf.embedPng(placement.data);
+      else if (mime.includes('jpeg') || mime.includes('jpg')) image = await pdf.embedJpg(placement.data);
+      // Other formats (e.g. SVG assets) are a documented, bounded PDF
+      // limitation: skipped deterministically rather than faked.
+    } catch {
+      // EX-11: missing/corrupt asset data degrades explicitly by skipping
+      // just this image, never crashing the export or dropping other content.
+      image = undefined;
+    }
+    if (!image) continue;
+    const fitScale = Math.min(placement.width / image.width, placement.height / image.height);
+    const drawWidth = image.width * fitScale;
+    const drawHeight = image.height * fitScale;
+    page.drawImage(image, {
+      x: placement.x + (placement.width - drawWidth) / 2,
+      y: placement.y + (placement.height - drawHeight) / 2,
+      width: drawWidth,
+      height: drawHeight,
+    });
+  }
+
   return pdf.save();
 }
 
@@ -724,45 +1016,6 @@ function buildPdf(objects: string[]): Uint8Array {
   pdf += offsets.slice(1).map((offset) => `${offset.toString().padStart(10, '0')} 00000 n \n`).join('');
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new TextEncoder().encode(pdf);
-}
-
-interface EffectiveNodeBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  lines: string[];
-  lineHeight: number;
-}
-
-/**
- * Grows a node's declared height (never its width) to fit its wrapped text,
- * symmetrically around the original vertical center so left/right edge
- * anchors (which use y + height/2) keep pointing at the same absolute Y.
- * This is the single source of "real" per-node geometry export uses for
- * bounds, edges, and rendering, so all three stay consistent with each other.
- */
-function computeEffectiveNodeBoxes(doc: CanonicalDocument): Map<string, EffectiveNodeBox> {
-  const boxes = new Map<string, EffectiveNodeBox>();
-  doc.nodes.forEach((n) => {
-    const width = n.geometry.width || 150;
-    const declaredHeight = n.geometry.height || 44;
-    const fontSize = n.style?.fontSize || 14;
-    const { lines, lineHeight } = wrapNodeText(n.text || '', width, fontSize);
-    const textBlockHeight = lines.length * lineHeight;
-    const requiredHeight = Math.max(declaredHeight, textBlockHeight + 16);
-    const grownBy = requiredHeight - declaredHeight;
-
-    boxes.set(n.id, {
-      x: n.geometry.x,
-      y: n.geometry.y - grownBy / 2,
-      width,
-      height: requiredHeight,
-      lines,
-      lineHeight,
-    });
-  });
-  return boxes;
 }
 
 function escapeXml(unsafe: string): string {

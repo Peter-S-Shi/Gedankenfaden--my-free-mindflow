@@ -3638,7 +3638,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 <span className="text-[10px] text-slate-400">Native</span>
               </button>
               <div className="my-1 border-t border-slate-100" />
-              {(['svg', 'png', 'jpeg', 'pdf', 'html', 'markdown', 'mermaid', 'opml', 'mm', 'canvas', 'json'] as const).map((fmt) => (
+              {(
+                doc.mode === 'flowchart'
+                  ? (['svg', 'png', 'jpeg', 'pdf', 'html', 'mermaid', 'canvas', 'json'] as const)
+                  : (['svg', 'png', 'jpeg', 'pdf', 'html', 'markdown', 'mermaid', 'opml', 'mm', 'canvas', 'json'] as const)
+              ).map((fmt) => (
                 <button
                   key={fmt}
                   onClick={() => handleExportFormat(fmt)}
