@@ -15,22 +15,33 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const nodeData = data as unknown as CustomNodeData;
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(nodeData.label || 'Node');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setText(nodeData.label || 'Node');
   }, [nodeData.label]);
 
+  const autoGrow = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   useEffect(() => {
     if (isEditing) {
       inputRef.current?.focus();
       inputRef.current?.select();
+      autoGrow();
     }
   }, [isEditing]);
 
   const handleBlur = () => {
     setIsEditing(false);
-    const newText = text.trim() || 'Node';
+    // F6: explicit `\n` hard breaks are source semantics -- only trim
+    // leading/trailing whitespace of the whole value, never collapse
+    // interior newlines the user deliberately typed.
+    const newText = text.replace(/^\s+|\s+$/g, '') || 'Node';
     if (newText !== nodeData.label) {
       nodeData.label = newText;
       if (nodeData.onUpdateLabel) {
@@ -40,7 +51,10 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    // F6: node editing is genuinely multiline-capable. Plain Enter still
+    // commits (existing single-line behavior is unchanged); Shift+Enter
+    // inserts an explicit hard line break instead.
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.stopPropagation();
       e.preventDefault();
       handleBlur();
@@ -67,6 +81,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
     borderRadius: 8,
     textColor: '#1e293b',
     fontSize: 14,
+    fontFamily: 'sans',
     shape: (nodeData.shape as NodeShape) || 'rounded',
   };
 
@@ -324,21 +339,38 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
           )}
 
           {isEditing ? (
-            <input
+            // F6: genuinely multiline-capable editing control -- a single-line
+            // <input> cannot represent a canonical value containing hard `\n`
+            // breaks. Enter still commits (single-line behavior unchanged);
+            // Shift+Enter inserts an explicit hard line break.
+            <textarea
               ref={inputRef}
-              type="text"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                autoGrow();
+              }}
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
-              className="w-full text-center bg-transparent border-none outline-none font-medium"
-              style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
+              rows={1}
+              className="w-full text-center bg-transparent border-none outline-none font-medium resize-none overflow-hidden"
+              style={{
+                color: visuals.textColor,
+                fontSize: `${visuals.fontSize}px`,
+                fontFamily: visuals.fontFamily,
+                whiteSpace: 'pre-wrap',
+              }}
             />
           ) : (
             // M3 Behavior Correction Contract: numbering renders as an
             // ordinary inline text prefix, same font size/color/weight as
             // the node text -- not a separate badge/pill treatment.
-            <span className="font-medium tracking-tight select-none break-words">
+            // F6: whiteSpace 'pre-wrap' renders explicit `\n` hard breaks
+            // instead of collapsing them into ordinary whitespace.
+            <span
+              className="font-medium tracking-tight select-none break-words"
+              style={{ whiteSpace: 'pre-wrap', fontFamily: visuals.fontFamily }}
+            >
               {formatNumberedLabel(numberingBadge, text)}
             </span>
           )}

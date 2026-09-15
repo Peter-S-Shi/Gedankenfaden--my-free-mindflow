@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   applyNodeChanges,
@@ -33,6 +34,7 @@ import {
   canonicalToReactFlow,
   reactFlowToCanonical,
   canonicalEdgeTypeToReactFlow,
+  computeAdaptiveEdgeStrokeWidth,
   CustomNodeData,
 } from '../model/adapter';
 import { autoLayoutDocument, LayoutOptions } from '../model/layout';
@@ -41,7 +43,7 @@ import { createExportArtifact, ExportFormat, saveExportWithNativeDialog } from '
 import { importFromMarkdown, importFromOPML } from '../model/importers';
 import { parseMflowFromBytes } from '../model/container';
 import { AssetStore } from '../model/assets';
-import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
+import { resetNodeToTheme, BUILTIN_THEMES, resolveCanvasBackgroundProjection } from '../model/theme';
 import { PRESET_ICONS } from '../model/icons';
 import { parseMultilineToTree } from '../model/pasteParser';
 import { createGroup, resolveGroupBounds, translateGroup } from '../model/groups';
@@ -2516,14 +2518,19 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   }, [nodes, focusedBranchNodeIds, multiSelectedNodeIds, reparentPreview]);
 
   const displayedEdges = useMemo(() => {
-    const adaptiveWidth = adaptiveEdges && currentZoom < 0.65 ? Math.max(2, 1.25 / currentZoom) : 2;
+    // F8: adaptive low-zoom legibility must scale each edge's own canonical
+    // base width, not replace every edge with one shared computed value --
+    // otherwise edges with distinct canonical strokeWidths (e.g. 2 vs 2.5)
+    // become visually indistinguishable at low zoom. This is projection-only:
+    // it never writes back into `e.style` or canonical data.
     const base: Edge[] = edges.map((e) => {
       const isFocused = !focusedBranchNodeIds || (focusedBranchNodeIds.has(e.source) && focusedBranchNodeIds.has(e.target));
+      const baseWidth = (e.style?.strokeWidth as number) ?? 2;
       return {
         ...e,
         style: {
           ...e.style,
-          strokeWidth: adaptiveWidth,
+          strokeWidth: computeAdaptiveEdgeStrokeWidth(baseWidth, currentZoom, adaptiveEdges),
           opacity: isFocused ? 1 : 0.18,
         },
       };
@@ -2991,11 +2998,22 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             minZoom={0.05}
             maxZoom={5}
           >
+            {/* F7: `canvasBackground` ('blank'|'dots'|'grid') selects the
+                pattern variant -- it must never be fed into CSS
+                backgroundColor. `canvasBgColor` is the separate, explicit
+                fill color. `resolveCanvasBackgroundProjection` is a pure,
+                unit-tested mapping so 'blank' -> pattern suppressed is
+                verified by real computation, not just source inspection. */}
             <Background
+              variant={
+                resolveCanvasBackgroundProjection(doc.theme?.canvasBackground).variant === 'lines'
+                  ? BackgroundVariant.Lines
+                  : BackgroundVariant.Dots
+              }
               color={doc.theme?.edgeColor || '#cbd5e1'}
               gap={22}
-              size={1}
-              style={{ backgroundColor: doc.theme?.canvasBackground || '#ffffff' }}
+              size={resolveCanvasBackgroundProjection(doc.theme?.canvasBackground).patternSize}
+              style={{ backgroundColor: doc.theme?.canvasBgColor || '#ffffff' }}
             />
             <Controls position="bottom-left" />
             <MiniMap

@@ -146,6 +146,24 @@ export function reactFlowEdgeTypeToCanonical(
   }
 }
 
+/**
+ * F8: derives a single edge's displayed stroke width at a given zoom level
+ * from its own canonical base width, applying the same low-zoom legibility
+ * compensation to every edge proportionally instead of replacing all edges
+ * with one shared value. Pulled out as a pure function so the zoom=0.38
+ * Orlando contract ("a 2.5 edge must still be visibly thicker than a 2
+ * edge") is unit-testable without rendering CanvasEditor. Projection-only:
+ * callers must not write the result back into canonical `edge.style`.
+ */
+export function computeAdaptiveEdgeStrokeWidth(
+  baseWidth: number,
+  zoom: number,
+  adaptiveEnabled = true
+): number {
+  const zoomCompensation = adaptiveEnabled && zoom < 0.65 ? Math.max(2, 1.25 / zoom) / 2 : 1;
+  return baseWidth * zoomCompensation;
+}
+
 export interface CanonicalToReactFlowCallbacks {
   onToggleFold?: (nodeId: string) => void;
   onUpdateLabel?: (nodeId: string, label: string) => void;

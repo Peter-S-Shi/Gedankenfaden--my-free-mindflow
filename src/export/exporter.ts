@@ -73,7 +73,7 @@ export function exportToSVG(doc: CanonicalDocument): string {
     doc.groups.forEach((group) => {
       const bounds = group.bounds;
       if (!bounds) return;
-      svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${escapeXml(group.style?.backgroundColor || 'rgba(241,245,249,0.65)')}" stroke="${escapeXml(group.style?.borderColor || '#cbd5e1')}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="sans-serif" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
+      svgContent += `  <g data-group-id="${escapeXml(group.id)}"><rect x="${bounds.x}" y="${bounds.y}" width="${bounds.width}" height="${bounds.height}" rx="12" fill="${escapeXml(group.style?.backgroundColor || 'rgba(241,245,249,0.65)')}" stroke="${escapeXml(group.style?.borderColor || '#cbd5e1')}" stroke-width="2" stroke-dasharray="6 4"/><text x="${bounds.x + 12}" y="${bounds.y + 22}" fill="#334155" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" font-weight="600">${escapeXml(group.title)}</text></g>\n`;
     });
 
     // Render edges
@@ -95,7 +95,7 @@ export function exportToSVG(doc: CanonicalDocument): string {
       if (edge.label) {
         const midX = (start.x + end.x) / 2;
         const midY = (start.y + end.y) / 2 - 6;
-        svgContent += `  <text x="${midX}" y="${midY}" fill="#64748b" font-family="sans-serif" font-size="12" text-anchor="middle">${escapeXml(edge.label)}</text>\n`;
+        svgContent += `  <text x="${midX}" y="${midY}" fill="#64748b" font-family="${escapeXml(doc.theme?.fontFamily || 'sans-serif')}" font-size="12" text-anchor="middle">${escapeXml(edge.label)}</text>\n`;
       }
     });
 
@@ -107,6 +107,10 @@ export function exportToSVG(doc: CanonicalDocument): string {
       const nx = box.x;
       const ny = box.y;
       const fontSize = n.style?.fontSize || 14;
+      // F10: style-preserving exporters must consume the resolved canonical
+      // font family (local node.style.fontFamily > document theme.fontFamily)
+      // instead of silently hardcoding sans-serif.
+      const fontFamily = n.style?.fontFamily || doc.theme?.fontFamily || 'sans-serif';
       const rx = n.style?.borderRadius ?? (n.type === 'terminal' ? h / 2 : 8);
       const bg = n.style?.backgroundColor || (n.type === 'root' ? '#3b82f6' : '#ffffff');
       const border = n.style?.borderColor || (n.type === 'root' ? '#2563eb' : '#cbd5e1');
@@ -124,7 +128,7 @@ export function exportToSVG(doc: CanonicalDocument): string {
       const tspans = box.lines
         .map((line, i) => `<tspan x="${nx + w / 2}" y="${firstLineY + i * box.lineHeight}">${escapeXml(line)}</tspan>`)
         .join('');
-      svgContent += `    <text fill="${textColor}" font-family="sans-serif" font-size="${fontSize}" font-weight="500" text-anchor="middle">${tspans}</text>\n`;
+      svgContent += `    <text fill="${textColor}" font-family="${escapeXml(fontFamily)}" font-size="${fontSize}" font-weight="500" text-anchor="middle">${tspans}</text>\n`;
       svgContent += `  </g>\n`;
     });
 

@@ -39,13 +39,11 @@ export interface WrappedNodeText {
 }
 
 /**
- * Word/character-wraps node text to fit within maxWidth (minus horizontal
- * padding), matching how the live canvas naturally wraps text in a
- * fixed-width, auto-height node.
+ * Soft-wraps a single hard line (no `\n`) to fit within usableWidth.
+ * Extracted so `wrapNodeText` can apply it independently to each
+ * explicit hard line -- soft wrapping must never merge across a `\n`.
  */
-export function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
-  const usableWidth = Math.max(maxWidth - 16, fontSize * 2);
-  const lineHeight = Math.round(fontSize * 1.35);
+function wrapSingleHardLine(text: string, usableWidth: number, fontSize: number): string[] {
   const words = text.split(/(\s+)/).filter((w) => w.length > 0);
   const lines: string[] = [];
   let current = '';
@@ -80,6 +78,29 @@ export function wrapNodeText(text: string, maxWidth: number, fontSize: number): 
   }
   pushCurrent();
 
+  return lines.length > 0 ? lines : [''];
+}
+
+/**
+ * Word/character-wraps node text to fit within maxWidth (minus horizontal
+ * padding), matching how the live canvas naturally wraps text in a
+ * fixed-width, auto-height node.
+ *
+ * Explicit `\n` in canonical node text is source semantics (F6), not
+ * optional whitespace: it is treated as a hard line break first, and
+ * soft-wrapping is then applied independently within each hard line, so a
+ * hard break is never merged back into a single wrapped line even when the
+ * full string would otherwise fit at the given width.
+ */
+export function wrapNodeText(text: string, maxWidth: number, fontSize: number): WrappedNodeText {
+  const usableWidth = Math.max(maxWidth - 16, fontSize * 2);
+  const lineHeight = Math.round(fontSize * 1.35);
+  const hardLines = text.split('\n');
+  const lines: string[] = [];
+  for (const hardLine of hardLines) {
+    lines.push(...wrapSingleHardLine(hardLine, usableWidth, fontSize));
+  }
+
   return { lines: lines.length > 0 ? lines : [''], lineHeight };
 }
 
@@ -99,8 +120,14 @@ export function computeTextFirstAutoWidth(
   minWidth: number = 90,
   maxWidth: number = 360
 ): number {
-  const contentWidth =
-    [...text].reduce((sum, ch) => sum + estimatedCharWidth(ch, fontSize), 0) + 28;
+  // Auto width is driven by the widest explicit hard line (F6), not the
+  // concatenated length of the whole string -- a deliberate `\n` starts a
+  // new line and must not inflate the box width.
+  const longestHardLineWidth = text.split('\n').reduce((longest, hardLine) => {
+    const lineWidth = [...hardLine].reduce((sum, ch) => sum + estimatedCharWidth(ch, fontSize), 0);
+    return Math.max(longest, lineWidth);
+  }, 0);
+  const contentWidth = longestHardLineWidth + 28;
   return Math.max(minWidth, Math.min(maxWidth, Math.ceil(contentWidth)));
 }
 
