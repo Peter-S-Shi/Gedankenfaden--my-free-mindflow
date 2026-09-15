@@ -1,0 +1,63 @@
+# Layout Sample 10 — Parent Local Packing
+
+- Parent A
+  - A Child 1
+    - A Child 1.1
+    - A Child 1.2
+    - A Child 1.3
+  - A Child 2
+    - A Child 2.1
+    - A Child 2.2
+    - A Child 2.3
+  - A Child 3
+    - A Child 3.1
+    - A Child 3.2
+    - A Child 3.3
+  - A Child 4
+    - A Child 4.1
+    - A Child 4.2
+    - A Child 4.3
+- Parent B
+  - B Child 1
+  - B Child 2
+  - B Child 3
+  - B Child 4
+- Parent C
+  - C Child 1
+    - C Child 1.1
+    - C Child 1.2
+    - C Child 1.3
+  - C Child 2
+    - C Child 2.1
+    - C Child 2.2
+    - C Child 2.3
+  - C Child 3
+    - C Child 3.1
+    - C Child 3.2
+    - C Child 3.3
+  - C Child 4
+    - C Child 4.1
+    - C Child 4.2
+    - C Child 4.3
+- Parent D
+  - D Child 1
+  - D Child 2
+  - D Child 3
+  - D Child 4
+- Parent E
+  - E Child 1
+    - E Child 1.1
+    - E Child 1.2
+    - E Child 1.3
+  - E Child 2
+    - E Child 2.1
+    - E Child 2.2
+    - E Child 2.3
+  - E Child 3
+    - E Child 3.1
+    - E Child 3.2
+    - E Child 3.3
+  - E Child 4
+    - E Child 4.1
+    - E Child 4.2
+    - E Child 4.3

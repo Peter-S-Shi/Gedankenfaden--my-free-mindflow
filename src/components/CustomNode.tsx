@@ -1,28 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeProps, NodeResizeControl, NodeResizer } from '@xyflow/react';
 import { CustomNodeData } from '../model/adapter';
 import { NodeShape } from '../model/types';
+import { computeTextAwareNodeSize } from '../model/textMeasurement';
+import { formatNumberedLabel } from '../model/numbering';
+import { allowsManualConnections } from '../model/connectionPolicy';
+
+export const MINDMAP_HANDLE_IDS = {
+  source: ['left', 'right'],
+  target: ['left', 'right'],
+} as const;
 
 export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const nodeData = data as unknown as CustomNodeData;
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(nodeData.label || 'Node');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setText(nodeData.label || 'Node');
   }, [nodeData.label]);
 
+  const autoGrow = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   useEffect(() => {
     if (isEditing) {
       inputRef.current?.focus();
       inputRef.current?.select();
+      autoGrow();
     }
   }, [isEditing]);
 
   const handleBlur = () => {
     setIsEditing(false);
-    const newText = text.trim() || 'Node';
+    // F6: explicit `\n` hard breaks are source semantics -- only trim
+    // leading/trailing whitespace of the whole value, never collapse
+    // interior newlines the user deliberately typed.
+    const newText = text.replace(/^\s+|\s+$/g, '') || 'Node';
     if (newText !== nodeData.label) {
       nodeData.label = newText;
       if (nodeData.onUpdateLabel) {
@@ -32,7 +51,10 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    // F6: node editing is genuinely multiline-capable. Plain Enter still
+    // commits (existing single-line behavior is unchanged); Shift+Enter
+    // inserts an explicit hard line break instead.
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.stopPropagation();
       e.preventDefault();
       handleBlur();
@@ -59,6 +81,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
     borderRadius: 8,
     textColor: '#1e293b',
     fontSize: 14,
+    fontFamily: 'sans',
     shape: (nodeData.shape as NodeShape) || 'rounded',
   };
 
@@ -77,12 +100,33 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const hasChildren = Boolean(nodeData.hasChildren);
   const isCollapsed = Boolean(nodeData.collapsed);
   const childCount = nodeData.childCount || 0;
+  const hiddenDescendantCount = nodeData.hiddenDescendantCount ?? childCount;
   const numberingBadge = nodeData.numberingBadge;
+  const isFlowchart = nodeData.mode === 'flowchart';
+  // M3 Behavior Correction Contract: connection-handle interactivity is
+  // driven by the same policy CanvasEditor's onConnect gate uses, not a
+  // locally-redefined mode check, so the two can't drift apart.
+  const handlesInteractive = allowsManualConnections(nodeData.mode || 'mindmap');
+
+  // Product Hardening: Persistent Manual Node Sizing. Mind Map nodes (root
+  // and ordinary topics) get a width-only "topic width" control -- height
+  // always stays text-aware-derived, never user-set. Flowchart nodes get a
+  // normal two-dimensional resize. The Mind Map control is intentionally
+  // nudged below the right connection handle; Flowchart keeps the standard
+  // resizer handles/lines. In both modes the visible resize affordance stays
+  // clear of connection handle pointer-capture areas.
+  const resizeHandleStyle: React.CSSProperties = {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+    background: '#3b82f6',
+    border: '1.5px solid #ffffff',
+  };
 
   return (
     <div
       data-testid={`custom-node-${id}`}
-      className={`relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center signature-move-glide ${
+      className={`w-full h-full relative px-3.5 py-2 transition-all duration-150 group flex items-center justify-center signature-move-glide ${
         isNewBorn ? 'signature-create-grow animate-node-birth' : ''
       } ${
         selected ? 'signature-select-breathe' : ''
@@ -90,7 +134,7 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         nodeData.isDeleting ? 'signature-delete-dissolve' : ''
       }`}
       style={{
-        minWidth: shape === 'diamond' ? 140 : 120,
+        minWidth: shape === 'diamond' ? 140 : 90,
         minHeight: shape === 'diamond' ? 60 : 44,
         backgroundColor: isSvgShape ? 'transparent' : visuals.backgroundColor,
         color: visuals.textColor,
@@ -130,31 +174,141 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         </svg>
       )}
 
-      {/* Connection Handles */}
+      {/* Connection Handles.
+          M3 Behavior Correction Contract: normal Mind Map parent-child
+          edges are algorithm-owned -- Mind Map nodes must not expose
+          user-facing connection handles at all (no drag-to-connect, no
+          reconnect). The handle elements stay in the DOM (React Flow uses
+          their position to anchor edge endpoints) but are made fully
+          non-interactive and invisible. Flowchart keeps the original
+          visible, connectable handles unchanged. */}
       <Handle
         type="target"
         position={Position.Left}
-        id="left"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        id={MINDMAP_HANDLE_IDS.target[0]}
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="source"
         position={Position.Right}
-        id="right"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors"
+        id={MINDMAP_HANDLE_IDS.source[1]}
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id={MINDMAP_HANDLE_IDS.source[0]}
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id={MINDMAP_HANDLE_IDS.target[1]}
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100"
+        isConnectable={handlesInteractive}
+        className={
+          handlesInteractive
+            ? '!w-2.5 !h-2.5 !bg-slate-400 hover:!bg-blue-500 !border-2 !border-white transition-colors opacity-0 group-hover:opacity-100'
+            : '!w-2.5 !h-2.5 !opacity-0 !pointer-events-none'
+        }
       />
+
+      {/* Manual size resize affordance.
+          Mind Map: border-hover horizontal resize affordances on left and right borders
+          without permanent blue dot; live text-aware height reflow; manual width persistence.
+          Flowchart: standard 2D NodeResizer. */}
+      {isFlowchart ? (
+        <NodeResizer
+          nodeId={id}
+          isVisible={selected}
+          minWidth={100}
+          minHeight={44}
+          handleStyle={resizeHandleStyle}
+          lineStyle={{ borderColor: '#3b82f6' }}
+          onResizeEnd={(_event, params) => {
+            nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+          }}
+        />
+      ) : (
+        <>
+          {/* Right border-hover resize control */}
+          <NodeResizeControl
+            nodeId={id}
+            position="right"
+            resizeDirection="horizontal"
+            minWidth={90}
+            maxWidth={640}
+            className="!w-2 !h-[60%] !top-[20%] !right-[-3px] !bg-transparent hover:!bg-blue-500/30 group-hover:opacity-100 !opacity-0 !border-0 cursor-ew-resize !rounded-full transition-all z-20"
+            style={{ position: 'absolute' }}
+            onResize={(_event, params) => {
+              const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
+                width: params.width,
+                fontSize: visuals.fontSize,
+              }).height;
+              nodeData.onLiveResizeWidth?.(id, nextHeight);
+            }}
+            onResizeEnd={(_event, params) => {
+              nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+            }}
+          />
+          {/* Left border-hover resize control */}
+          <NodeResizeControl
+            nodeId={id}
+            position="left"
+            resizeDirection="horizontal"
+            minWidth={90}
+            maxWidth={640}
+            className="!w-2 !h-[60%] !top-[20%] !left-[-3px] !bg-transparent hover:!bg-blue-500/30 group-hover:opacity-100 !opacity-0 !border-0 cursor-ew-resize !rounded-full transition-all z-20"
+            style={{ position: 'absolute' }}
+            onResize={(_event, params) => {
+              const nextHeight = computeTextAwareNodeSize(nodeData.label || '', {
+                width: params.width,
+                fontSize: visuals.fontSize,
+              }).height;
+              nodeData.onLiveResizeWidth?.(id, nextHeight);
+            }}
+            onResizeEnd={(_event, params) => {
+              nodeData.onResizeEnd?.(id, { width: params.width, height: params.height });
+            }}
+          />
+        </>
+      )}
 
       {/* Node Content Container */}
       <div
@@ -173,30 +327,51 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         )}
 
         <div className="flex items-center justify-center text-center w-full gap-1.5">
-          {/* Dynamic Branch Numbering Badge */}
-          {numberingBadge && (
+          {/* Independent Node Icon */}
+          {nodeData.icon && (
             <span
-              className="text-[11px] font-bold text-slate-500 bg-slate-100/90 dark:bg-slate-800/80 px-1 py-0.5 rounded select-none shrink-0"
-              title="Structural Presentation Numbering"
+              data-testid={`node-icon-${id}`}
+              className="text-base leading-none select-none shrink-0"
+              title="Topic Icon"
             >
-              {numberingBadge}
+              {nodeData.icon}
             </span>
           )}
 
           {isEditing ? (
-            <input
+            // F6: genuinely multiline-capable editing control -- a single-line
+            // <input> cannot represent a canonical value containing hard `\n`
+            // breaks. Enter still commits (single-line behavior unchanged);
+            // Shift+Enter inserts an explicit hard line break.
+            <textarea
               ref={inputRef}
-              type="text"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                autoGrow();
+              }}
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
-              className="w-full text-center bg-transparent border-none outline-none font-medium"
-              style={{ color: visuals.textColor, fontSize: `${visuals.fontSize}px` }}
+              rows={1}
+              className="w-full text-center bg-transparent border-none outline-none font-medium resize-none overflow-hidden"
+              style={{
+                color: visuals.textColor,
+                fontSize: `${visuals.fontSize}px`,
+                fontFamily: visuals.fontFamily,
+                whiteSpace: 'pre-wrap',
+              }}
             />
           ) : (
-            <span className="font-medium tracking-tight select-none break-words">
-              {text}
+            // M3 Behavior Correction Contract: numbering renders as an
+            // ordinary inline text prefix, same font size/color/weight as
+            // the node text -- not a separate badge/pill treatment.
+            // F6: whiteSpace 'pre-wrap' renders explicit `\n` hard breaks
+            // instead of collapsing them into ordinary whitespace.
+            <span
+              className="font-medium tracking-tight select-none break-words"
+              style={{ whiteSpace: 'pre-wrap', fontFamily: visuals.fontFamily }}
+            >
+              {formatNumberedLabel(numberingBadge, text)}
             </span>
           )}
         </div>
@@ -206,14 +381,14 @@ export const CustomNode: React.FC<NodeProps> = ({ id, data, selected }) => {
       {hasChildren && (
         <button
           onClick={handleToggleFold}
-          title={isCollapsed ? `Expand branch (${childCount} children)` : 'Collapse branch'}
+          title={isCollapsed ? `Reveal next level (${hiddenDescendantCount} hidden descendants)` : 'Collapse branch'}
           className={`absolute -right-3.5 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full text-[10px] font-bold shadow-xs transition-all ${
             isCollapsed
               ? 'w-6 h-5 bg-blue-600 hover:bg-blue-700 text-white px-1 signature-collapse-gather'
               : 'w-4 h-4 bg-slate-200 hover:bg-slate-300 text-slate-600 opacity-0 group-hover:opacity-100 signature-expand-unfold'
           }`}
         >
-          {isCollapsed ? `+${childCount}` : '−'}
+          {isCollapsed ? `+${hiddenDescendantCount}` : '−'}
         </button>
       )}
     </div>

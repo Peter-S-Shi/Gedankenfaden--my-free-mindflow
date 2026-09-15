@@ -1,4 +1,4 @@
-import { CanonicalDocument, CanonicalNode, NumberingStyle } from './types';
+import { CanonicalDocument, CanonicalNode, NodeNumberingRule, NumberingStyle } from './types';
 
 export function formatIndexToStyle(index: number, style: NumberingStyle): string {
   if (style === 'none') return '';
@@ -56,14 +56,24 @@ export function formatIndexToStyle(index: number, style: NumberingStyle): string
 }
 
 /**
- * Computes presentation numbering badges for all nodes in the document based on hierarchy.
- * Returns a Map from nodeId to presentation badge string (e.g. "1.", "A.", "•").
+ * Computes presentation numbering badges for all nodes in the document based
+ * on hierarchy. Returns a Map from nodeId to presentation badge string
+ * (e.g. "1.", "A.", "•").
+ *
+ * M3 Behavior Correction Contract: numbering has no ambient default --
+ * nothing is numbered unless some node's `numbering` rule was explicitly
+ * applied (via `canApplyNumbering`-gated UI). A rule is parent-scoped: it
+ * governs the node's own direct children (and further descendants, up to
+ * `maxDepth`) using a depth counted *relative to the node that owns the
+ * rule*, not the document root -- so applying a rule to a node deep in the
+ * tree numbers exactly "1, 2, 3..." for its own children, the same as
+ * applying it at the root. A descendant with its own `numbering` rule
+ * overrides the inherited one for its own subtree.
  */
 export function computeDocumentNumbering(doc: CanonicalDocument): Map<string, string> {
   const badgeMap = new Map<string, string>();
   if (doc.mode !== 'mindmap') return badgeMap;
 
-  // Build parent to children map
   const childrenMap = new Map<string, CanonicalNode[]>();
   for (const node of doc.nodes) {
     if (node.parentId) {
@@ -73,26 +83,41 @@ export function computeDocumentNumbering(doc: CanonicalDocument): Map<string, st
     }
   }
 
-  // Find root node(s)
   const rootNodes = doc.nodes.filter((n) => n.type === 'root' || !n.parentId);
 
-  const traverse = (node: CanonicalNode, depth: number, parentRule?: { level1Style?: NumberingStyle; level2Style?: NumberingStyle }) => {
+  /**
+   * `relativeDepth` counts down from whichever node most recently declared
+   * its own `numbering` rule (0 = that owner's direct children). It resets
+   * to 0 the moment a node with its own rule is visited, so a deeper
+   * override always starts a fresh "1, 2, 3..." for its own children.
+   */
+  const traverse = (node: CanonicalNode, relativeDepth: number, inheritedRule?: NodeNumberingRule) => {
     const children = childrenMap.get(node.id) || [];
     if (children.length === 0) return;
 
-    // Determine numbering style for this level
-    const currentRule = node.numbering || parentRule;
-    let style: NumberingStyle = 'none';
+    const ownRule = node.numbering;
+    const rule = ownRule || inheritedRule;
+    const depth = ownRule ? 0 : relativeDepth;
 
+    if (!rule) {
+      // No rule anywhere in this node's ancestor chain -- no numbering here,
+      // but keep walking in case a deeper node declares its own rule.
+      children.forEach((child) => traverse(child, 0, undefined));
+      return;
+    }
+
+    if (rule.maxDepth !== undefined && depth >= rule.maxDepth) {
+      children.forEach((child) => traverse(child, depth + 1, rule));
+      return;
+    }
+
+    let style: NumberingStyle;
     if (depth === 0) {
-      // Level 1 children (direct children of root)
-      style = currentRule?.level1Style || (doc.metadata?.defaultLevel1Numbering as NumberingStyle) || 'decimal';
+      style = rule.level1Style || 'none';
     } else if (depth === 1) {
-      // Level 2 children
-      style = currentRule?.level2Style || (doc.metadata?.defaultLevel2Numbering as NumberingStyle) || 'alpha';
+      style = rule.level2Style || rule.level1Style || 'none';
     } else {
-      // Level 3+
-      style = currentRule?.level2Style === 'bullet' ? 'bullet' : 'bullet';
+      style = rule.level1Style && rule.level1Style !== 'none' ? 'bullet' : 'none';
     }
 
     children.forEach((child, index) => {
@@ -100,13 +125,32 @@ export function computeDocumentNumbering(doc: CanonicalDocument): Map<string, st
       if (badge) {
         badgeMap.set(child.id, badge);
       }
-      traverse(child, depth + 1, currentRule);
+      traverse(child, depth + 1, rule);
     });
   };
 
   for (const root of rootNodes) {
-    traverse(root, 0);
+    traverse(root, 0, undefined);
   }
 
   return badgeMap;
+}
+
+/**
+ * Whether the Numbering menu should be enabled for `nodeId`: Mind Map mode
+ * only, and only when the node actually has children to number (contract:
+ * "if the selected node has no children, the Numbering menu must be
+ * disabled/greyed out").
+ */
+export function canApplyNumbering(doc: CanonicalDocument, nodeId: string | null | undefined): boolean {
+  if (doc.mode !== 'mindmap' || !nodeId) return false;
+  return doc.nodes.some((n) => n.parentId === nodeId);
+}
+
+/**
+ * Inline presentation string for a node's label (contract: numbering renders
+ * as an ordinary text prefix -- "1. 核心主角" -- not a separate badge/pill).
+ */
+export function formatNumberedLabel(badge: string | undefined, text: string): string {
+  return badge ? `${badge} ${text}` : text;
 }

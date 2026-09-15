@@ -270,12 +270,12 @@ All interactions follow purposeful physical metaphors:
 | **PNG** | Raster Image | High | High-DPI raster image snapshot with transparent or solid background. |
 | **JPEG** | Raster Image | High | Standard compressed image with background fill. |
 | **PDF** | Document Vector | High | Printable page layout with vector text and diagram paths. |
-| **Markdown** | Text Hierarchy | Structural | Indented outline bullet points, node text, and task checkboxes. |
-| **HTML** | Standalone Web | High | Self-contained HTML file embedding interactive SVG preview. |
+| **Markdown** | Text Hierarchy | Structural | Mind Map only. Indented outline bullet points, node text, and task checkboxes. Not offered for Flowchart: a directed graph's `edges`/group semantics cannot be truthfully reduced to a tree. |
+| **HTML** | Standalone Web | High | Self-contained, offline HTML file embedding a viewable SVG representation (not an interactive editor or runtime). |
 | **Mermaid** | Code Diagram | Semantic | Synthesized `graph TD` or `mindmap` code block. |
-| **OPML** | Outline Interchange | Structural | Standard XML outline for interchange with external outline tools. |
-| **Legacy mind-map XML (`.mm`)** | Structured Outline | Structural | Standard legacy mind-map XML tree format. |
-| **JSON Canvas (`.canvas`)** | Open Standard | High | JSON Canvas (`.canvas`) open format specification. |
+| **OPML** | Outline Interchange | Structural | Mind Map only, for the same reason as Markdown outline: a Flowchart's directed-graph structure lives in `edges`, not tree `parentId`. |
+| **Legacy mind-map XML (`.mm`)** | Structured Outline | Structural | Mind Map only, for the same reason as Markdown outline. |
+| **JSON Canvas (`.canvas`)** | Open Standard | High | JSON Canvas (`.canvas`) open format specification. High fidelity within what the open standard can represent (nodes, groups, edge sides/arrows/labels/color) -- not a lossless round-trip of Gedankenfaden-specific semantics the standard has no field for. |
 
 ### 12.2 Import Contract
 - **Native JSON / `.mflow`**: Full lossless document import.

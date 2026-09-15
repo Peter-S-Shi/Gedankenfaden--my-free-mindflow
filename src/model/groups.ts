@@ -9,6 +9,23 @@ export interface GroupBounds {
 }
 
 /**
+ * Resolves the authoritative bounds for a group container.
+ * When explicit `group.bounds` exist, they are authoritative.
+ * Otherwise, falls back to computing bounds enclosing its member nodes.
+ */
+export function resolveGroupBounds(
+  group: CanonicalGroup,
+  nodes: CanonicalNode[],
+  padding = 24,
+  headerHeight = 32
+): GroupBounds {
+  if (group.bounds) {
+    return group.bounds;
+  }
+  return computeGroupBounds(group, nodes, padding, headerHeight);
+}
+
+/**
  * Computes the minimum bounding box enclosing all member nodes with padding.
  */
 export function computeGroupBounds(

@@ -150,6 +150,71 @@ export async function importDocumentIntoLibrary(
   };
 }
 
+export interface SaveDocumentResult {
+  success: boolean;
+  /** User-facing failure reason. Only meaningful when success is false. */
+  message?: string;
+  /** Freshly derived Library metadata for this document. Only present when success is true. */
+  entry?: LibraryEntry;
+}
+
+/**
+ * Derives Library metadata directly from an in-memory document, without touching disk.
+ * Used to refresh the visible Library immediately after a save (Ledger F11) rather than
+ * waiting for the next full filesystem rescan.
+ */
+export function deriveLibraryEntry(
+  doc: CanonicalDocument,
+  filePath: string,
+  existing?: Pick<LibraryEntry, 'isPinned' | 'tags'>
+): LibraryEntry {
+  return {
+    id: doc.id,
+    title: doc.title || 'Untitled Document',
+    mode: doc.mode || 'mindmap',
+    filePath,
+    fileFormat: filePath.toLowerCase().endsWith('.mflow') ? 'mflow' : 'json',
+    updatedAt: doc.updatedAt,
+    nodeCount: doc.nodes?.length || 0,
+    edgeCount: doc.edges?.length || 0,
+    isPinned: existing?.isPinned,
+    tags: existing?.tags,
+  };
+}
+
+/**
+ * Persists a document to its owned file path and reports the real outcome: a failed
+ * native write is returned as failure (never silently swallowed), and a successful
+ * write returns the freshly derived Library metadata so the caller can update the
+ * visible Library immediately, without a manual rescan (Ledger F11).
+ *
+ * Only `.mflow` and `.json` targets are written; any other path is a no-op success
+ * (nothing to persist to — mirrors the prior behavior for unrecognized extensions).
+ */
+export async function saveDocumentToLibrary(
+  doc: CanonicalDocument,
+  filePath: string,
+  bridge: INativeBridge = getNativeBridge(),
+  existing?: Pick<LibraryEntry, 'isPinned' | 'tags'>
+): Promise<SaveDocumentResult> {
+  const lower = filePath.toLowerCase();
+  try {
+    if (lower.endsWith('.mflow')) {
+      const bytes = await packageDocumentToMflow(doc);
+      await atomicWriteBinaryFile(filePath, bytes, bridge);
+    } else if (lower.endsWith('.json')) {
+      await atomicWriteTextFile(filePath, JSON.stringify(doc, null, 2), bridge);
+    } else {
+      return { success: true };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error while saving to disk';
+    return { success: false, message };
+  }
+
+  return { success: true, entry: deriveLibraryEntry(doc, filePath, existing) };
+}
+
 /**
  * Inspects a document file and generates a metadata catalog entry
  */
@@ -208,8 +273,83 @@ export async function scanDirectoryForDocuments(
   return results;
 }
 
+const IMPORTED_OUTLINE_MARKER = '.gedankenfaden-imported';
+
 /**
- * Synchronizes fast library cache against multiple scanned directories
+ * Marker suffix appended to the .mflow copy Rescan Disk creates for a .md/.opml
+ * outline it finds sitting directly in the Library folder (Ledger F09/F13):
+ * "Import File" already accepts .md/.markdown/.opml, but scanning previously
+ * only recognized .mflow/.json, so a dropped outline never appeared in the
+ * Library until the user manually imported it. Discovering it here reconciles
+ * Rescan/watcher-driven discovery with what Import File already supports.
+ *
+ * The target path is derived deterministically from the source file's own
+ * name (not a timestamp), so re-scanning the same folder never creates a
+ * second copy: if the marked .mflow already exists, the source is left alone.
+ */
+export async function scanDirectoryForImportableOutlines(
+  dirPath: string,
+  bridge: INativeBridge = getNativeBridge()
+): Promise<LibraryEntry[]> {
+  if (!(await bridge.exists(dirPath))) {
+    return [];
+  }
+
+  const fileEntries: FileEntry[] = await bridge.readDir(dirPath);
+  const results: LibraryEntry[] = [];
+
+  for (const file of fileEntries) {
+    if (file.isDirectory) continue;
+    const lower = file.name.toLowerCase();
+    const isOutline =
+      lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.opml');
+    if (!isOutline) continue;
+
+    const basename = file.name.replace(/\.(md|markdown|opml)$/i, '');
+    const targetPath = `${dirPath}/${basename}${IMPORTED_OUTLINE_MARKER}.mflow`.replace(/\\/g, '/');
+
+    if (await bridge.exists(targetPath)) continue;
+
+    const doc = await loadDocumentFromFile(file.path, bridge);
+    if (!doc) continue;
+
+    const bytes = packageDocumentToMflow(doc);
+    await atomicWriteBinaryFile(targetPath, bytes, bridge);
+
+    const entry = await inspectDocumentFile(targetPath, bridge);
+    if (entry) results.push(entry);
+  }
+
+  return results;
+}
+
+/**
+ * True when `filePath` lives under one of `scanDirs` (normalized to forward
+ * slashes, trailing-slash-insensitive).
+ */
+function isUnderScanDirs(filePath: string, scanDirs: string[]): boolean {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  return scanDirs.some((dir) => {
+    const normalizedDir = dir.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`);
+  });
+}
+
+/**
+ * Synchronizes fast library cache against multiple scanned directories.
+ *
+ * The persisted cache (%APPDATA%\Gedankenfaden\library.json) is a single
+ * file shared across every folder the user has ever pointed the Active
+ * Library Folder at, but each call here represents the currently active
+ * root(s) only. Seeding the merge from the *entire* cache and pruning
+ * solely by "file still exists on disk" let a previous root's entries
+ * survive forever and leak into the next: switching Folder A -> Folder B
+ * would show B's documents mixed with A's stale ones (since A's files are
+ * still physically present, just no longer the active root), and switching
+ * back to A would then also carry B's. Restricting the seed to entries
+ * already under one of `scanDirs` keeps the merge (and therefore what gets
+ * persisted back to disk) scoped to the active root(s), matching what
+ * "Active Library Folder" means to the user.
  */
 export async function syncLibraryWithDisk(
   scanDirs: string[],
@@ -219,11 +359,14 @@ export async function syncLibraryWithDisk(
   const entryMap = new Map<string, LibraryEntry>();
 
   for (const entry of existingEntries) {
-    entryMap.set(entry.filePath, entry);
+    if (isUnderScanDirs(entry.filePath, scanDirs)) {
+      entryMap.set(entry.filePath, entry);
+    }
   }
 
   for (const dir of scanDirs) {
-    const scanned = await scanDirectoryForDocuments(dir, bridge);
+    const importedOutlines = await scanDirectoryForImportableOutlines(dir, bridge);
+    const scanned = [...(await scanDirectoryForDocuments(dir, bridge)), ...importedOutlines];
     for (const item of scanned) {
       const existing = entryMap.get(item.filePath);
       entryMap.set(item.filePath, {

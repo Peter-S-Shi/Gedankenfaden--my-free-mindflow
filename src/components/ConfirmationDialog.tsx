@@ -7,6 +7,9 @@ interface ConfirmationDialogProps {
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional less-destructive alternative action, rendered between Cancel and the primary action. */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 }
 
 export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
@@ -15,6 +18,8 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   confirmLabel = 'Delete',
   onConfirm,
   onCancel,
+  secondaryLabel,
+  onSecondary,
 }) => {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -47,6 +52,9 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button ref={cancelRef} type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">Cancel</button>
+          {secondaryLabel && onSecondary && (
+            <button type="button" onClick={onSecondary} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">{secondaryLabel}</button>
+          )}
           <button type="button" onClick={onConfirm} className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700">{confirmLabel}</button>
         </div>
       </div>

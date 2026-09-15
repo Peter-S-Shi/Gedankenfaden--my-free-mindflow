@@ -4,7 +4,9 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { listen, UnlistenFn } from '@tauri-apps/api/event';
+
+const LIBRARY_CHANGED_EVENT = 'library-fs-changed';
 
 export interface FileEntry {
   name: string;
@@ -18,6 +20,8 @@ export interface INativeBridge {
   isTauri(): boolean;
   getAppDataDir(): Promise<string>;
   getDefaultDocumentsDir(): Promise<string>;
+  /** Last folder authorized as the active Library root in a prior session, if any. */
+  getPersistedLibraryRoot(): Promise<string | null>;
   readTextFile(path: string): Promise<string>;
   writeTextFile(path: string, contents: string): Promise<void>;
   readBinaryFile(path: string): Promise<Uint8Array>;
@@ -32,6 +36,14 @@ export interface INativeBridge {
   pickFolder(): Promise<string | null>;
   pickDocumentFile(): Promise<string | null>;
   pickExportFile(suggestedFilename: string, extension: string): Promise<string | null>;
+  /** Starts (or moves) live observation of external changes to an authorized Library folder. */
+  watchLibraryRoot(path: string): Promise<void>;
+  /** Tears down the active Library watcher, if any. */
+  unwatchLibraryRoot(): Promise<void>;
+  /** Subscribes to external Library filesystem change notifications; returns an unsubscribe function. */
+  onLibraryChanged(callback: () => void): () => void;
+  /** Terminates the native application lifecycle cleanly via Rust app.exit(0). */
+  closeAppWindow(): Promise<void>;
 }
 
 export function isRunningInTauri(): boolean {
@@ -52,6 +64,10 @@ export class TauriNativeBridge implements INativeBridge {
 
   async getDefaultDocumentsDir(): Promise<string> {
     return await invoke<string>('get_default_documents_dir');
+  }
+
+  async getPersistedLibraryRoot(): Promise<string | null> {
+    return await invoke<string | null>('get_persisted_library_root');
   }
 
   async readTextFile(path: string): Promise<string> {
@@ -99,15 +115,14 @@ export class TauriNativeBridge implements INativeBridge {
     return await invoke<string | null>('get_cli_open_file');
   }
 
+  // Dialogs are invoked and their results authorized entirely on the Rust side
+  // (see pick_folder_dialog / pick_document_file_dialog / pick_export_file_dialog
+  // in src-tauri/src/main.rs) so that native filesystem authorization can never be
+  // granted merely by a renderer-supplied string; only a path the user actually
+  // picked through the OS dialog is trusted.
   async pickFolder(): Promise<string | null> {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: 'Select Gedankenfaden Library Folder',
-      });
-      if (typeof selected === 'string') return selected.replace(/\\/g, '/');
-      return null;
+      return await invoke<string | null>('pick_folder_dialog');
     } catch {
       return null;
     }
@@ -115,35 +130,60 @@ export class TauriNativeBridge implements INativeBridge {
 
   async pickDocumentFile(): Promise<string | null> {
     try {
-      const selected = await open({
-        multiple: false,
-        title: 'Import Document into Gedankenfaden',
-        filters: [
-          {
-            name: 'All Supported Documents (*.mflow, *.json, *.md, *.opml)',
-            extensions: ['mflow', 'json', 'md', 'markdown', 'opml'],
-          },
-          { name: 'Gedankenfaden Package (*.mflow)', extensions: ['mflow'] },
-          { name: 'Canonical JSON (*.json)', extensions: ['json'] },
-          { name: 'Markdown Document (*.md, *.markdown)', extensions: ['md', 'markdown'] },
-          { name: 'OPML Outline (*.opml)', extensions: ['opml'] },
-          { name: 'All Files (*.*)', extensions: ['*'] },
-        ],
-      });
-      if (typeof selected === 'string') return selected.replace(/\\/g, '/');
-      return null;
+      return await invoke<string | null>('pick_document_file_dialog');
     } catch {
       return null;
     }
   }
 
   async pickExportFile(suggestedFilename: string, extension: string): Promise<string | null> {
-    const selected = await save({
-      title: 'Export Gedankenfaden Document',
-      defaultPath: suggestedFilename,
-      filters: [{ name: `${extension.toUpperCase()} file`, extensions: [extension] }],
+    try {
+      return await invoke<string | null>('pick_export_file_dialog', {
+        suggestedFilename,
+        extension,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  async watchLibraryRoot(path: string): Promise<void> {
+    await invoke('watch_library_root', { path });
+  }
+
+  async unwatchLibraryRoot(): Promise<void> {
+    await invoke('unwatch_library_root');
+  }
+
+  onLibraryChanged(callback: () => void): () => void {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+
+    listen(LIBRARY_CHANGED_EVENT, () => callback()).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return typeof selected === 'string' ? selected.replace(/\\/g, '/') : null;
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }
+
+  async closeAppWindow(): Promise<void> {
+    try {
+      await invoke('close_app_window');
+    } catch {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().destroy();
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
@@ -167,6 +207,9 @@ export class MemoryMockNativeBridge implements INativeBridge {
   private pickedFolder: string | null = null;
   private pickedDocumentFile: string | null = null;
   private pickedExportFile: string | null = null;
+  private persistedLibraryRoot: string | null = null;
+  private watchedLibraryRoot: string | null = null;
+  private libraryChangeListeners: Set<() => void> = new Set();
 
   private normalize(p: string): string {
     return p.replace(/\\/g, '/');
@@ -195,6 +238,14 @@ export class MemoryMockNativeBridge implements INativeBridge {
 
   async getDefaultDocumentsDir(): Promise<string> {
     return 'C:/Users/default/Documents/Gedankenfaden';
+  }
+
+  async getPersistedLibraryRoot(): Promise<string | null> {
+    return this.persistedLibraryRoot;
+  }
+
+  simulatePersistedLibraryRoot(path: string | null): void {
+    this.persistedLibraryRoot = path;
   }
 
   async readTextFile(path: string): Promise<string> {
@@ -302,6 +353,32 @@ export class MemoryMockNativeBridge implements INativeBridge {
     return this.pickedExportFile;
   }
 
+  async watchLibraryRoot(path: string): Promise<void> {
+    this.watchedLibraryRoot = this.normalize(path);
+  }
+
+  async unwatchLibraryRoot(): Promise<void> {
+    this.watchedLibraryRoot = null;
+  }
+
+  onLibraryChanged(callback: () => void): () => void {
+    this.libraryChangeListeners.add(callback);
+    return () => {
+      this.libraryChangeListeners.delete(callback);
+    };
+  }
+
+  /** Test/simulation hook: fires an external Library filesystem change notification. */
+  simulateExternalLibraryChange(): void {
+    for (const listener of this.libraryChangeListeners) {
+      listener();
+    }
+  }
+
+  getWatchedLibraryRoot(): string | null {
+    return this.watchedLibraryRoot;
+  }
+
   async readDir(dirPath: string): Promise<FileEntry[]> {
     const normDir = this.normalize(dirPath).replace(/\/$/, '') + '/';
     const entries: FileEntry[] = [];
@@ -330,6 +407,10 @@ export class MemoryMockNativeBridge implements INativeBridge {
     }
 
     return entries;
+  }
+
+  async closeAppWindow(): Promise<void> {
+    // In-memory mock lifecycle termination
   }
 }
 

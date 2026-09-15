@@ -1,0 +1,18 @@
+{
+  "corpus": "gedankenfaden-layout-regression-corpus",
+  "version": 1,
+  "files": [
+    "01_extreme_star_60.md",
+    "02_deep_chain_24.md",
+    "03_severe_imbalance.md",
+    "04_wide_shallow.md",
+    "05_mixed_depth_irregular.md",
+    "06_long_chinese_text.md",
+    "07_mixed_cjk_english.md",
+    "08_bilateral_footprint_balance.md",
+    "09_collapse_expand_stability.md",
+    "10_parent_local_packing.md",
+    "11_opml_import_parity.opml",
+    "README.md"
+  ]
+}

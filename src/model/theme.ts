@@ -143,9 +143,15 @@ export function resolveNodeVisuals(node: CanonicalNode, theme?: DocumentTheme): 
   const isTerminal = node.type === 'terminal';
   const isDecision = node.type === 'decision';
 
-  const defaultBg = isRoot ? palette.rootBg : palette.nodeBg;
+  // F9: precedence is local node style > explicit DocumentTheme override >
+  // palette fallback. The specialized root palette (rootBg/rootBorder/
+  // rootText) is preserved as-is for root nodes -- the generic
+  // theme.nodeBackground/nodeTextColor override only applies to ordinary
+  // (non-root) nodes, so palette switching and explicit theme overrides
+  // don't silently erase each other's intent for the root's distinct look.
+  const defaultBg = isRoot ? palette.rootBg : theme?.nodeBackground || palette.nodeBg;
   const defaultBorder = isRoot ? palette.rootBorder : palette.nodeBorder;
-  const defaultText = isRoot ? palette.rootText : palette.nodeText;
+  const defaultText = isRoot ? palette.rootText : theme?.nodeTextColor || palette.nodeText;
   const defaultShape: NodeShape = isTerminal ? 'pill' : isDecision ? 'diamond' : 'rounded';
   const defaultRadius = defaultShape === 'pill' ? 24 : defaultShape === 'diamond' ? 2 : 8;
 
@@ -160,6 +166,28 @@ export function resolveNodeVisuals(node: CanonicalNode, theme?: DocumentTheme): 
     fontFamily: local.fontFamily || theme?.fontFamily || 'sans',
     borderRadius: local.borderRadius ?? defaultRadius,
     shape: (node.shape || local.shape || defaultShape) as NodeShape,
+  };
+}
+
+export interface CanvasBackgroundProjection {
+  variant: 'dots' | 'lines';
+  patternSize: number;
+}
+
+/**
+ * F7: maps the canonical `canvasBackground` pattern keyword to the React
+ * Flow `<Background>` renderer's variant + size props. Pulled out as a pure
+ * function (instead of inline JSX conditionals) so the pattern/blank
+ * contract is unit-testable without rendering React Flow. `'blank'`
+ * collapses `patternSize` to 0 rather than omitting the element, so
+ * `canvasBgColor` still applies uniformly underneath.
+ */
+export function resolveCanvasBackgroundProjection(
+  canvasBackground: DocumentTheme['canvasBackground'] | undefined
+): CanvasBackgroundProjection {
+  return {
+    variant: canvasBackground === 'grid' ? 'lines' : 'dots',
+    patternSize: canvasBackground === 'blank' ? 0 : 1,
   };
 }
 

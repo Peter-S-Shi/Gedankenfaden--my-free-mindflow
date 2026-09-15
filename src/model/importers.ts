@@ -5,7 +5,7 @@
 
 import { CanonicalDocument, CanonicalNode, CanonicalEdge } from './types';
 import { getDefaultTheme } from './theme';
-import { layoutMindMapDocument } from './layout';
+import { autoLayoutDocument } from './layout';
 
 interface ParsedOutlineNode {
   text: string;
@@ -104,47 +104,52 @@ export function importFromOPML(opmlText: string, defaultTitle?: string): Canonic
   // Extract title from <title> tag if present
   const titleMatch = opmlText.match(/<title>([^<]+)<\/title>/i);
   if (titleMatch && titleMatch[1]) {
-    title = titleMatch[1].trim();
+    title = decodeXml(titleMatch[1].trim());
   }
 
   if (!title) {
     title = 'Imported OPML Map';
   }
 
-  // Parse <outline> tags hierarchically
-  const rootChildren: ParsedOutlineNode[] = [];
-
-  function parseOutlines(xmlSnippet: string): ParsedOutlineNode[] {
-    const nodes: ParsedOutlineNode[] = [];
-    let match: RegExpExecArray | null;
-    const regex = /<outline\b([^>]*?)(\/>|>([\s\S]*?)<\/outline>)/gi;
-
-    while ((match = regex.exec(xmlSnippet)) !== null) {
-      const attrs = match[1];
-      const isSelfClosing = match[2] === '/>';
-      const innerContent = match[3] || '';
-
-      // Extract text or _text attribute
-      let text = '';
-      const textMatch = attrs.match(/\btext="([^"]*)"/i) || attrs.match(/\b_text="([^"]*)"/i);
-      if (textMatch) {
-        text = decodeXml(textMatch[1]);
-      } else {
-        const titleAttr = attrs.match(/\btitle="([^"]*)"/i);
-        if (titleAttr) text = decodeXml(titleAttr[1]);
-      }
-
-      if (!text) text = 'Node';
-
-      const childNodes = isSelfClosing ? [] : parseOutlines(innerContent);
-      nodes.push({ text, children: childNodes });
-    }
-
-    return nodes;
+  // Parse <outline> tags hierarchically. A single-pass stack-based scan is used
+  // (rather than recursive substring regex matching) because a lazy regex cannot
+  // reliably locate the matching closing tag once <outline> elements nest three
+  // or more levels deep with same-named descendants.
+  function extractOutlineText(attrs: string): string {
+    const textMatch = attrs.match(/\btext="([^"]*)"/i) || attrs.match(/\b_text="([^"]*)"/i);
+    if (textMatch) return decodeXml(textMatch[1]);
+    const titleAttr = attrs.match(/\btitle="([^"]*)"/i);
+    if (titleAttr) return decodeXml(titleAttr[1]);
+    return 'Node';
   }
 
-  const parsed = parseOutlines(opmlText);
-  rootChildren.push(...parsed);
+  function parseOutlines(xmlSnippet: string): ParsedOutlineNode[] {
+    const root: ParsedOutlineNode[] = [];
+    const childArrayStack: ParsedOutlineNode[][] = [root];
+    const tokenRegex = /<outline\b([^>]*?)(\/)?>|<\/outline\s*>/gi;
+
+    let match: RegExpExecArray | null;
+    while ((match = tokenRegex.exec(xmlSnippet)) !== null) {
+      const isClosingTag = match[0].toLowerCase().startsWith('</outline');
+      if (isClosingTag) {
+        if (childArrayStack.length > 1) childArrayStack.pop();
+        continue;
+      }
+
+      const attrs = match[1] ?? '';
+      const isSelfClosing = !!match[2];
+      const node: ParsedOutlineNode = { text: extractOutlineText(attrs), children: [] };
+      childArrayStack[childArrayStack.length - 1].push(node);
+
+      if (!isSelfClosing) {
+        childArrayStack.push(node.children);
+      }
+    }
+
+    return root;
+  }
+
+  const rootChildren: ParsedOutlineNode[] = parseOutlines(opmlText);
 
   return convertTreeToCanonical(title, rootChildren);
 }
@@ -216,6 +221,7 @@ function convertTreeToCanonical(rootTitle: string, children: ParsedOutlineNode[]
     groups: [],
   };
 
-  // Perform balanced mind map layout
-  return layoutMindMapDocument(doc, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
+  // Perform balanced mind map layout through the same live dispatch seam
+  // as the editor, so importer output cannot drift from product layout.
+  return autoLayoutDocument(doc, { preset: 'balanced', horizontalGap: 60, verticalGap: 24 });
 }

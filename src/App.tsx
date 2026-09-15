@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CanonicalDocument } from './model/types';
 import { createEmptyDocument } from './model/document';
 import { getDefaultTheme } from './model/theme';
 import { LibraryHome } from './components/LibraryHome';
-import { CanvasEditor } from './components/CanvasEditor';
+import { CanvasEditor, SaveResult } from './components/CanvasEditor';
 import {
   AutoSaveEngine,
   saveRollingSnapshot,
@@ -22,9 +22,12 @@ import {
   deleteDocumentFromLibrary,
   loadDocumentFromFile,
   importDocumentIntoLibrary,
+  saveDocumentToLibrary,
 } from './model/library';
 import { getNativeBridge } from './platform/tauriBridge';
 import { packageDocumentToMflow } from './model/container';
+import { watchLibraryFolder } from './model/libraryWatch';
+import { registerNativeCloseGuard } from './platform/nativeCloseGuard';
 
 const STORAGE_KEY = 'gedankenfaden_recent_docs_v1';
 
@@ -185,7 +188,9 @@ export const App: React.FC = () => {
           const lower = cliFilePath.toLowerCase();
           const isStructuredImport = lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.opml');
           const defaultDocDir = await bridge.getDefaultDocumentsDir();
-          const storedFolder = localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
+          const persistedRoot = await bridge.getPersistedLibraryRoot();
+          const storedFolder =
+            persistedRoot || localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
           const imported = isStructuredImport
             ? await importDocumentIntoLibrary(cliFilePath, storedFolder, bridge)
             : null;
@@ -212,7 +217,9 @@ export const App: React.FC = () => {
       // 3. Resolve active documents folder & sync library
       try {
         const defaultDocDir = await bridge.getDefaultDocumentsDir();
-        const storedFolder = localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
+        const persistedRoot = await bridge.getPersistedLibraryRoot();
+        const storedFolder =
+          persistedRoot || localStorage.getItem('gedankenfaden_library_folder') || defaultDocDir;
         if (isMounted) setCurrentFolder(storedFolder);
 
         if (!(await bridge.exists(storedFolder))) {
@@ -232,6 +239,41 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Distinguish a normal native window close from a recoverable interruption (Ledger F10):
+  // flush any pending autosave and mark the session journal clean before the window
+  // actually closes, so a genuine crash/kill/power-loss remains the only path that
+  // leaves the journal dirty and triggers recovery on relaunch.
+  useEffect(() => {
+    const unregister = registerNativeCloseGuard({
+      flushPendingAutosave: () => autoSaveEngineRef.current.flushPending(),
+      markClean: () => markSessionClean(),
+    });
+    return unregister;
+  }, []);
+
+  // Keep the selected Library in sync with external filesystem changes (Ledger F09):
+  // hydrates the folder on establish/change, then watches for external create/rename/delete.
+  // Changing folders or unmounting tears down the previous watcher before anything else runs.
+  useEffect(() => {
+    if (!currentFolder) return undefined;
+    let active = true;
+    const bridge = getNativeBridge();
+
+    syncLibraryWithDisk([currentFolder], bridge)
+      .then((entries) => {
+        if (active) setLibraryEntries(entries);
+      })
+      .catch((err) => {
+        console.error('Failed to sync library folder on establish:', err);
+      });
+
+    const handle = watchLibraryFolder(currentFolder, bridge, setLibraryEntries);
+    return () => {
+      active = false;
+      handle.stop();
+    };
+  }, [currentFolder]);
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
@@ -249,6 +291,7 @@ export const App: React.FC = () => {
       if (loaded) {
         setActiveDoc(loaded);
         setActiveDocPath(targetPath);
+        await saveRollingSnapshot(loaded, 'autosave', undefined, bridge);
         await markSessionActive(loaded.id, loaded.title);
         return;
       }
@@ -259,6 +302,7 @@ export const App: React.FC = () => {
     if (doc) {
       setActiveDoc(doc);
       setActiveDocPath(targetPath || null);
+      await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
       await markSessionActive(doc.id, doc.title);
     }
   };
@@ -274,17 +318,47 @@ export const App: React.FC = () => {
       setDocuments((prev) => [doc, ...prev]);
       setActiveDoc(doc);
       setActiveDocPath(entry.filePath);
+      await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
       await markSessionActive(doc.id, doc.title);
     } catch {
       const newDoc = createEmptyDocument(title, mode);
       setDocuments((prev) => [newDoc, ...prev]);
+      await saveRollingSnapshot(newDoc, 'autosave', undefined, bridge);
       await markSessionActive(newDoc.id, newDoc.title);
       setActiveDoc(newDoc);
       setActiveDocPath(null);
     }
   };
 
-  const handleSaveDoc = async (updatedDoc: CanonicalDocument) => {
+  const handleDocumentChange = useCallback(
+    (updatedDoc: CanonicalDocument) => {
+      setActiveDoc(updatedDoc);
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
+      );
+
+      const bridge = getNativeBridge();
+      autoSaveEngineRef.current.scheduleSave(updatedDoc, async (doc) => {
+        await saveRollingSnapshot(doc, 'autosave', undefined, bridge);
+        if (activeDocPath) {
+          try {
+            if (activeDocPath.toLowerCase().endsWith('.mflow')) {
+              const bytes = await packageDocumentToMflow(doc);
+              await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
+            } else if (activeDocPath.toLowerCase().endsWith('.json')) {
+              await atomicWriteTextFile(activeDocPath, JSON.stringify(doc, null, 2), bridge);
+            }
+          } catch {
+            // The debounced rolling snapshot above already preserved this edit for
+            // recovery; the explicit save path is what reports failure to the user.
+          }
+        }
+      });
+    },
+    [activeDocPath]
+  );
+
+  const handleSaveDoc = async (updatedDoc: CanonicalDocument): Promise<SaveResult> => {
     setDocuments((prev) =>
       prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d))
     );
@@ -292,36 +366,36 @@ export const App: React.FC = () => {
 
     const bridge = getNativeBridge();
 
-    // Immediate save directly to target path if open
+    // Immediate save directly to target path if open. A failed native write is
+    // reported to the caller (never silently swallowed); a successful write
+    // refreshes the visible Library metadata for this document right away,
+    // without a manual rescan (Ledger F11).
     if (activeDocPath) {
-      try {
-        if (activeDocPath.toLowerCase().endsWith('.mflow')) {
-          const bytes = await packageDocumentToMflow(updatedDoc);
-          await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
-        } else if (activeDocPath.toLowerCase().endsWith('.json')) {
-          await atomicWriteTextFile(activeDocPath, JSON.stringify(updatedDoc, null, 2), bridge);
-        }
-      } catch (err) {
-        console.error('Failed to save document to file:', err);
+      const savedPath = activeDocPath;
+      const existing = libraryEntries.find((e) => e.filePath === savedPath);
+      const result = await saveDocumentToLibrary(updatedDoc, savedPath, bridge, existing);
+
+      if (!result.success) {
+        console.error('Failed to save document to file:', result.message);
+        return { success: false, message: result.message };
+      }
+
+      if (result.entry) {
+        const newEntry = result.entry;
+        setLibraryEntries((prev) => {
+          const idx = prev.findIndex((e) => e.filePath === savedPath);
+          if (idx < 0) return [newEntry, ...prev];
+          const next = [...prev];
+          next[idx] = newEntry;
+          return next;
+        });
       }
     }
 
-    // Schedule debounced autosave snapshot
-    autoSaveEngineRef.current.scheduleSave(updatedDoc, async (doc) => {
-      await saveRollingSnapshot(doc, 'autosave');
-      if (activeDocPath) {
-        try {
-          if (activeDocPath.toLowerCase().endsWith('.mflow')) {
-            const bytes = await packageDocumentToMflow(doc);
-            await atomicWriteBinaryFile(activeDocPath, bytes, bridge);
-          } else if (activeDocPath.toLowerCase().endsWith('.json')) {
-            await atomicWriteTextFile(activeDocPath, JSON.stringify(doc, null, 2), bridge);
-          }
-        } catch {
-          // Ignored
-        }
-      }
-    });
+    // Also persist a manual snapshot immediately on explicit save
+    await saveRollingSnapshot(updatedDoc, 'manual', undefined, bridge);
+
+    return { success: true };
   };
 
   const handleDeleteDoc = async (target: LibraryEntry | CanonicalDocument) => {
@@ -362,6 +436,7 @@ export const App: React.FC = () => {
         setLibraryEntries(imported.entries);
         setActiveDoc(imported.document);
         setActiveDocPath(imported.filePath);
+        await saveRollingSnapshot(imported.document, 'autosave', undefined, bridge);
         await markSessionActive(imported.document.id, imported.document.title);
       }
     }
@@ -383,6 +458,8 @@ export const App: React.FC = () => {
           const exists = prev.some((d) => d.id === restored.id);
           return exists ? prev.map((d) => (d.id === restored.id ? restored : d)) : [restored, ...prev];
         });
+        const bridge = getNativeBridge();
+        await saveRollingSnapshot(restored, 'autosave', undefined, bridge);
         await markSessionActive(restored.id, restored.title);
         setActiveDoc(restored);
         setActiveDocPath(null);
@@ -406,6 +483,7 @@ export const App: React.FC = () => {
           initialDocument={activeDoc}
           onBackToLibrary={handleBackToLibrary}
           onSaveDocument={handleSaveDoc}
+          onDocumentChange={handleDocumentChange}
         />
       ) : (
         <LibraryHome
