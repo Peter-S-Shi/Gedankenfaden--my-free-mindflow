@@ -37,7 +37,7 @@ import { AssetStore } from '../model/assets';
 import { resetNodeToTheme, BUILTIN_THEMES } from '../model/theme';
 import { PRESET_ICONS } from '../model/icons';
 import { parseMultilineToTree } from '../model/pasteParser';
-import { createGroup, computeGroupBounds, translateGroup } from '../model/groups';
+import { createGroup, resolveGroupBounds, translateGroup } from '../model/groups';
 import {
   DeletionPlan,
   planCanvasDeletion,
@@ -2972,7 +2972,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
             {/* Visual Group Containers Layer */}
             <ViewportPortal>
               {doc.groups && doc.groups.map((group) => {
-                const bounds = computeGroupBounds(group, doc.nodes);
+                const bounds = resolveGroupBounds(group, doc.nodes);
                 return (
                   <div
                     key={group.id}
