@@ -1,9 +1,9 @@
 # Gedankenfaden — Authoritative Roadmap (V1 Baseline & V2 Program)
 
-**Document Status**: AUTHORITATIVE ACTIVE ROADMAP  
+**Document Status**: AUTHORITATIVE ROADMAP -- V2 PROGRAM COMPLETE  
 **Methodology**: Milestone-driven, Test-Verified, Autonomous Engineering Loop  
-**Active Working Branch**: `v2.0.0-upgrade` (Umbrella PR #4: Draft)  
-**Historical Stable Baseline**: `v1.0.0` on `main`  
+**Current Stable Branch**: `main`, at `v2.0.0`  
+**Historical V1 Baseline**: `v1.0.0` (superseded on `main` by `v2.0.0` at Release Closure)  
 
 ---
 
@@ -20,13 +20,22 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
 [ 2. Product Hardening Exit Gate ] (COMPLETE - PASS: CI 34797692094 & Native Windows Pass)
           │
           ▼
-[ 3. UI Reconstruction (V2 M3) ] (IMPLEMENTATION COMPLETE / HUMAN ACCEPTANCE PENDING)
+[ 3. UI Reconstruction (V2 M3) ] (COMPLETE - HUMAN ACCEPTANCE PASS)
           │
           ▼
-[ 4. V2 Release Candidate (RC) & Full Native Regression ] (PENDING - BLOCKED UNTIL HUMAN ACCEPTANCE)
+[ 3a. Flowchart Fidelity Closure (F6-F10) ] (COMPLETE - PASS: `cbbaf70`, CI 34917893819)
           │
           ▼
-[ 5. Release v2.0.0 & Portfolio Packaging Refresh ] (PENDING)
+[ 3b. Final Export Product Hardening Closure (EX-01..EX-11) ] (COMPLETE - PASS: `9bc1e9e`, CI 34920635735)
+          │
+          ▼
+[ 4a. V2 Release Candidate Phase A (RC-A): version/config unification & native build verification ] (COMPLETE - branch `rc/v2.0.0-release-candidate`)
+          │
+          ▼
+[ 4b. V2 Release Candidate Phase B: M7-B Human Acceptance ] (COMPLETE - PASS)
+          │
+          ▼
+[ 5. Release v2.0.0 & Portfolio Packaging Refresh ] (COMPLETE)
 ```
 
 ### V2 Milestone Breakdown
@@ -50,7 +59,7 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
   - All 70+ test suites green; Windows native release build verified; exact-head CI run `34797692094` passed on Ubuntu and Windows.
 
 #### 3. UI Reconstruction (V2 M3)
-- **Status**: **IMPLEMENTATION COMPLETE / HUMAN ACCEPTANCE PENDING**
+- **Status**: **COMPLETE - HUMAN ACCEPTANCE PASS**
 - **Scope & Accomplishments**:
   - Text-first dynamic node sizing for Mind Map nodes with single-line bias, 360px ceiling, and live height reflow, while manual width overrides remain authoritative.
   - Replaced bottom-right resize dot on Mind Map nodes with clean left/right border hover horizontal resize handles. Flowchart retains 2D `NodeResizer`.
@@ -58,20 +67,42 @@ The V2 program reconstructs the core layout architecture, hardens data-integrity
   - Reorganized Inspector into 6 collapsible structured sections (Node Appearance, Media & Grouping, Structure & Branch, Document Theme & Canvas, Connections, Document Info) preserving all styling controls.
   - Implemented Focus Mode with branch isolation, top banner, and Esc/F hotkey, plus low-zoom adaptive edge rendering.
   - Independent icon storage & visual icon picker across Canvas, Inspector, and serialization.
+  - **Human acceptance**: independently exercised end to end during RC-B (Section 4b) -- dynamic sizing, left/right resize handles, the context menu, the Inspector, the icon picker, and Focus Mode all human-verified. PASS.
 
-#### 4. V2 Release Candidate (RC) & Full Native Regression
-- **Status**: **PENDING (BLOCKED UNTIL HUMAN ACCEPTANCE)**
-- **Scope**:
-  - End-to-end regression across all canvas modes, exporters, importers, and recovery systems.
-  - Clean installer generation (NSIS, MSI) and standalone portable package validation.
-  - Complete native smoke and cold-start verification.
+#### 3a. Flowchart Fidelity Closure (F6-F10)
+- **Status**: **COMPLETE (PASS)**
+- **Scope & Accomplishments**: Explicit multiline node-text fidelity, canvas background pattern/color fidelity, canonical edge stroke-width fidelity under adaptive zoom, theme-level node color fidelity, and font-family fidelity -- each with focused TDD regression coverage plus a cross-defect regression proving all five coexist. Commit `cbbaf70`; exact-head CI `34917893819` SUCCESS.
+
+#### 3b. Final Export Product Hardening Closure (EX-01..EX-11)
+- **Status**: **COMPLETE (PASS)**
+- **Scope & Accomplishments**: Flowchart hierarchy-export gating (Markdown/OPML/.mm restricted to Mind Map), JSON Canvas standard-fidelity mapping, Mind Map numbering / annotation / background / node-visual-resolver parity between Canvas and SVG/PDF export, PDF text-aware geometry sharing the same wrap seam as SVG instead of an independent model, Unicode/CJK-safe export filenames, Mermaid multiline label safety, and node icon/embedded-image export. New shared `src/export/exportScene.ts` seam. Commit `9bc1e9e`; exact-head CI `34920635735` SUCCESS.
+
+#### 4a. V2 Release Candidate Phase A (RC-A): Version/Config Unification & Native Build Verification
+- **Status**: **COMPLETE**
+- **Scope & Accomplishments**:
+  - Audited and unified release/version/package configuration that still read the frozen V1 `1.0.0` baseline (`package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `scripts/package-portable.mjs`, `.github/workflows/ci.yml`) to a single source of truth. An interim numeric-only prerelease identifier was used briefly (required at the time by the Windows MSI/WiX bundler, which rejects non-numeric prerelease identifiers such as `-rc.1`), then retired by a subsequent, explicit, narrowly-scoped instruction that normalized the machine version to the final `2.0.0` (no prerelease/RC suffix). This version normalization is metadata-only: it does not itself merge PR #4/PR #19, tag a release, or constitute Release Closure.
+  - Fail-closed verified: `cargo build` / `cargo build --release` / `cargo test` (7/7 Rust unit tests) locally, plus the real `npx tauri build` bundle pipeline (NSIS installer + MSI installer) and portable-artifact packaging/verification, re-run both locally and via the existing GitHub Actions pipeline on the RC branch's exact-head CI (SUCCESS).
+  - Added an isolated V1.0.0-to-V2.0.0-candidate `.mflow`/persisted-document compatibility smoke (`src/test/v2-rc-a-v1-compat-smoke.test.ts`) using entirely synthetic fixture data -- no real user file or library directory touched.
+  - Delivered on branch `rc/v2.0.0-release-candidate` as a child PR into `v2.0.0-upgrade` (not `main`); PR #4 and the RC child PR both remain unmerged.
+  - Did not reopen Product Hardening, redesign the Tauri/native/packaging architecture, or perform UI polish/new features.
+
+#### 4b. V2 Release Candidate Phase B: M7-B Human Acceptance
+- **Status**: **COMPLETE - PASS**
+- **Scope**: A minimal packaged-candidate human smoke of the RC-A `2.0.0` candidate build, following the V1 acceptance model -- not a second full human-acceptance cycle over already-closed Product Hardening (Flowchart Fidelity Closure, Export Closure) or an end-to-end manual regression of every canvas mode, importer, and exporter.
+- **Completed human acceptance record**:
+  - Install/portable launch and real application cold start (not a dev-server proxy) on the human reviewer's own machine -- confirmed showing the actual UI.
+  - Active Library Folder switched Folder A -> Folder B -> back to A, with a Rescan Disk cycle at each step. **This exercise found a genuine regression**: cross-root cached-entry leakage in `syncLibraryWithDisk` (a previous folder's entries survived and leaked into the newly active folder and back). Fixed in `ac0632d9dd4a116fdb10ead6ef48d250170df159`, with automated coverage at `src/test/v2-rc-active-library-folder-cross-root-leak.test.ts`, then re-verified by a second human A -> B -> A + Rescan Disk pass confirming isolation now holds.
+  - `.mflow` file-association open (double-click a file in Explorer) -- confirmed.
+  - One representative edit -> save -> close -> reopen persistence journey -- confirmed, no data loss.
+  - Crash-recovery behavior (forced process kill mid-edit triggers the recovery prompt on relaunch) -- confirmed.
+  - UI Reconstruction (V2 M3) human acceptance -- completed as its own independent pass (Section 3), not folded into this end-to-end regression: PASS.
 
 #### 5. Release v2.0.0 & Portfolio Packaging Refresh
-- **Status**: **PENDING**
+- **Status**: **COMPLETE**
 - **Scope**:
-  - Merge PR #4 to `main` via history-preserving merge.
-  - Tag and publish release `v2.0.0` with signed/verified release artifacts.
-  - Update public documentation, architectural overviews, and portfolio showcase.
+  - PR #19 integrated into `v2.0.0-upgrade`; PR #4 merged to `main`.
+  - `v2.0.0` tagged and published as a GitHub Release with GitHub-hosted NSIS/MSI/portable release artifacts. Exact-head CI SUCCESS: run `34976631500` (#74). The Windows binaries remain unsigned -- no code-signing has been performed or is claimed.
+  - Public documentation and portfolio showcase refreshed: `README.md` now uses `assets/v2pp/` V2 screenshots; see `README.md` for the current showcase.
 
 ---
 

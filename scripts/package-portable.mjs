@@ -12,8 +12,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+// package.json is the single source of truth for the release version
+// (previously "1.0.0" was hardcoded in this script independently of
+// package.json, so a version bump here silently drifted from the actual
+// release version). The raw semver string drives the packaged labeling:
+// a bare version (no prerelease identifier, e.g. "2.0.0") packages and
+// labels as the real final release; a version carrying a prerelease
+// identifier (e.g. "2.0.0-<N>") packages and labels as a release candidate
+// instead, so the same script stays correct across both.
+//
+// During V2's RC-A phase, candidate builds used a numeric-only prerelease
+// identifier (e.g. "2.0.0-<N>" rather than "2.0.0-rc.1"): Tauri's Windows MSI/WiX
+// bundler rejects any pre-release identifier that isn't a bare number
+// ("optional pre-release identifier in app version must be numeric-only
+// ... for msi target"), discovered when `npx tauri build` failed to bundle
+// the MSI target during that phase's own fail-closed verification. That
+// was an earlier prerelease workaround, superseded now that the version
+// has been promoted to the final "2.0.0" -- the human-readable "RC" label
+// (still derived here, not embedded in the semver) simply no longer
+// applies once the version carries no prerelease identifier.
+const { version: packageVersion } = JSON.parse(
+  fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf-8')
+);
+const [baseVersion, prereleaseId] = packageVersion.split('-');
+const isReleaseCandidate = Boolean(prereleaseId);
+const displayVersion = isReleaseCandidate
+  ? `${baseVersion} RC${prereleaseId}`
+  : baseVersion;
+
 async function main() {
-  console.log('--- Gedankenfaden Windows Portable Packager ---');
+  console.log(`--- Gedankenfaden Windows Portable Packager (v${packageVersion}) ---`);
 
   // Candidate executable paths
   const candidateExePaths = [
@@ -41,7 +69,8 @@ async function main() {
   }
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const stagingDir = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64');
+  const stagingName = `Gedankenfaden-v${packageVersion}-windows-x64`;
+  const stagingDir = path.resolve(outputDir, stagingName);
   fs.mkdirSync(stagingDir, { recursive: true });
 
   // 1. Copy executable
@@ -53,7 +82,7 @@ async function main() {
 Gedankenfaden - Local-First Visual Thinking Desktop
 ======================================================================
 
-Version: 1.0.0
+Version: ${displayVersion}${isReleaseCandidate ? ' (RELEASE CANDIDATE -- not a final release)' : ''}
 Architecture: Windows x86_64
 Mode: Standalone Portable (No installation required)
 
@@ -78,7 +107,9 @@ Support & Project Source: https://github.com/Peter-S-Shi/Gedankenfaden--my-free-
   // 3. Write Manifest
   const manifest = {
     name: 'Gedankenfaden',
-    version: '1.0.0',
+    version: packageVersion,
+    displayVersion,
+    releaseChannel: isReleaseCandidate ? 'rc' : 'stable',
     platform: 'windows-x64',
     distributionType: 'portable',
     buildTimestamp: new Date().toISOString(),
@@ -98,14 +129,14 @@ Support & Project Source: https://github.com/Peter-S-Shi/Gedankenfaden--my-free-
   console.log('Compressing standalone portable zip archive...');
   const zipData = {};
   const exeBuffer = fs.readFileSync(destExe);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/gedankenfaden.exe'] = new Uint8Array(exeBuffer);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/README.txt'] = fflate.strToU8(readmeText);
-  zipData['Gedankenfaden-v1.0.0-windows-x64/manifest.json'] = fflate.strToU8(
+  zipData[`${stagingName}/gedankenfaden.exe`] = new Uint8Array(exeBuffer);
+  zipData[`${stagingName}/README.txt`] = fflate.strToU8(readmeText);
+  zipData[`${stagingName}/manifest.json`] = fflate.strToU8(
     JSON.stringify(manifest, null, 2)
   );
 
   const zipped = fflate.zipSync(zipData, { level: 6 });
-  const zipPath = path.resolve(outputDir, 'Gedankenfaden-v1.0.0-windows-x64-portable.zip');
+  const zipPath = path.resolve(outputDir, `${stagingName}-portable.zip`);
   fs.writeFileSync(zipPath, zipped);
 
   const zipStats = fs.statSync(zipPath);
