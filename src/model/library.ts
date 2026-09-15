@@ -324,7 +324,32 @@ export async function scanDirectoryForImportableOutlines(
 }
 
 /**
- * Synchronizes fast library cache against multiple scanned directories
+ * True when `filePath` lives under one of `scanDirs` (normalized to forward
+ * slashes, trailing-slash-insensitive).
+ */
+function isUnderScanDirs(filePath: string, scanDirs: string[]): boolean {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  return scanDirs.some((dir) => {
+    const normalizedDir = dir.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`);
+  });
+}
+
+/**
+ * Synchronizes fast library cache against multiple scanned directories.
+ *
+ * The persisted cache (%APPDATA%\Gedankenfaden\library.json) is a single
+ * file shared across every folder the user has ever pointed the Active
+ * Library Folder at, but each call here represents the currently active
+ * root(s) only. Seeding the merge from the *entire* cache and pruning
+ * solely by "file still exists on disk" let a previous root's entries
+ * survive forever and leak into the next: switching Folder A -> Folder B
+ * would show B's documents mixed with A's stale ones (since A's files are
+ * still physically present, just no longer the active root), and switching
+ * back to A would then also carry B's. Restricting the seed to entries
+ * already under one of `scanDirs` keeps the merge (and therefore what gets
+ * persisted back to disk) scoped to the active root(s), matching what
+ * "Active Library Folder" means to the user.
  */
 export async function syncLibraryWithDisk(
   scanDirs: string[],
@@ -334,7 +359,9 @@ export async function syncLibraryWithDisk(
   const entryMap = new Map<string, LibraryEntry>();
 
   for (const entry of existingEntries) {
-    entryMap.set(entry.filePath, entry);
+    if (isUnderScanDirs(entry.filePath, scanDirs)) {
+      entryMap.set(entry.filePath, entry);
+    }
   }
 
   for (const dir of scanDirs) {
