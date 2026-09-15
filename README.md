@@ -9,11 +9,15 @@ A free, local-first Windows desktop workspace for building mind maps and flowcha
 
 ### Library
 
-![Gedankenfaden local document library showing mind-map and flowchart files](assets/readme/gedankenfaden-library.png)
+![Gedankenfaden local document library showing mind-map and flowchart files](assets/v2pp/pp07.png)
 
-### Canvas
+### Mind Map
 
-![Gedankenfaden flowchart canvas showing grouped nodes, routed connections, an outline, inspector, and minimap](assets/readme/gedankenfaden-flowchart.jpg)
+![Gedankenfaden mind map canvas showing a balanced layout, outline, and inspector with node styling controls](assets/v2pp/PP01.png)
+
+### Flowchart
+
+![Gedankenfaden flowchart canvas showing grouped nodes, routed connections, an outline, and inspector](assets/v2pp/pp05.png)
 
 Gedankenfaden gives developers, researchers, technical writers, and systems thinkers one private canvas for hierarchical ideas and cyclic processes. The same canonical graph model powers both views, while files remain portable and user-owned.
 
@@ -60,14 +64,14 @@ For deeper inspection, see the [product contract](PRODUCT_SPEC.md), [architectur
 
 ## Download and run
 
-Gedankenfaden v1.0.0 is available from [GitHub Releases](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases/latest):
+Gedankenfaden v2.0.0 is available from [GitHub Releases](https://github.com/Peter-S-Shi/Gedankenfaden--my-free-mindflow/releases/latest):
 
 - **NSIS installer** — conventional setup with Start Menu and desktop integration.
 - **MSI package** — Windows Installer package with `.mflow` file association.
 - **Portable ZIP** — extract and run `gedankenfaden.exe`; no installation required.
 - **SHA-256 checksums** — supplied alongside the binaries.
 
-The Windows binaries are currently unsigned, so Windows may show an unknown-publisher warning. The project does not target macOS, Linux, mobile, or a hosted web service in v1.
+The Windows binaries are currently unsigned, so Windows may show an unknown-publisher warning. The project does not target macOS, Linux, mobile, or a hosted web service in v2.
 
 ## Run from source
 
@@ -77,14 +81,14 @@ Prerequisites: Node.js 20.19 or newer, npm 10 or newer, and a stable Rust Window
 npm install
 npm test
 npm run build
-npx tauri build --no-bundle
+npx tauri dev
 ```
 
-Launch the compiled native application with `start-gedankenfaden-rc.cmd`. For browser-only frontend development, use `start-gedankenfaden.cmd`.
+`npx tauri dev` launches the native desktop shell against the local frontend. To produce a full release bundle (NSIS installer, MSI package, and the release binary) instead, use `npx tauri build`.
 
-## Intentional v1 boundaries
+## Intentional v2 boundaries
 
-Gedankenfaden is a single-user Windows authoring tool. Version 1 does not include cloud sync, collaboration, accounts, AI map generation, mobile clients, presentation mode, a template marketplace, or social plugins.
+Gedankenfaden is a single-user Windows authoring tool. Version 2 does not include cloud sync, collaboration, accounts, AI map generation, mobile clients, presentation mode, a template marketplace, or social plugins.
 
 ## License
 
